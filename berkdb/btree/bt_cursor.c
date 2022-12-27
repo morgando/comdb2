@@ -1841,10 +1841,11 @@ __bam_c_del(dbc)
 	}
 
 	/* Log the change. */
-    DB_LSN prevprev_pagelsn = PREVLSN(cp->page);
+    DB_LSN new_prevprev_lsn = PREVLSN(cp->page);
+    DB_LSN new_prevlsn = LSN(cp->page);
 	if (DBC_LOGGING(dbc)) {
 		if ((ret = __bam_cdel_log(dbp, dbc->txn, &LSN(cp->page), 0,
-		    PGNO(cp->page), &LSN(cp->page), cp->indx, &prevprev_pagelsn)) != 0)
+		    PGNO(cp->page), &LSN(cp->page), cp->indx, &new_prevprev_lsn)) != 0)
 			goto err;
 	} else
 		LSN_NOT_LOGGED(LSN(cp->page));
@@ -1855,7 +1856,8 @@ __bam_c_del(dbc)
 	else
 		B_DSET(GET_BKEYDATA(dbp, cp->page, cp->indx));
 
-    PREVLSN(cp->page) = prevprev_pagelsn;
+    PREVLSN(cp->page) = new_prevlsn;
+    printf("Deleting an item on page. Prevprevpagelsn = %u %u ; prevlsn = %u %u ; newlsn = %u %u\n", new_prevprev_lsn.file, new_prevprev_lsn.offset, PREVLSN(cp->page).file, PREVLSN(cp->page).offset, LSN(cp->page).file, LSN(cp->page).offset);
 
 	/* Mark the page dirty. */
 	ret = __memp_fset(mpf, cp->page, DB_MPOOL_DIRTY);

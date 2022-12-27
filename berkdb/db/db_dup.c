@@ -195,7 +195,6 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 	int ret;
 	u_int8_t *p;
 
-    DB_LSN prevprev_pagelsn;
 	dbp = dbc->dbp;
 
 	/* If there is an active Lua trigger/consumer, wake it up. */
@@ -204,7 +203,8 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 		Pthread_cond_signal(&t->cond);
 	}
 
-    prevprev_pagelsn = PREVLSN(pagep);
+    DB_LSN new_prevprev_lsn = PREVLSN(pagep);
+    DB_LSN new_prev_lsn = LSN(pagep);
 
 	/*
 	 * Put a single item onto a page.  The logic figuring out where to
@@ -250,7 +250,7 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 
 		ret = __db_addrem_log(dbp, dbc->txn,
 		    &LSN(pagep), 0, DB_ADD_DUP, PGNO(pagep),
-		    (u_int32_t)indx, nbytes, hdr, data, &LSN(pagep), &prevprev_pagelsn);
+		    (u_int32_t)indx, nbytes, hdr, data, &LSN(pagep), &new_prevprev_lsn);
 
 		if (binternal_swap) {
 			M_16_SWAP(bi->len);
@@ -267,6 +267,9 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 	} else {
 		LSN_NOT_LOGGED(LSN(pagep));
 	}
+
+    PREVLSN(pagep) = new_prev_lsn;
+    printf("Inserting an item on page. Prevprevpagelsn = %u %u ; prevlsn = %u %u ; newlsn = %u %u\n", new_prevprev_lsn.file, new_prevprev_lsn.offset, PREVLSN(pagep).file, PREVLSN(pagep).offset, LSN(pagep).file, LSN(pagep).offset);
 
 	DBT tdata;		/* temp-dbt to hold compressed data */
 	DBT hdata;		/* temp-dbt to hold hdr data */

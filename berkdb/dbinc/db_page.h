@@ -264,15 +264,22 @@ typedef struct _db_page {
 #define	MAXBTREELEVEL	255
 	u_int8_t  level;	/*    24: Btree tree level. */
 	u_int8_t  type;		/*    25: Page type. */
+
+    // alignment
+    u_int8_t unused1;
+    u_int8_t unused2;
+    DB_LSN prevlsn;
+    u_int64_t txnid; // TODO
+    u_int64_t prev_txnid;
 } PAGE;
 
 /*
  * With many compilers sizeof(PAGE) == 28, while SIZEOF_PAGE == 26.
  * We add in other things directly after the page header and need
  * the SIZEOF_PAGE.  When giving the sizeof(), many compilers will
- * pad it out to the next 4-byte boundary.
+ * pad it out to the next 4-byte boundary. TODO
  */
-#define	SIZEOF_PAGE	26
+#define	SIZEOF_PAGE     56
 /*
  * !!!
  * DB_AM_ENCRYPT always implies DB_AM_CHKSUM so that must come first.
@@ -320,6 +327,7 @@ typedef struct _db_page {
 #define IS_CRC32C(p)	(((PAGE *)p)->type & CRC32C_MASK)
 #define SET_CRC32C(p)	(((PAGE *)p)->type |= CRC32C_MASK)
 #define CLR_CRC32C(p)	(((PAGE *)p)->type &= ~CRC32C_MASK)
+#define PREVLSN(p)      (((PAGE *)p)->prevlsn)
 
 /************************************************************************
  QUEUE MAIN PAGE LAYOUT

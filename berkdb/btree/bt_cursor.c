@@ -1841,9 +1841,10 @@ __bam_c_del(dbc)
 	}
 
 	/* Log the change. */
+    DB_LSN prevprev_pagelsn = PREVLSN(cp->page);
 	if (DBC_LOGGING(dbc)) {
 		if ((ret = __bam_cdel_log(dbp, dbc->txn, &LSN(cp->page), 0,
-		    PGNO(cp->page), &LSN(cp->page), cp->indx)) != 0)
+		    PGNO(cp->page), &LSN(cp->page), cp->indx, &prevprev_pagelsn)) != 0)
 			goto err;
 	} else
 		LSN_NOT_LOGGED(LSN(cp->page));
@@ -1853,6 +1854,8 @@ __bam_c_del(dbc)
 		B_DSET(GET_BKEYDATA(dbp, cp->page, cp->indx + O_INDX));
 	else
 		B_DSET(GET_BKEYDATA(dbp, cp->page, cp->indx));
+
+    PREVLSN(cp->page) = prevprev_pagelsn;
 
 	/* Mark the page dirty. */
 	ret = __memp_fset(mpf, cp->page, DB_MPOOL_DIRTY);

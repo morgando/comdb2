@@ -605,6 +605,7 @@ __bam_ritem(dbc, h, indx, data)
 	bk = GET_BKEYDATA(dbp, h, indx);
 
 	/* Log the change. */
+    DB_LSN prevprev_pagelsn = PREVLSN(h);
 	if (DBC_LOGGING(dbc)) {
 		/*
 		 * We might as well check to see if the two data items share
@@ -631,10 +632,12 @@ __bam_ritem(dbc, h, indx, data)
 		repl.size = data->size - (prefix + suffix);
 		if ((ret = __bam_repl_log(dbp, dbc->txn, &LSN(h), 0, PGNO(h),
 		    &LSN(h), (u_int32_t)indx, (u_int32_t)B_DISSET(bk),
-		    &orig, &repl, (u_int32_t)prefix, (u_int32_t)suffix)) != 0)
+		    &orig, &repl, (u_int32_t)prefix, (u_int32_t)suffix, &prevprev_pagelsn)) != 0)
 			return (ret);
 	} else
 		LSN_NOT_LOGGED(LSN(h));
+
+    PREVLSN(h) = prevprev_pagelsn;
 
 	/*
 	 * Set references to the first in-use byte on the page and the

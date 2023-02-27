@@ -52,8 +52,6 @@ __db_ditem(dbc, pagep, indx, nbytes)
 	db_indx_t cnt, *inp, offset;
 	int ret;
 	u_int8_t *from;
-    DB_LSN prevprev_pagelsn;
-    u_int64_t utxnid, prev_utxnid;
 
 	dbp = dbc->dbp;
 	if (DBC_LOGGING(dbc)) {
@@ -100,10 +98,9 @@ __db_ditem(dbc, pagep, indx, nbytes)
 			ASSIGN_ALIGN(db_indx_t, bklen, bk->len);
 			ldbt.size = BKEYDATA_SIZE_FLUFFLESS(bklen);
 		}
-        prevprev_pagelsn = PREVLSN(pagep);
 		ret = __db_addrem_log(dbp, dbc->txn,
 		    &LSN(pagep), 0, opcode, PGNO(pagep), (u_int32_t)indx,
-		    ldbt.size, &ldbt, NULL, &LSN(pagep), &prevprev_pagelsn);
+		    ldbt.size, &ldbt, NULL, &LSN(pagep));
 
 		if (binternal_swap) {
 			M_16_SWAP(bi->len);
@@ -133,10 +130,6 @@ __db_ditem(dbc, pagep, indx, nbytes)
 			HOFFSET(pagep) = dbp->pgsize;
 		return (0);
 	}
-
-    DB_LSN current_lsn = LSN(pagep);
-    PREVLSN(pagep).file = current_lsn.file;
-    PREVLSN(pagep).offset = current_lsn.offset;
 
 	if (IS_PREFIX(pagep)) {
 		BKEYDATA *bk = GET_BKEYDATA(dbp, pagep, indx);
@@ -203,9 +196,6 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 		Pthread_cond_signal(&t->cond);
 	}
 
-    DB_LSN new_prevprev_lsn = PREVLSN(pagep);
-    DB_LSN new_prev_lsn = LSN(pagep);
-
 	/*
 	 * Put a single item onto a page.  The logic figuring out where to
 	 * insert and whether it fits is handled in the caller.  All we do
@@ -250,7 +240,7 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 
 		ret = __db_addrem_log(dbp, dbc->txn,
 		    &LSN(pagep), 0, DB_ADD_DUP, PGNO(pagep),
-		    (u_int32_t)indx, nbytes, hdr, data, &LSN(pagep), &new_prevprev_lsn);
+		    (u_int32_t)indx, nbytes, hdr, data, &LSN(pagep));
 
 		if (binternal_swap) {
 			M_16_SWAP(bi->len);
@@ -267,9 +257,6 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 	} else {
 		LSN_NOT_LOGGED(LSN(pagep));
 	}
-
-    PREVLSN(pagep) = new_prev_lsn;
-    printf("Inserting an item on page. Prevprevpagelsn = %u %u ; prevlsn = %u %u ; newlsn = %u %u\n", new_prevprev_lsn.file, new_prevprev_lsn.offset, PREVLSN(pagep).file, PREVLSN(pagep).offset, LSN(pagep).file, LSN(pagep).offset);
 
 	DBT tdata;		/* temp-dbt to hold compressed data */
 	DBT hdata;		/* temp-dbt to hold hdr data */
@@ -321,10 +308,6 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 		DB_ASSERT(nbytes <= P_FREESPACE(dbp, pagep));
 		return (EINVAL);
 	}
-
-    DB_LSN current_lsn = LSN(pagep);
-    PREVLSN(pagep).file = current_lsn.file;
-    PREVLSN(pagep).offset = current_lsn.offset;
 
 	inp = P_INP(dbp, pagep);
 

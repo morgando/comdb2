@@ -459,8 +459,6 @@ __db_byteswap(dbenv, dbp, pg, h, pagesize, pgin)
 		M_32_SWAP(h->next_pgno);
 		M_16_SWAP(h->entries);
 		M_16_SWAP(h->hf_offset);
-        M_32_SWAP(h->prevlsn.file);
-        M_32_SWAP(h->prevlsn.offset);
 		if (IS_PREFIX(h)) {
 			if (pagesize < dbp->pgsize) {
 				// don't have the prefix payload
@@ -662,8 +660,6 @@ out:	if (!pgin) {
 		M_32_SWAP(h->next_pgno);
 		M_16_SWAP(h->entries);
 		M_16_SWAP(h->hf_offset);
-        M_32_SWAP(h->prevlsn.file);
-        M_32_SWAP(h->prevlsn.offset);
 	}
 
 	if (gbl_dump_after_byteswap)

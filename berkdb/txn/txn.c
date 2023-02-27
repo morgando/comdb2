@@ -92,8 +92,6 @@ int bdb_is_open(void *bdb_state);
 int comdb2_time_epoch(void);
 void ctrace(char *format, ...);
 
-int __mempro_add_txn(DB_ENV *dbenv, u_int64_t txnid, DB_LSN commit_lsn);
-
 extern int gbl_is_physical_replicant;
 
 #define BDB_WRITELOCK(idstr)	bdb_get_writelock(bdb_state, (idstr), __func__, __LINE__)

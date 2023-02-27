@@ -836,7 +836,7 @@ struct dbenv {
     /*sibling info*/
     int nsiblings;
     char *sibling_hostname[REPMAX];
-    short sibling_port[REPMAX][NET_MAX];
+    unsigned short sibling_port[REPMAX][NET_MAX];
     int listen_fds[NET_MAX];
     /* banckend db engine handle for replication */
     void *handle_sibling;
@@ -2038,6 +2038,7 @@ void tran_dump(struct long_trn_stat *tstats);
 /* transactional stuff */
 int trans_start(struct ireq *, tran_type *parent, tran_type **out);
 int trans_start_sc(struct ireq *, tran_type *parent, tran_type **out);
+int trans_start_sc_fop(struct ireq *, tran_type **out);
 int trans_start_sc_lowpri(struct ireq *, tran_type **out);
 int trans_start_set_retries(struct ireq *, tran_type *parent, tran_type **out,
                             uint32_t retries, uint32_t priority);

@@ -74,6 +74,7 @@
 
 #include <sqlresponse.pb-c.h>
 #include <sqlite3expert.h>
+#include <carray.h>
 
 #include <alloca.h>
 #include <fsnapf.h>
@@ -199,8 +200,6 @@ static int test_no_btcursors(struct sqlthdstate *thd);
 static void sql_thread_describe(void *obj, FILE *out);
 static char *get_query_cost_as_string(struct sql_thread *thd,
                                       struct sqlclntstate *clnt);
-extern int sqlite3_carray_bind(sqlite3_stmt *pStmt, int idx, void *aData,
-                               int nData, int mFlags, void (*xDestroy)(void*));
 
 void handle_sql_intrans_unrecoverable_error(struct sqlclntstate *clnt);
 
@@ -400,34 +399,54 @@ int column_count(struct sqlclntstate *clnt, sqlite3_stmt *stmt)
     return sqlite3_column_count(stmt);
 }
 
-int validate_columns(struct sqlclntstate *clnt, sqlite3_stmt *stmt)
+int column_type(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
 {
-    int ncols = column_count(clnt, stmt), rc = 0;
-    if (!sqlite3_can_get_column_type_and_data(clnt, stmt))
-        return 0;
-    for (int i = 0; i < ncols; ++i) {
-        int type = column_type(clnt, stmt, i);
-        if (type == (int)SQLITE_NEXTSEQ)
-            rc = -1;
-    }
-    return rc;
+    if (clnt && clnt->plugin.column_type)
+        return clnt->plugin.column_type(clnt, stmt, iCol);               \
+    return sqlite3_column_type(stmt, iCol);                              \
 }
 
-#define FUNC_COLUMN_TYPE(ret, type)                                            \
-    ret column_##type(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol) \
-    {                                                                          \
-        if (clnt && clnt->plugin.column_##type)                                \
-            return clnt->plugin.column_##type(clnt, stmt, iCol);               \
-        return sqlite3_column_##type(stmt, iCol);                              \
-    }
+sqlite_int64 column_int64(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
+{
+    if (clnt && clnt->plugin.column_int64) return clnt->plugin.column_int64(clnt, stmt, iCol);
+    return sqlite3_column_int64(stmt, iCol);
+}
 
-FUNC_COLUMN_TYPE(int, type)
-FUNC_COLUMN_TYPE(sqlite_int64, int64)
-FUNC_COLUMN_TYPE(double, double)
-FUNC_COLUMN_TYPE(const unsigned char *, text)
-FUNC_COLUMN_TYPE(int, bytes)
-FUNC_COLUMN_TYPE(const void *, blob)
-FUNC_COLUMN_TYPE(const dttz_t *, datetime)
+double column_double(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
+{
+    if (clnt && clnt->plugin.column_double) return clnt->plugin.column_double(clnt, stmt, iCol);
+    return sqlite3_column_double(stmt, iCol);
+}
+
+const unsigned char *column_text(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
+{
+    if (clnt && clnt->plugin.column_text) return clnt->plugin.column_text(clnt, stmt, iCol);
+    return sqlite3_column_text(stmt, iCol);
+}
+
+int column_bytes(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
+{
+    if (clnt && clnt->plugin.column_bytes) return clnt->plugin.column_bytes(clnt, stmt, iCol);
+    return sqlite3_column_bytes(stmt, iCol);
+}
+
+const void *column_blob(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
+{
+    if (clnt && clnt->plugin.column_blob) return clnt->plugin.column_blob(clnt, stmt, iCol);
+    return sqlite3_column_blob(stmt, iCol);
+}
+
+const dttz_t *column_datetime(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol)
+{
+    if (clnt && clnt->plugin.column_datetime) return clnt->plugin.column_datetime(clnt, stmt, iCol);
+    return sqlite3_column_datetime(stmt, iCol);
+}
+
+const intv_t *column_interval(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int iCol, int type)
+{
+    if (clnt && clnt->plugin.column_interval) return clnt->plugin.column_interval(clnt, stmt, iCol, type);
+    return sqlite3_column_interval(stmt, iCol, type);
+}
 
 int sqlite_stmt_error(sqlite3_stmt *stmt, const char **errstr)
 {
@@ -450,14 +469,6 @@ int sqlite_error(struct sqlclntstate *clnt, sqlite3_stmt *stmt,
         return clnt->plugin.sqlite_error(clnt, stmt, errstr);
 
     return sqlite_stmt_error(stmt, errstr);
-}
-
-const intv_t *column_interval(struct sqlclntstate *clnt, sqlite3_stmt *stmt,
-                              int iCol, int type)
-{
-    if (clnt && clnt->plugin.column_interval)
-        return clnt->plugin.column_interval(clnt, stmt, iCol, type);
-    return sqlite3_column_interval(stmt, iCol, type);
 }
 
 int next_row(struct sqlclntstate *clnt, sqlite3_stmt *stmt)
@@ -902,33 +913,72 @@ int sqlite3_maybe_step(
   return clnt->step_rc;
 }
 
-int sqlite3_can_get_column_type_and_data(
-  struct sqlclntstate *clnt,
-  sqlite3_stmt *stmt
-){
-  if( !sqlite3_is_prepare_only(clnt) ){
-    /*
-    ** When the client is not in 'prepare only' mode, the result set
-    ** should always be available (i.e. anytime after sqlite3_step()
-    ** is called).  The column type / data should be available -IF-
-    ** this is not a write transaction.  An assert is used here to
-    ** verify this invariant.
-    */
-    assert( clnt->step_rc!=SQLITE_ROW || sqlite3_hasResultSet(stmt) );
-    return 1;
-  }
-  if( sqlite3_hasResultSet(stmt) ){
-    /*
-    ** If the result set is available for the prepared statement, e.g.
-    ** due to sqlite3_step() having been called, it can always be used
-    ** to query the column type and data.  It shouldn't be possible to
-    ** reach this point in 'prepare only' mode; therefore, assert this
-    ** invariant here.
-    */
-    assert( !sqlite3_is_prepare_only(clnt) );
-    return 1;
-  }
-  return 0;
+int sqlite3_can_get_column_type_and_data(struct sqlclntstate *clnt,
+                                         sqlite3_stmt *stmt)
+{
+    if (!sqlite3_is_prepare_only(clnt)) {
+        /*
+        ** When the client is not in 'prepare only' mode, the result set
+        ** should always be available (i.e. anytime after sqlite3_step()
+        ** is called).  The column type / data should be available -IF-
+        ** this is not a write transaction.  An assert is used here to
+        ** verify this invariant.
+        */
+        assert(clnt->step_rc != SQLITE_ROW || sqlite3_hasResultSet(stmt));
+        return 1;
+    }
+    if (sqlite3_hasResultSet(stmt)) {
+        /*
+        ** If the result set is available for the prepared statement, e.g.
+        ** due to sqlite3_step() having been called, it can always be used
+        ** to query the column type and data.  It shouldn't be possible to
+        ** reach this point in 'prepare only' mode; therefore, assert this
+        ** invariant here.
+        */
+        assert(!sqlite3_is_prepare_only(clnt));
+        return 1;
+    }
+    return 0;
+}
+
+int validate_columns(struct sqlclntstate *clnt, sqlite3_stmt *stmt)
+{
+    int ncols = column_count(clnt, stmt), type;
+    if (!sqlite3_can_get_column_type_and_data(clnt, stmt))
+        return 0;
+    for (int i = 0; i < ncols; ++i) {
+        type = column_type(clnt, stmt, i);
+        if (type == (int)SQLITE_NEXTSEQ)
+            return -1;
+    }
+    return 0;
+}
+
+int get_sqlite3_column_type(struct sqlclntstate *clnt, sqlite3_stmt *stmt,
+                            int col, int skip_decltype)
+{
+    int type = SQLITE_NULL;
+
+    if (sqlite3_can_get_column_type_and_data(clnt, stmt)) {
+        type = column_type(clnt, stmt, col);
+        if (type == SQLITE_NULL && !skip_decltype) {
+            type = typestr_to_type(sqlite3_column_decltype(stmt, col));
+        }
+        if (type == SQLITE_DECIMAL) {
+            type = SQLITE_TEXT;
+        }
+    }
+    return type;
+}
+
+int is_column_type_null(struct sqlclntstate *clnt, sqlite3_stmt *stmt, int col)
+{
+    if (!clnt->fdb_push) {
+        return get_sqlite3_column_type(clnt, stmt, col, 1) == SQLITE_NULL ||
+               column_type(clnt, stmt, col) == SQLITE_NULL;
+    }
+
+    return column_type(clnt, stmt, col) == SQLITE_NULL;
 }
 
 pthread_mutex_t open_serial_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -3201,27 +3251,24 @@ static int bind_parameters(struct reqlogger *logger, sqlite3_stmt *stmt,
         if (p.arraylen) {
             int flag;
             switch (p.type) {
+            case CLIENT_REAL: flag = CARRAY_DOUBLE; break;
+            case CLIENT_CSTR: /* fall-through */
+            case CLIENT_VUTF8: flag = CARRAY_TEXT; break;
+            case CLIENT_BLOB: flag = CARRAY_BLOB; break;
             case CLIENT_INT:
-            case CLIENT_UINT:
-                //we dont have 32bit int type 
-                if (p.len == sizeof(int32_t))
-                    flag = 0; /* CARRAY_INT32; */
-                else if (p.len == sizeof(int64_t))
-                    flag = 1; /* CARRAY_INT64; */ 
-                else 
-                    flag = -1;
+            if (p.len == sizeof(int32_t)) {
+                flag = CARRAY_INT32;
                 break;
-            case CLIENT_REAL:
-                flag = 2; /* CARRAY_DOUBLE; */ break;
-            case CLIENT_CSTR:
-            case CLIENT_VUTF8:
-                flag = 3; /* CARRAY_TEXT; */ break;
-            default:
-                logmsg(LOGMSG_ERROR, "Unsupported type %d for carray_bind\n", p.type);
-                rc = -1;
-                return rc;
             }
-
+            if (p.len == sizeof(int64_t)) {
+                flag = CARRAY_INT64;
+                break;
+            }
+            /* fall-through */
+            default:
+                logmsg(LOGMSG_ERROR, "carray_bind: invalid type:%d size:%d\n", p.type, p.len);
+                return -1;
+            }
             rc = sqlite3_carray_bind(stmt, p.pos, p.u.p, p.arraylen, flag, SQLITE_STATIC);
             continue;
         }
@@ -3498,8 +3545,8 @@ static int send_columns(struct sqlclntstate *clnt, struct sqlite3_stmt *stmt)
     return write_response(clnt, RESPONSE_COLUMNS, stmt, 0);
 }
 
-static int send_row(struct sqlclntstate *clnt, struct sqlite3_stmt *stmt,
-                    uint64_t row_id, int postpone, struct errstat *err)
+int send_row(struct sqlclntstate *clnt, struct sqlite3_stmt *stmt,
+             uint64_t row_id, int postpone, struct errstat *err)
 {
     if (skip_row(clnt, row_id))
         return 0;
@@ -3884,6 +3931,10 @@ int handle_sqlite_requests(struct sqlthdstate *thd, struct sqlclntstate *clnt)
             rec.sql = (const char *)allocd_str;
             continue;
         }
+        if (rc == SQLITE_SCHEMA_PUSH_REMOTE) {
+            rc = handle_fdb_push(clnt, &err);
+            goto done;
+        }
 
         if (rc) {
             int irc = errstat_get_rc(&err);
@@ -3930,6 +3981,7 @@ int handle_sqlite_requests(struct sqlthdstate *thd, struct sqlclntstate *clnt)
     /* set these after sending response so client gets results a bit sooner */
     post_run_reqlog(thd, clnt, &rec);
 
+done:
     sqlite_done(thd, clnt, &rec, rc);
 
     if (allocd_str)
@@ -5318,6 +5370,8 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
     clnt->rowbuffer = 1;
     clnt->flat_col_vals = 0;
     clnt->request_fp = 0;
+    free(clnt->prev_cost_string);
+    clnt->prev_cost_string = NULL;
 
     if (gbl_sockbplog) {
         init_bplog_socket(clnt);
@@ -6982,6 +7036,26 @@ void update_col_info(struct sql_col_info *info, int ncols)
     info->count = ncols;
 }
 
+void clnt_plugin_reset(struct sqlclntstate *clnt)
+{
+    struct plugin_callbacks *backup = &clnt->backup;
+
+    clnt->plugin.column_count = backup->column_count;
+    clnt->plugin.next_row = backup->next_row;
+    clnt->plugin.column_type = backup->column_type;
+    clnt->plugin.column_int64 = backup->column_int64;
+    clnt->plugin.column_double = backup->column_double;
+    clnt->plugin.column_text = backup->column_text;
+    clnt->plugin.column_bytes = backup->column_bytes;
+    clnt->plugin.column_blob = backup->column_blob;
+    clnt->plugin.column_datetime = backup->column_datetime;
+    clnt->plugin.column_interval = backup->column_interval;
+    clnt->plugin.sqlite_error = backup->sqlite_error;
+    clnt->plugin.param_count = backup->param_count;
+    clnt->plugin.param_value = backup->param_value;
+    clnt->plugin.param_index = backup->param_index;
+}
+
 void exhausted_appsock_connections(struct sqlclntstate *clnt)
 {
     write_response(clnt, RESPONSE_ERROR, "Exhausted appsock connections.", CDB2__ERROR_CODE__APPSOCK_LIMIT);
@@ -7011,4 +7085,12 @@ int64_t comdb2_last_stmt_cost(void) {
       return -1;
 
    return thd->clnt ? thd->clnt->last_cost : -1;
+}
+
+char *clnt_tzname(struct sqlclntstate *clnt, sqlite3_stmt *stmt)
+{
+    if (clnt->plugin.tzname)
+        return clnt->plugin.tzname(clnt, stmt);
+
+    return stmt_tzname(stmt);
 }

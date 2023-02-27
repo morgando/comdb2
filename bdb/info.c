@@ -119,6 +119,7 @@ static void txn_stats(FILE *out, bdb_state_type *bdb_state)
     bdb_state->dbenv->txn_stat(bdb_state->dbenv, &stats, 0);
 
     logmsgf(LOGMSG_USER, out, "st_last_ckp: %s\n", lsn_to_str(str, &(stats->st_last_ckp)));
+    logmsgf(LOGMSG_USER, out, "st_ckp_lsn: %s\n", lsn_to_str(str, &(stats->st_ckp_lsn)));
     prn_stat(st_time_ckp);
     prn_stat(st_last_txnid);
     prn_stat(st_maxtxns);
@@ -2268,6 +2269,9 @@ int bdb_fill_cluster_info(void **data, int *num_nodes) {
         info[i].coherent_state = bdb_coherent_state_string(nodes[i].host);
         if (info[i].coherent_state[0] == 0)
             info[i].coherent_state = "coherent";
+        DB_LSN *lsnp = &bdb_state->seqnum_info->seqnums[nodeix(nodes[i].host)].lsn;
+        info[i].logfile = lsnp->file;
+        info[i].logoffset = lsnp->offset;
     }
     *data = info;
     return 0;

@@ -179,6 +179,9 @@ static int syncmode_callback(bdb_state_type *bdb_state);
 /* How many times we became, or ceased to be, master node. */
 int gbl_master_changes = 0;
 
+/* Dont block when removing old files */
+int gbl_txn_fop_noblock = 0;
+
 static void *get_bdb_handle(struct dbtable *db, int auxdb)
 {
     void *bdb_handle;
@@ -354,8 +357,14 @@ int trans_start_sc(struct ireq *iq, tran_type *parent_trans,
 
 int trans_start_sc_lowpri(struct ireq *iq, tran_type **out_trans)
 {
-    struct txn_properties p = { .flags = DB_LOCK_ID_LOWPRI };
+    struct txn_properties p = {.flags = DB_LOCK_ID_LOWPRI};
     return trans_start_int(iq, NULL, out_trans, 0, 0, &p, 0);
+}
+
+int trans_start_sc_fop(struct ireq *iq, tran_type **out_trans)
+{
+    struct txn_properties p = {.flags = DB_TXN_FOP_NOBLOCK};
+    return trans_start_int(iq, NULL, out_trans, 0, 0, gbl_txn_fop_noblock ? &p : NULL, 0);
 }
 
 int trans_start_set_retries(struct ireq *iq, tran_type *parent_trans,
@@ -5436,10 +5445,19 @@ int dbq_walk(struct ireq *iq, int flags, dbq_walk_callback_t callback,
     void *bdb_handle;
     int retries = 0;
     int rc;
+    int created_tran = 0;
     bbuint32_t lastitem = 0;
     bdb_handle = get_bdb_handle_ireq(iq, AUXDB_NONE);
     if (!bdb_handle)
         return ERR_NO_AUXDB;
+
+    if (tran == NULL) {
+        // int trans_start(struct ireq *iq, tran_type *parent_trans, tran_type **out_trans)
+        rc = trans_start(iq, NULL, &tran);;
+        if (rc)
+            goto done;
+        created_tran = 1;
+    }
 
     flags &= ~BDB_QUEUE_WALK_RESTART;
 
@@ -5448,6 +5466,7 @@ retry:
     rc = bdb_queue_walk(bdb_handle, flags, &lastitem,
                         (bdb_queue_walk_callback_t)callback, tran, userptr,
                         &bdberr);
+done:
     iq->gluewhere = "bdb_queue_walk done";
     if (rc != 0) {
         if (bdberr == BDBERR_DEADLOCK) {
@@ -5464,6 +5483,9 @@ retry:
             return IX_NOTFND;
         }
         return map_unhandled_bdb_rcode("bdb_queue_walk", bdberr, 0);
+    }
+    if (created_tran && tran != NULL) {
+        trans_abort(iq, tran);
     }
     return rc;
 }
@@ -5546,16 +5568,12 @@ uint64_t calc_table_size(struct dbtable *db, int skip_blobs)
     return calc_table_size_tran(NULL, db, skip_blobs);
 }
 
-void compr_print_stats()
-{
+void compr_print_stats_int(struct dbtable **dbs, int num_dbs){
     int ii;
     int odh, compr, blob_compr;
 
-    logmsg(LOGMSG_USER, "COMPRESSION FLAGS\n");
-    logmsg(LOGMSG_USER, "These apply to new records only!\n");
-
-    for (ii = 0; ii < thedb->num_dbs; ii++) {
-        struct dbtable *db = thedb->dbs[ii];
+    for (ii = 0; ii < num_dbs; ii++) {
+        struct dbtable *db = dbs[ii];
         bdb_get_compr_flags(db->handle, &odh, &compr, &blob_compr);
 
         logmsg(LOGMSG_USER, "[%-16s] ", db->tablename);
@@ -5566,6 +5584,22 @@ void compr_print_stats()
                db->instant_schema_change ? "yes" : "no");
 
         logmsg(LOGMSG_USER, "\n");
+    }
+}
+void compr_print_stats()
+{
+    if (thedb->num_dbs == 0 && thedb->num_qdbs == 0) {
+        return;
+    }
+    logmsg(LOGMSG_USER, "COMPRESSION FLAGS\n");
+    logmsg(LOGMSG_USER, "These apply to new records only!\n");
+
+    if (thedb->num_dbs) {
+        compr_print_stats_int(thedb->dbs, thedb->num_dbs);
+    }
+
+    if (thedb->num_qdbs) {
+        compr_print_stats_int(thedb->qdbs, thedb->num_qdbs);
     }
 }
 
@@ -5690,7 +5724,7 @@ long long get_unique_longlong(struct dbenv *env)
     if (gbl_use_fastseed_for_comdb2_seqno) {
         uint64_t uid;
 
-        uid = comdb2fastseed();
+        uid = comdb2fastseed(3);
         uid = flibc_htonll(uid);
         memcpy(&id, &uid, sizeof(uid));
     } else {

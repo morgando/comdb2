@@ -63,6 +63,7 @@ extern int gbl_expressions_indexes;
 int gbl_fdb_track = 0;
 int gbl_fdb_track_times = 0;
 int gbl_test_io_errors = 0;
+int gbl_fdb_push_remote = 1;
 
 struct fdb_tbl;
 struct fdb;
@@ -2389,7 +2390,7 @@ static fdb_cursor_if_t *_fdb_cursor_open_remote(struct sqlclntstate *clnt,
         comdb2uuid(fdbc->ciduuid);
         memcpy(fdbc->tid, tid, sizeof(uuid_t));
     } else {
-        *((unsigned long long *)fdbc->cid) = comdb2fastseed();
+        *((unsigned long long *)fdbc->cid) = comdb2fastseed(1);
         memcpy(fdbc->tid, tid, sizeof(unsigned long long));
     }
     fdbc->flags = flags;
@@ -2754,7 +2755,9 @@ static int fdb_serialize_key(BtCursor *pCur, Mem *key, int nfields)
     u32 type = 0;
     int sz;
     int datasz, hdrsz;
+#ifndef NDEBUG
     int remainingsz;
+#endif
     char *dtabuf;
     char *hdrbuf;
     u32 len;
@@ -2797,14 +2800,18 @@ static int fdb_serialize_key(BtCursor *pCur, Mem *key, int nfields)
     hdrbuf += sz;
 
     /* keep track of the size remaining */
+#ifndef NDEBUG
     remainingsz = datasz;
+#endif
 
     for (fnum = 0; fnum < nfields; fnum++) {
         type =
             sqlite3VdbeSerialType(&key[fnum], SQLITE_DEFAULT_FILE_FORMAT, &len);
         sz = sqlite3VdbeSerialPut((unsigned char *)dtabuf, &key[fnum], type);
         dtabuf += sz;
+#ifndef NDEBUG
         remainingsz -= sz;
+#endif
         sz =
             sqlite3PutVarint((unsigned char *)hdrbuf,
                              sqlite3VdbeSerialType(
@@ -2814,7 +2821,9 @@ static int fdb_serialize_key(BtCursor *pCur, Mem *key, int nfields)
 
     pCur->keybuflen = hdrsz + datasz;
 
+#ifndef NDEBUG
     assert(remainingsz == 0);
+#endif
 
     return FDB_NOERR;
 }
@@ -3758,7 +3767,7 @@ static fdb_tran_t *fdb_trans_dtran_get_subtran(struct sqlclntstate *clnt,
         if (tran->isuuid) {
             comdb2uuid((unsigned char *)tran->tid);
         } else
-            *(unsigned long long *)tran->tid = comdb2fastseed();
+            *(unsigned long long *)tran->tid = comdb2fastseed(2);
 
         tran->fdb = fdb;
 
@@ -3813,8 +3822,7 @@ fdb_tran_t *fdb_trans_begin_or_join(struct sqlclntstate *clnt, fdb_t *fdb,
 {
     fdb_distributed_tran_t *dtran;
     fdb_tran_t *tran;
-    int isuuid = (clnt->osql.rqid == OSQL_RQID_USE_UUID) &&
-                 (fdb->server_version > FDB_VER_WR_NAMES);
+    int isuuid = gbl_noenv_messages && (fdb->server_version > FDB_VER_WR_NAMES);
 
     Pthread_mutex_lock(&clnt->dtran_mtx);
 

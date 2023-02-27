@@ -1552,9 +1552,8 @@ more:
 					goto errlock;
 			} else {
 				fromline = __LINE__;
-				if ((ret = __rep_apply(dbenv, rp, rec, ret_lsnp,
-								commit_gen, 0)) != 0)
-					goto errlock;
+				ret = __rep_apply(dbenv, rp, rec, ret_lsnp,
+								commit_gen, 0);
 			}
 		} else {
 			send_master_req(dbenv, __func__, __LINE__);
@@ -1562,7 +1561,7 @@ more:
 			goto errlock;
 		}
 
-		if (rp->rectype == REP_LOG_MORE && !gbl_decoupled_logputs) {
+		if ((ret == 0 || ret == DB_REP_ISPERM) && rp->rectype == REP_LOG_MORE && !gbl_decoupled_logputs) {
 			MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 			master = rep->master_id;
 			MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
@@ -1593,8 +1592,8 @@ more:
 				logmsg(LOGMSG_USER, "%s line %d continuing REP_ALL_REQ lsn "
 						"%d:%d\n", __func__, __LINE__, lsn.file, lsn.offset);
 			}
+		    fromline = __LINE__;
 		}
-		fromline = __LINE__;
 		goto errlock;
 
 	case REP_LOG_REQ:
@@ -1958,31 +1957,6 @@ more:
 			if (dbenv->newest_rep_verify_tran_time == 0) {
 				dbenv->newest_rep_verify_tran_time = t;
 				dbenv->rep_verify_start_lsn = rp->lsn;
-			}
-
-			if (dbenv->newest_rep_verify_tran_time &&
-				dbenv->attr.max_backout_seconds &&
-				(dbenv->newest_rep_verify_tran_time - timestamp >
-				dbenv->attr.max_backout_seconds)) {
-				ctime_r(&dbenv->newest_rep_verify_tran_time,
-					start_time);
-				ctime_r(&t, my_time);
-				__db_err(dbenv,
-					"Rolled back too far at %u:%u:\n   started at %s   now at %s",
-					rp->lsn.file, rp->lsn.offset, start_time,
-					my_time);
-				ret = EINVAL;
-				goto rep_verify_err;
-			}
-			if (dbenv->newest_rep_verify_tran_time &&
-				dbenv->attr.max_backout_logs &&
-				((dbenv->rep_verify_start_lsn.file - rp->lsn.file) >
-				dbenv->attr.max_backout_logs)) {
-				__db_err(dbenv,
-					"Rolled back too far at %u:%u, started at %s\n",
-					rp->lsn.file, rp->lsn.offset, start_time);
-				ret = EINVAL;
-				goto rep_verify_err;
 			}
 		}
 		dbenv->rep_verify_current_lsn = rp->lsn;
@@ -7430,7 +7404,7 @@ __truncate_repdb(dbenv)
 		return 0;
 	}
 
-	if (!F_ISSET(rep, REP_ISCLIENT) || !db_rep->rep_db)
+	if ((!F_ISSET(rep, REP_ISCLIENT) && !gbl_is_physical_replicant) || !db_rep->rep_db)
 		return DB_NOTFOUND;
 
 	MUTEX_LOCK(dbenv, db_rep->db_mutexp);

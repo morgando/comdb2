@@ -345,7 +345,6 @@ int gbl_debug_omit_blob_write;
 int gbl_debug_omit_zap_on_rebuild = 0;
 int gbl_debug_txn_sleep = 0;
 int gbl_debug_skip_constraintscheck_on_insert;
-int gbl_debug_print_query_plans = 0;
 double gbl_query_plan_percentage = 50;
 int gbl_readonly = 0;
 int gbl_init_single_meta = 1;
@@ -1340,7 +1339,7 @@ static void *purge_old_files_thread(void *arg)
         /* ok, get to work now */
         retries = 0;
     retry:
-        rc = trans_start_sc(&iq, NULL, &trans);
+        rc = trans_start_sc_fop(&iq, &trans);
         if (rc != 0) {
             logmsg(LOGMSG_ERROR, "%s: failed to create transaction\n", __func__);
             sleep_with_check_for_exiting(empty_pause);
@@ -1649,6 +1648,8 @@ static void begin_clean_exit(void)
  */
 void clean_exit(void)
 {
+    report_fastseed_users(LOGMSG_ERROR);
+
     if(gbl_perform_full_clean_exit) {
         begin_clean_exit();
         return;

@@ -408,6 +408,7 @@ static void check_sqlite_row(struct newsql_appdata_evbuffer *appdata,
     if (!query || !query->sqlquery)
         return;
 
+    appdata->clnt.sqlite_row_format = 0;
     for (int i = 0; i < query->sqlquery->n_features; ++i) {
         if (CDB2_CLIENT_FEATURES__SQLITE_ROW_FORMAT ==
             query->sqlquery->features[i]) {
@@ -470,6 +471,10 @@ out:
 
 static void process_cdb2query(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *query)
 {
+    if (!query) {
+        newsql_cleanup(appdata);
+        return;
+    }
     CDB2DBINFO *dbinfo = query->dbinfo;
     if (!dbinfo) {
         process_query(appdata, query);
@@ -625,8 +630,9 @@ static int rd_evbuffer_ssl(struct newsql_appdata_evbuffer *appdata)
     case SSL_ERROR_ZERO_RETURN: disable_ssl_evbuffer(appdata); // fallthrough
     case SSL_ERROR_WANT_READ: return 1;
     case SSL_ERROR_SYSCALL:
-        logmsg(LOGMSG_ERROR, "%s:%d SSL_read rc:%d err:%d errno:%d [%s]\n",
-               __func__, __LINE__, rc, err, errno, strerror(errno));
+        if (errno == 0 || errno == ECONNRESET) break;
+        logmsg(LOGMSG_ERROR, "%s:%d SSL_read rc:%d SSL_ERROR_SYSCALL errno:%d [%s]\n",
+               __func__, __LINE__, rc, errno, strerror(errno));
         break;
     default:
         logmsg(LOGMSG_ERROR, "%s:%d SSL_read rc:%d err:%d [%s]\n",

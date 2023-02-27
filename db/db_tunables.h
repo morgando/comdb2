@@ -239,6 +239,14 @@ REGISTER_TUNABLE("disable_replicant_latches", "Disables 'replicant_latches'",
 REGISTER_TUNABLE("disable_rowlock_locking", NULL, TUNABLE_BOOLEAN,
                  &gbl_disable_rowlocks, READONLY | NOARG, NULL, NULL, NULL,
                  NULL);
+REGISTER_TUNABLE("stack_at_lock_get", "Stores stack-id for every lock-get.  (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_stack_at_lock_get, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("stack_at_lock_handle", "Stores stack-id for every lock-handle.  (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_stack_at_lock_handle, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("stack_at_write_lock", "Stores stack-id for every write-lock.  (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_stack_at_write_lock, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("stack_at_lock_gen_increment", "Stores stack-id when lock's generation increments.  (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_stack_at_lock_gen_increment, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("disable_seekscan_optimization",
                  "Disables SEEKSCAN optimization", TUNABLE_BOOLEAN,
                  &gbl_disable_seekscan_optimization, NOARG, NULL, NULL, NULL,
@@ -481,6 +489,8 @@ REGISTER_TUNABLE("foreign_db_allow_cross_class", NULL, TUNABLE_BOOLEAN,
 REGISTER_TUNABLE("foreign_db_resolve_local", NULL, TUNABLE_BOOLEAN,
                  &gbl_fdb_resolve_local, READONLY | NOARG | READEARLY, NULL,
                  NULL, NULL, NULL);
+REGISTER_TUNABLE("foreign_db_push_remote", NULL, TUNABLE_BOOLEAN,
+                 &gbl_fdb_push_remote, NOARG, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("fullrecovery", "Attempt to run database "
                                  "recovery from the beginning of "
                                  "available logs. (Default : off)",
@@ -1320,9 +1330,6 @@ REGISTER_TUNABLE("debug.txn_sleep",
                  "Sleep during a transaction to test transaction state systable", TUNABLE_INTEGER,
                  &gbl_debug_txn_sleep, INTERNAL, NULL, NULL, NULL,
                  NULL);
-REGISTER_TUNABLE("debug.print_query_plans",
-                 "Print query plan hash table every time after running a query. (Default: 0)", TUNABLE_BOOLEAN,
-                 &gbl_debug_print_query_plans, INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE(
     "query_plan_percentage",
     "Alarm if the average cost per row of current query plan is n percent above the cost for different query plan."
@@ -1708,6 +1715,12 @@ REGISTER_TUNABLE("random_get_curtran_failures",
                  "(Default: 0)",
                  TUNABLE_INTEGER, &gbl_random_get_curtran_failures,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("dont_block_delete_files_thread", "Ignore files that would block delete-files thread.  (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_txn_fop_noblock, 0, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("debug_random_fop_block", "Randomly return .  (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_random_block_on_fop, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("random_thdpool_work_timeout",
                  "Force a random thread pool work item timeout 1/this many "
@@ -2197,6 +2210,8 @@ REGISTER_TUNABLE("debug_sleep_in_sql_tick", "Sleep for a second in sql tick.  (D
 REGISTER_TUNABLE("debug_sleep_in_analyze", "Sleep analyze sql tick.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_debug_sleep_in_analyze, INTERNAL | EXPERIMENTAL, NULL, NULL, NULL, NULL);
 
+REGISTER_TUNABLE("debug_sleep_in_summarize", "Sleep analyze summarize.  (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_sleep_in_summarize, INTERNAL | EXPERIMENTAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("debug_consumer_lock",
                  "Enable debug-trace for consumer lock.  "
@@ -2312,4 +2327,6 @@ REGISTER_TUNABLE("seekscan_maxsteps",
                  "Overrides the max number of steps for a seekscan optimization", TUNABLE_INTEGER,
                  &gbl_seekscan_maxsteps, SIGNED, NULL, NULL, NULL,
                  NULL);
+REGISTER_TUNABLE("wal_osync", "Open WAL files using the O_SYNC flag (Default: off)", TUNABLE_BOOLEAN, &gbl_wal_osync, 0,
+                 NULL, NULL, NULL, NULL);
 #endif /* _DB_TUNABLES_H */

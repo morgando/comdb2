@@ -497,6 +497,19 @@ static void check_list_sizes(host_node_type *host_node_ptr)
 }
 #endif
 
+void update_host_net_queue_stats(host_node_type *host_node_ptr, size_t count, size_t bytes) {
+    host_node_ptr->enque_count += count;
+    if (host_node_ptr->enque_count > host_node_ptr->peak_enque_count) {
+        host_node_ptr->peak_enque_count = host_node_ptr->enque_count;
+        host_node_ptr->peak_enque_count_time = comdb2_time_epoch();
+    }
+    host_node_ptr->enque_bytes += bytes;
+    if (host_node_ptr->enque_bytes > host_node_ptr->peak_enque_bytes) {
+        host_node_ptr->peak_enque_bytes = host_node_ptr->enque_bytes;
+        host_node_ptr->peak_enque_bytes_time = comdb2_time_epoch();
+    }
+}
+
 int gbl_print_net_queue_size = 0;
 
 /* Enque a net message consisting of a header and some optional data.
@@ -658,16 +671,8 @@ static int write_list(netinfo_type *netinfo_ptr, host_node_type *host_node_ptr,
 
     if (host_node_ptr->netinfo_ptr->trace && debug_switch_net_verbose())
         logmsg(LOGMSG_USER, "Queing %zu bytes %llu\n", insert->len, gettmms());
-    host_node_ptr->enque_count++;
-    if (host_node_ptr->enque_count > host_node_ptr->peak_enque_count) {
-        host_node_ptr->peak_enque_count = host_node_ptr->enque_count;
-        host_node_ptr->peak_enque_count_time = comdb2_time_epoch();
-    }
-    host_node_ptr->enque_bytes += insert->len;
-    if (host_node_ptr->enque_bytes > host_node_ptr->peak_enque_bytes) {
-        host_node_ptr->peak_enque_bytes = host_node_ptr->enque_bytes;
-        host_node_ptr->peak_enque_bytes_time = comdb2_time_epoch();
-    }
+
+    update_host_net_queue_stats(host_node_ptr, 1, insert->len);
 
     rc = 0;
 
@@ -2427,8 +2432,7 @@ ssize_t net_udp_send(int udp_fd, netinfo_type *netinfo_ptr, const char *host,
     return nsent;
 }
 
-static host_node_type *add_to_netinfo_ll(netinfo_type *netinfo_ptr,
-                                         const char hostname[], int portnum)
+host_node_type *add_to_netinfo_ll(netinfo_type *netinfo_ptr, const char hostname[], int portnum)
 {
     host_node_type *ptr;
     /* check to see if the node already exists */
@@ -2565,6 +2569,9 @@ void netinfo_lock(netinfo_type *netinfo_ptr, int seconds)
 static void rem_from_netinfo_ll(netinfo_type *netinfo_ptr,
                                 host_node_type *host_node_ptr)
 {
+    if (host_node_ptr) {
+        logmsg(LOGMSG_USER, "%s svc:%s host:%s\n", __func__, netinfo_ptr->service, host_node_ptr->host);
+    }
     host_node_type *tmp = netinfo_ptr->head;
     if (host_node_ptr == tmp) {
         netinfo_ptr->head = host_node_ptr->next;
@@ -5652,6 +5659,9 @@ static void *accept_thread(void *arg)
             continue;
         }
 
+        sbuf2settimeout(sb, 0, 0);
+        sbuf2setbufsize(sb, netinfo_ptr->bufsz);
+
         /* grab pool memory for connect_and_accept_t */
         Pthread_mutex_lock(&(netinfo_ptr->connlk));
         ca = (connect_and_accept_t *)pool_getablk(netinfo_ptr->connpool);
@@ -6646,7 +6656,7 @@ int net_get_stats(netinfo_type *netinfo_ptr, struct net_stats *stat) {
 
     Pthread_rwlock_rdlock(&(netinfo_ptr->lock));
     for (ptr = netinfo_ptr->head; ptr != NULL; ptr = ptr->next)
-        stat->num_drops = ptr->num_queue_full;
+        stat->num_drops += ptr->num_queue_full;
 
     Pthread_rwlock_unlock(&(netinfo_ptr->lock));
 

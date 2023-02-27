@@ -80,8 +80,7 @@ extern "C" {
 #define	DB_PAGE_QUEUE_LEN	0
 
 /************************************************************************
- GENERIC METADATA PAGE HEADER
- *
+ GENERIC METADATA PAGE HEADER *
  * !!!
  * The magic and version numbers have to be in the same place in all versions
  * of the metadata page as the application may not have upgraded the database.
@@ -280,6 +279,7 @@ typedef struct _db_page {
  * pad it out to the next 4-byte boundary. TODO
  */
 #define	SIZEOF_PAGE     56
+
 /*
  * !!!
  * DB_AM_ENCRYPT always implies DB_AM_CHKSUM so that must come first.
@@ -327,7 +327,11 @@ typedef struct _db_page {
 #define IS_CRC32C(p)	(((PAGE *)p)->type & CRC32C_MASK)
 #define SET_CRC32C(p)	(((PAGE *)p)->type |= CRC32C_MASK)
 #define CLR_CRC32C(p)	(((PAGE *)p)->type &= ~CRC32C_MASK)
+<<<<<<< HEAD
 #define PREVLSN(p)      (((PAGE *)p)->prevlsn)
+=======
+#define TXNID(p)		(((PAGE *)p)->txnid)
+>>>>>>> f6679cf57e0211278e51c2d0b349a1fd20baa439
 
 /************************************************************************
  QUEUE MAIN PAGE LAYOUT

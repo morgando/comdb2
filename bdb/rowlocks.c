@@ -139,12 +139,12 @@ static int print_log_records(bdb_state_type *bdb_state, DB_LSN *lsn)
         }
 
         LOGCOPY_32(&rectype, logent.data);
-        /* first 2 words are type + txnid */
+        /* first 2 words are type + txnid + utxnid */
 
         logmsg(LOGMSG_USER, "%d\n", rectype);
 
         LOGCOPY_TOLSN(&nextlsn,
-                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
+                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t) + sizeof(u_int64_t));
     }
 
     if (cur)
@@ -259,9 +259,9 @@ static int get_next_addrem_buffer(bdb_state_type *bdb_state, DB_LSN *lsn,
             break;
         }
         LOGCOPY_32(&rectype, logent.data);
-        /* first 2 words are type + txnid */
+        /* first 3 words are type + txnid + utxnid */
         LOGCOPY_TOLSN(&prevlsn,
-                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
+                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t) + sizeof(u_int64_t));
         *nextlsn = prevlsn;
 
         if (rectype < 10000 && rectype > 1000) {
@@ -749,7 +749,7 @@ int bdb_reconstruct_key_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
 
         LOGCOPY_32(&rectype, logent.data);
         LOGCOPY_TOLSN(&prevlsn,
-                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
+                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t) + sizeof(u_int64_t));
 
         if (rectype < 10000 && rectype > 1000) {
             rectype -= 1000;
@@ -848,7 +848,7 @@ int bdb_reconstruct_inplace_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
 
         /* Copy it's previous LSN. */
         LOGCOPY_TOLSN(&prevlsn,
-                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
+                      (u_int8_t *)logent.data + 2 * sizeof(u_int32_t) + 1 * sizeof(u_int64_t));
 
         if (rectype < 10000 && rectype > 1000) {
             rectype -= 1000;
@@ -1563,6 +1563,7 @@ static int find_last_logical_lsn(bdb_state_type *bdb_state, DB_LSN *last_lsn,
             LOGCOPY_32(&txnid, bp);
 
             bp += sizeof(u_int32_t);
+	    bp += sizeof(u_int64_t);
             LOGCOPY_TOLSN(&lsn, bp);
         } while (lsn.file != 0);
     } while (commit_lsn.file != 0);

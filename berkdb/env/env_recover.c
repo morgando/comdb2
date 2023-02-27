@@ -1222,6 +1222,10 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 					goto err;
 				}
 				first_lsn = ckp_args->ckp_lsn;
+				// Get a starting next_utxnid that's higher than the checkpoint.
+				// This will be updated as transactions are processed during 
+				// forward roll. 
+				dbenv->next_utxnid = ckp_args->max_utxnid+1;
 				have_rec = 0;
 				logmsg(LOGMSG_DEBUG, "checkpoint %u:%u points to last lsn %u:%u\n",
 					logged_checkpoint_lsn.file,
@@ -1267,6 +1271,7 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 				goto err;
 			}
 		} 
+		// TODO: next_utxnid start point in catastrophic recovery case?
 	}
 	/* Reset the start LSN so subsequent recoveries don't use it. */
 	ZERO_LSN(dbenv->recovery_start_lsn);

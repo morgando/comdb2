@@ -439,6 +439,7 @@ function log_function() {
 	printf("rectype, txn_num;\n") >> CFILE;
 	if (is_uint64 == 1)
 		printf("\tu_int64_t uint64tmp;\n") >> CFILE;
+	printf("\tu_int64_t txn_num_uint64;\n") >> CFILE;
 	printf("\tu_int npad;\n") >> CFILE;
 	printf("\tu_int8_t *bp;\n") >> CFILE;
 	if(has_dbp == 0)
@@ -488,6 +489,7 @@ function log_function() {
 
 	printf("\tif (txnid == NULL) {\n") >> CFILE;
 	printf("\t\ttxn_num = 0;\n") >> CFILE;
+	printf("\t\ttxn_num_uint64 = 0;\n") >> CFILE;
 	printf("\t\tnull_lsn.file = 0;\n") >> CFILE;
 	printf("\t\tnull_lsn.offset = 0;\n") >> CFILE;
 	printf("\t\tlsnp = &null_lsn;\n") >> CFILE;
@@ -500,12 +502,13 @@ function log_function() {
 		printf("\t\t\treturn (ret);\n") >> CFILE;
 	}
 	printf("\t\ttxn_num = txnid->txnid;\n") >> CFILE;
+	printf("\t\ttxn_num_uint64 = txnid->utxnid;\n") >> CFILE;
 	printf("\t\tlsnp = &txnid->last_lsn;\n") >> CFILE;
 	printf("\t}\n\n") >> CFILE;
 
 	# Malloc
 	printf("\tlogrec.size = sizeof(rectype) + ") >> CFILE;
-	printf("sizeof(txn_num) + sizeof(DB_LSN)") >> CFILE;
+	printf("sizeof(txn_num) + sizeof(txn_num_uint64) + sizeof(DB_LSN)") >> CFILE;
 	for (i = 0; i < nvars; i++)
 		printf("\n\t    + %s", sizes[i]) >> CFILE;
 	printf(";\n") >> CFILE
@@ -559,6 +562,8 @@ function log_function() {
 	printf("\tbp += sizeof(rectype);\n\n") >> CFILE;
 	printf("\tLOGCOPY_32(bp, &txn_num);\n") >> CFILE;
 	printf("\tbp += sizeof(txn_num);\n\n") >> CFILE;
+	printf("\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
+	printf("\tbp += sizeof(txn_num_uint64);\n\n") >> CFILE;
 	printf("\tLOGCOPY_FROMLSN(bp, lsnp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
 
@@ -783,7 +788,7 @@ function print_function() {
 	# Print values in every record
 	printf("\t(void)printf(\n\t    \"[%%lu][%%lu]%s%%s: ",\
 	     funcname) >> CFILE;
-	printf("rec: %%lu txnid %%lx ") >> CFILE;
+	printf("rec: %%lu txnid %%lx utxnid %%\"PRIu64\" ") >> CFILE;
 	printf("prevlsn [%%lu][%%lu]\\n\",\n") >> CFILE;
 	printf("\t    (u_long)lsnp->file,\n") >> CFILE;
 	printf("\t    (u_long)lsnp->offset,\n") >> CFILE;
@@ -791,6 +796,7 @@ function print_function() {
 	     >> CFILE;
 	printf("\t    (u_long)argp->type,\n") >> CFILE;
 	printf("\t    (u_long)argp->txnid->txnid,\n") >> CFILE;
+	printf("\t    (u_long)argp->txnid->utxnid,\n") >> CFILE;
 	printf("\t    (u_long)argp->prev_lsn.file,\n") >> CFILE;
 	printf("\t    (u_long)argp->prev_lsn.offset);\n") >> CFILE;
 
@@ -930,6 +936,8 @@ function read_function_int() {
 	printf("\tbp += sizeof(argp->type);\n\n") >> CFILE;
 	printf("\tLOGCOPY_32(&argp->txnid->txnid,  bp);\n") >> CFILE;
 	printf("\tbp += sizeof(argp->txnid->txnid);\n\n") >> CFILE;
+	printf("\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
+	printf("\tbp += sizeof(argp->txnid->utxnid);\n\n") >> CFILE;
 	printf("\tLOGCOPY_TOLSN(&argp->prev_lsn, bp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
 

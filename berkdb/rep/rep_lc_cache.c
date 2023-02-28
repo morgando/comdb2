@@ -225,6 +225,7 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 
 	u_int32_t type;
 	u_int32_t txnid;
+	u_int64_t utxnid;
 	DB_LSN prevlsn;
 	uint8_t *logrec;
 
@@ -248,6 +249,8 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 	logrec += sizeof(u_int32_t);
 	LOGCOPY_32(&txnid, logrec);
 	logrec += sizeof(u_int32_t);
+	LOGCOPY_64(&utxnid, logrec);
+	logrec += sizeof(u_int64_t);
 	LOGCOPY_TOLSN(&prevlsn, logrec);
 	logrec += sizeof(DB_LSN);
 

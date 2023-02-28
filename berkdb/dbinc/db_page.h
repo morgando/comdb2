@@ -320,7 +320,6 @@ typedef struct _db_page {
 #define IS_CRC32C(p)	(((PAGE *)p)->type & CRC32C_MASK)
 #define SET_CRC32C(p)	(((PAGE *)p)->type |= CRC32C_MASK)
 #define CLR_CRC32C(p)	(((PAGE *)p)->type &= ~CRC32C_MASK)
-#define TXNID(p)		(((PAGE *)p)->txnid)
 
 /************************************************************************
  QUEUE MAIN PAGE LAYOUT

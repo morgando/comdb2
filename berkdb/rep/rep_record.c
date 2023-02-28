@@ -5958,7 +5958,7 @@ __rep_collect_txn_from_log(dbenv, lsnp, lc, had_serializable_records, rp)
 			 * what kind of record this is.
 			 */
 			LOGCOPY_TOLSN(lsnp, (u_int8_t *)data.data +
-				sizeof(u_int32_t) + sizeof(u_int32_t));
+				sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(u_int64_t));
 		}
 
 		/* If we are still allocating our own memory for log records,

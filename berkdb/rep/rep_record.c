@@ -3552,9 +3552,10 @@ gap_check:		max_lsn_dbtp = NULL;
 		 * of a file that was opened in an active transaction, so we
 		 * should be guaranteed to get the ordering right.
 		 */
-		LOGCOPY_32(&txnid, (u_int8_t *) rec->data +
+		/*LOGCOPY_32(&txnid, (u_int8_t *) rec->data +
 			((u_int8_t *) & dbreg_args.txnid -
-			(u_int8_t *) & dbreg_args));
+			(u_int8_t *) & dbreg_args));*/
+		LOGCOPY_32(&txnid, rec->data + sizeof(u_int32_t));
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
 			if (dbenv->num_recovery_processor_threads &&

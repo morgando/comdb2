@@ -788,7 +788,7 @@ function print_function() {
 	# Print values in every record
 	printf("\t(void)printf(\n\t    \"[%%lu][%%lu]%s%%s: ",\
 	     funcname) >> CFILE;
-	printf("rec: %%lu txnid %%lx prevlsn [%%lu][%%lu]") >> CFILE;
+	printf("rec: %%lu txnid %%lx prevlsn [%%lu][%%lu] ") >> CFILE;
 	printf("utxnid %%\"PRIu64\" \\n\",\n") >> CFILE;
 	printf("\t    (u_long)lsnp->file,\n") >> CFILE;
 	printf("\t    (u_long)lsnp->offset,\n") >> CFILE;
@@ -796,9 +796,9 @@ function print_function() {
 	     >> CFILE;
 	printf("\t    (u_long)argp->type,\n") >> CFILE;
 	printf("\t    (u_long)argp->txnid->txnid,\n") >> CFILE;
-	printf("\t    (u_long)argp->txnid->utxnid,\n") >> CFILE;
 	printf("\t    (u_long)argp->prev_lsn.file,\n") >> CFILE;
-	printf("\t    (u_long)argp->prev_lsn.offset);\n") >> CFILE;
+	printf("\t    (u_long)argp->prev_lsn.offset,\n") >> CFILE;
+	printf("\t    (u_long)argp->txnid->utxnid);\n") >> CFILE;
 
 	# Now print fields of argp
 	for (i = 0; i < nvars; i ++) {

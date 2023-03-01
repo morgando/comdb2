@@ -508,7 +508,7 @@ function log_function() {
 
 	# Malloc
 	printf("\tlogrec.size = sizeof(rectype) + ") >> CFILE;
-	printf("sizeof(txn_num) + sizeof(txn_num_uint64) + sizeof(DB_LSN)") >> CFILE;
+	printf("sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_num_uint64)") >> CFILE;
 	for (i = 0; i < nvars; i++)
 		printf("\n\t    + %s", sizes[i]) >> CFILE;
 	printf(";\n") >> CFILE
@@ -562,10 +562,10 @@ function log_function() {
 	printf("\tbp += sizeof(rectype);\n\n") >> CFILE;
 	printf("\tLOGCOPY_32(bp, &txn_num);\n") >> CFILE;
 	printf("\tbp += sizeof(txn_num);\n\n") >> CFILE;
-	printf("\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
-	printf("\tbp += sizeof(txn_num_uint64);\n\n") >> CFILE;
 	printf("\tLOGCOPY_FROMLSN(bp, lsnp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
+	printf("\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
+	printf("\tbp += sizeof(txn_num_uint64);\n\n") >> CFILE;
 
 	for (i = 0; i < nvars; i ++) {
 		if (modes[i] == "ARG" || modes[i] == "TIME") {
@@ -788,8 +788,8 @@ function print_function() {
 	# Print values in every record
 	printf("\t(void)printf(\n\t    \"[%%lu][%%lu]%s%%s: ",\
 	     funcname) >> CFILE;
-	printf("rec: %%lu txnid %%lx utxnid %%\"PRIu64\" ") >> CFILE;
-	printf("prevlsn [%%lu][%%lu]\\n\",\n") >> CFILE;
+	printf("rec: %%lu txnid %%lx prevlsn [%%lu][%%lu]") >> CFILE;
+	printf("utxnid %%\"PRIu64\" \\n\",\n") >> CFILE;
 	printf("\t    (u_long)lsnp->file,\n") >> CFILE;
 	printf("\t    (u_long)lsnp->offset,\n") >> CFILE;
 	printf("\t    (argp->type & DB_debug_FLAG) ? \"_debug\" : \"\",\n") \
@@ -936,10 +936,10 @@ function read_function_int() {
 	printf("\tbp += sizeof(argp->type);\n\n") >> CFILE;
 	printf("\tLOGCOPY_32(&argp->txnid->txnid,  bp);\n") >> CFILE;
 	printf("\tbp += sizeof(argp->txnid->txnid);\n\n") >> CFILE;
-	printf("\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
-	printf("\tbp += sizeof(argp->txnid->utxnid);\n\n") >> CFILE;
 	printf("\tLOGCOPY_TOLSN(&argp->prev_lsn, bp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
+	printf("\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
+	printf("\tbp += sizeof(argp->txnid->utxnid);\n\n") >> CFILE;
 
 	# Now get rest of data.
 	for (i = 0; i < nvars; i ++) {

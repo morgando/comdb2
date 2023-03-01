@@ -249,10 +249,10 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 	logrec += sizeof(u_int32_t);
 	LOGCOPY_32(&txnid, logrec);
 	logrec += sizeof(u_int32_t);
-	LOGCOPY_64(&utxnid, logrec);
-	logrec += sizeof(u_int64_t);
 	LOGCOPY_TOLSN(&prevlsn, logrec);
 	logrec += sizeof(DB_LSN);
+	LOGCOPY_64(&utxnid, logrec);
+	logrec += sizeof(u_int64_t);
 
 	/* dump our current state */
 	if (dbenv->attr.cache_lc_debug) {

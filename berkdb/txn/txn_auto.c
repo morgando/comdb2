@@ -105,7 +105,7 @@ __txn_regop_log_int(dbenv, txnid, ret_lsnp, ret_contextp, flags,
 		lsnp = &txnid->last_lsn;
 	}
 
-	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(txn_unum) + sizeof(DB_LSN)
+	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_unum) 
 	    + sizeof(u_int32_t)
 	    + sizeof(u_int32_t)
 	    + sizeof(u_int32_t) + (locks == NULL ? 0 : locks->size);
@@ -163,11 +163,11 @@ do_malloc:
 	LOGCOPY_32(bp, &txn_num);
 	bp += sizeof(txn_num);
 
-	LOGCOPY_64(bp, &txn_unum);
-	bp += sizeof(txn_unum);
-
 	LOGCOPY_FROMLSN(bp, lsnp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(bp, &txn_unum);
+	bp += sizeof(txn_unum);
 
 	uinttmp = (u_int32_t)opcode;
 	LOGCOPY_32(bp, &uinttmp);
@@ -386,11 +386,11 @@ __txn_regop_read_int(dbenv, recbuf, do_pgswp, argpp)
 	LOGCOPY_32(&argp->txnid->txnid,  bp);
 	bp += sizeof(argp->txnid->txnid);
 
-	LOGCOPY_64(&argp->txnid->utxnid, bp);
-	bp += sizeof(argp->txnid->utxnid);
-
 	LOGCOPY_TOLSN(&argp->prev_lsn, bp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(&argp->txnid->utxnid, bp);
+	bp += sizeof(argp->txnid->utxnid);
 
 	LOGCOPY_32(&uinttmp, bp);
 	argp->opcode = (u_int32_t)uinttmp;
@@ -435,15 +435,15 @@ __txn_regop_print(dbenv, dbtp, lsnp, notused2, notused3)
 	if ((ret = __txn_regop_read_int(dbenv, dbtp->data, 0, &argp)) != 0)
 		return (ret);
 	(void)printf(
-	    "[%lu][%lu]__txn_regop%s: rec: %lu txnid %lx utxnid %"PRIx64", prevlsn [%lu][%lu]\n",
+	    "[%lu][%lu]__txn_regop%s: rec: %lu txnid %lx  prevlsn [%lu][%lu] utxnid %"PRIx64",\n",
 	    (u_long)lsnp->file,
 	    (u_long)lsnp->offset,
 	    (argp->type & DB_debug_FLAG) ? "_debug" : "",
 	    (u_long)argp->type,
 	    (u_long)argp->txnid->txnid,
-		argp->txnid->utxnid,
 	    (u_long)argp->prev_lsn.file,
-	    (u_long)argp->prev_lsn.offset);
+	    (u_long)argp->prev_lsn.offset,
+		argp->txnid->utxnid);
 	(void)printf("\topcode: %lu\n", (u_long)argp->opcode);
 	fflush(stdout);
 	time_t timestamp = argp->timestamp;
@@ -578,7 +578,7 @@ __txn_ckp_log(dbenv, txnid, ret_lsnp, flags,
 		lsnp = &txnid->last_lsn;
 	}
 
-	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(txn_unum) + sizeof(DB_LSN)
+	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_unum)
 	    + sizeof(*ckp_lsn)
 	    + sizeof(*last_ckp)
 	    + sizeof(u_int32_t)
@@ -638,11 +638,11 @@ do_malloc:
 	LOGCOPY_32(bp, &txn_num);
 	bp += sizeof(txn_num);
 
-	LOGCOPY_64(bp, &txn_unum);
-	bp += sizeof(txn_unum);
-
 	LOGCOPY_FROMLSN(bp, lsnp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(bp, &txn_unum);
+	bp += sizeof(txn_unum);
 
 	if (ckp_lsn != NULL)
 		LOGCOPY_FROMLSN(bp, ckp_lsn);
@@ -817,11 +817,11 @@ __txn_ckp_read_int(dbenv, recbuf, do_pgswp, argpp)
 	LOGCOPY_32(&argp->txnid->txnid,  bp);
 	bp += sizeof(argp->txnid->txnid);
 
-	LOGCOPY_64(&argp->txnid->utxnid,  bp);
-	bp += sizeof(argp->txnid->utxnid);
-
 	LOGCOPY_TOLSN(&argp->prev_lsn, bp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(&argp->txnid->utxnid,  bp);
+	bp += sizeof(argp->txnid->utxnid);
 
 	LOGCOPY_TOLSN(&argp->ckp_lsn, bp);
 	bp += sizeof(argp->ckp_lsn);
@@ -2083,7 +2083,7 @@ __txn_regop_rowlocks_log(dbenv, txnid, ret_lsnp, ret_contextp, flags,
 		lsnp = &txnid->last_lsn;
 	}
 
-	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(txn_unum) + sizeof(DB_LSN)
+	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_unum)
 	    + sizeof(u_int32_t)
 	    + sizeof(u_int64_t)
 	    + sizeof(*begin_lsn)
@@ -2148,11 +2148,11 @@ do_malloc:
 	LOGCOPY_32(bp, &txn_num);
 	bp += sizeof(txn_num);
 
-	LOGCOPY_64(bp, &txn_unum);
-	bp += sizeof(txn_unum);
-
 	LOGCOPY_FROMLSN(bp, lsnp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(bp, &txn_unum);
+	bp += sizeof(txn_unum);
 
 	uinttmp = (u_int32_t)opcode;
 	LOGCOPY_32(bp, &uinttmp);
@@ -2394,11 +2394,11 @@ __txn_regop_rowlocks_read_int(dbenv, recbuf, do_pgswp, argpp)
 	LOGCOPY_32(&argp->txnid->txnid,  bp);
 	bp += sizeof(argp->txnid->txnid);
 
-	LOGCOPY_64(&argp->txnid->utxnid,  bp);
-	bp += sizeof(argp->txnid->utxnid);
-
 	LOGCOPY_TOLSN(&argp->prev_lsn, bp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(&argp->txnid->utxnid,  bp);
+	bp += sizeof(argp->txnid->utxnid);
 
 	LOGCOPY_32(&uinttmp, bp);
 	argp->opcode = (u_int32_t)uinttmp;
@@ -2862,11 +2862,11 @@ __txn_regop_gen_read_int(dbenv, recbuf, do_pgswp, argpp)
 	LOGCOPY_32(&argp->txnid->txnid,  bp);
 	bp += sizeof(argp->txnid->txnid);
 
-	LOGCOPY_64(&argp->txnid->utxnid,  bp);
-	bp += sizeof(argp->txnid->utxnid);
-
 	LOGCOPY_TOLSN(&argp->prev_lsn, bp);
 	bp += sizeof(DB_LSN);
+
+	LOGCOPY_64(&argp->txnid->utxnid,  bp);
+	bp += sizeof(argp->txnid->utxnid);
 
 	LOGCOPY_32(&uinttmp, bp);
 	argp->opcode = (u_int32_t)uinttmp;

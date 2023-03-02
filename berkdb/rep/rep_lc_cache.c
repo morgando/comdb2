@@ -225,7 +225,6 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 
 	u_int32_t type;
 	u_int32_t txnid;
-	u_int64_t utxnid;
 	DB_LSN prevlsn;
 	uint8_t *logrec;
 
@@ -251,8 +250,6 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 	logrec += sizeof(u_int32_t);
 	LOGCOPY_TOLSN(&prevlsn, logrec);
 	logrec += sizeof(DB_LSN);
-	LOGCOPY_64(&utxnid, logrec);
-	logrec += sizeof(u_int64_t);
 
 	/* dump our current state */
 	if (dbenv->attr.cache_lc_debug) {
@@ -461,15 +458,12 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 	 * rid of the child. */
 	if (type == DB___txn_child) {
 		u_int32_t child_txnid;
-		u_int64_t child_utxnid;
 		DB_LSN c_lsn;
 
 		LOGCOPY_32(&child_txnid, logrec);
 		logrec += sizeof(u_int32_t);
 		LOGCOPY_TOLSN(&c_lsn, logrec);
 		logrec += sizeof(DB_LSN);
-		LOGCOPY_64(&child_utxnid, logrec);
-		logrec += sizeof(u_int64_t);
 
 		if (dbenv->attr.cache_lc_debug)
 			logmsg(LOGMSG_USER, "child commit for parent %x at child c_lsn "

@@ -541,9 +541,9 @@ __txn_begin_int_int(txn, prop, we_start_at_this_lsn, flags)
 
 	region = mgr->reginfo.primary;
 
-	// TODO: lock
+	Pthread_mutex_lock(&dbenv->utxnid_lock);
 	utxnid = ++dbenv->next_utxnid;
-	// unlock
+	Pthread_mutex_unlock(&dbenv->utxnid_lock);
 
 	/*
 	 * We do not have to write begin records (and if we do not, then we
@@ -2553,9 +2553,9 @@ do_ckp:
 		timestamp = (int32_t)time(NULL);
 
 		u_int64_t max_utxnid;
-		// TODO: lock
+		Pthread_mutex_lock(&dbenv->utxnid_lock);
 		max_utxnid = dbenv->next_utxnid;
-		// unlock
+		Pthread_mutex_unlock(&dbenv->utxnid_lock);
 
 		if ((ret = __dbreg_open_files_checkpoint(dbenv)) != 0 ||
 			(ret = __txn_ckp_log(dbenv, NULL, &ckp_lsn,

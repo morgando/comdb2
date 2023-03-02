@@ -1225,7 +1225,9 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 				// Get a starting next_utxnid that's higher than the checkpoint.
 				// This will be updated as transactions are processed during 
 				// forward roll. 
+				Pthread_mutex_lock(&dbenv->utxnid_lock);
 				dbenv->next_utxnid = ckp_args->max_utxnid+1;
+				Pthread_mutex_unlock(&dbenv->utxnid_lock);
 				have_rec = 0;
 				logmsg(LOGMSG_DEBUG, "checkpoint %u:%u points to last lsn %u:%u\n",
 					logged_checkpoint_lsn.file,
@@ -1438,6 +1440,8 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 		 * we need to make sure that we don't try to roll
 		 * forward beyond the soon-to-be end of log.
 		 */
+
+		/* TODO: update max_utxnid */
 
 		if (log_compare(&lsn, &stop_lsn) > 0)
 			break;

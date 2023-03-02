@@ -540,10 +540,6 @@ __txn_ckp_log(dbenv, txnid, ret_lsnp, flags,
 	int is_durable, ret;
 	int used_malloc = 0;
 
-    printf(">> checkpoint: %"PRIx64"\n", max_utxnid);
-    if (max_utxnid > 1000000)
-        abort();
-
     if (last_ckp->file == 0 && last_ckp->offset == 0 && ckp_lsn->file != 1 && ckp_lsn->offset != 28) {
         __db_err(dbenv, "Logging a non-first checkpoint with a 0:0 last checkpoint lsn\n");
         abort();

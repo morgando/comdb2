@@ -275,49 +275,49 @@ static inline int parse_lsn(const unsigned char *lsnstr, DB_LSN *lsn)
 static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 {
     u_int64_t timestamp;
-    LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 4 + 4 + 8] );
+    LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
     return timestamp;
 }
 
 static u_int32_t get_generation_from_regop_gen_record(char *data)
 {
     u_int32_t generation;
-    LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 4] );
+    LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 8 + 4] );
     return generation;
 }
 
 static u_int64_t get_timestamp_from_regop_rowlocks_record(char *data)
 {
     u_int64_t timestamp;
-    LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4 + 8 + 8 + 8 + 8] );
+    LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8] );
     return timestamp;
 }
 
 static u_int32_t get_generation_from_regop_rowlocks_record(char *data)
 {
     u_int32_t generation;
-    LOGCOPY_32( &generation, &data[4 + 4 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
+    LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
     return generation;
 }
 
 static u_int32_t get_timestamp_from_regop_record(char *data)
 {
     u_int32_t timestamp;
-    LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 4] );
+    LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 4] );
     return timestamp;
 }
 
 static u_int32_t get_timestamp_from_ckp_record(char *data)
 {
     u_int32_t timestamp;
-    LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8] );
+    LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8 + 8] );
     return timestamp;
 }
 
 static u_int32_t get_generation_from_ckp_record(char *data)
 {
     u_int32_t generation;
-    LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 4] );
+    LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 8 + 4] );
     return generation;
 }
 

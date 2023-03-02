@@ -189,7 +189,6 @@ do_malloc:
 		bp += sizeof(locks->size);
 		memcpy(bp, locks->data, locks->size);
 		bp += locks->size;
-		
       if (gbl_snapisol)
       {
          /* save location in the log stream, if any */
@@ -479,7 +478,9 @@ __txn_regop_print(dbenv, dbtp, lsnp, notused2, notused3)
 	(void)printf("\n");
 
     /* Print commit context */
+
     	fflush(stdout);
+	(void)printf("\n");
 	__os_free(dbenv, argp);
 
 	return (0);

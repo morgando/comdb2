@@ -2302,10 +2302,10 @@ int handle_undo_add_dta(DB_ENV *dbenv, u_int32_t rectype,
         /* keep format similar to berkeley - except for the raw data -
            dump that in more readable format */
         printf("[%lu][%lu] CUSTOM: add_dta: rec: %lu txnid %lx"
-               " prevlsn[%lu][%lu]  prevllsn[%lu][%lu] tranid %016" PRIx64,
+               " prevlsn[%lu][%lu] utxnid \%"PRIx64" prevllsn[%lu][%lu] tranid %016" PRIx64,
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)addop->txnid->txnid, (u_long)addop->prev_lsn.file,
-               (u_long)addop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)addop->prev_lsn.offset, (u_long)addop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, addop->ltranid);
         printf("\ttable:     %.*s\n", addop->table.size,
                (char *)addop->table.data);
@@ -2397,10 +2397,10 @@ int handle_undo_add_dta_lk(DB_ENV *dbenv, u_int32_t rectype,
         /* keep format similar to berkeley - except for the raw data -
            dump that in more readable format */
         printf("[%lu][%lu] CUSTOM: add_dta_lk: rec: %lu txnid %lx"
-               " prevlsn[%lu][%lu]  prevllsn[%lu][%lu] tranid %016" PRIx64,
+               " prevlsn[%lu][%lu] utxnid \%"PRIx64" prevllsn[%lu][%lu] tranid %016" PRIx64,
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)addop->txnid->txnid, (u_long)addop->prev_lsn.file,
-               (u_long)addop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)addop->prev_lsn.offset, (u_long)addop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, addop->ltranid);
         printf("\ttable:     %.*s\n", addop->table.size,
                (char *)addop->table.data);
@@ -2498,10 +2498,10 @@ int handle_undo_add_ix(DB_ENV *dbenv, u_int32_t rectype,
         /* keep format similar to berkeley - except for the raw data -
            dump that in more readable format */
         printf("[%lu][%lu] CUSTOM: add_ix: %lu txnid %lx prevlsn[%lu][%lu]  "
-               "prevllsn[%lu][%lu] tranid %016" PRIx64 "\n",
+               "prevllsn[%lu][%lu] utxnid \%"PRIx64" tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)addop->txnid->txnid, (u_long)addop->prev_lsn.file,
-               (u_long)addop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)addop->prev_lsn.offset, (u_long)addop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, addop->ltranid);
         printf("\ttable:  %.*s\n", addop->table.size,
                (char *)addop->table.data);
@@ -2587,10 +2587,10 @@ int handle_undo_add_ix_lk(DB_ENV *dbenv, u_int32_t rectype,
         /* keep format similar to berkeley - except for the raw data -
            dump that in more readable format */
         printf("[%lu][%lu] CUSTOM: add_ix_lk: %lu txnid %lx prevlsn[%lu][%lu]  "
-               "prevllsn[%lu][%lu] tranid %016" PRIx64 "\n",
+               "prevllsn[%lu][%lu] utxnid \%"PRIx64" tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)addop->txnid->txnid, (u_long)addop->prev_lsn.file,
-               (u_long)addop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)addop->prev_lsn.offset, (u_long)addop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, addop->ltranid);
         printf("\ttable:    %.*s\n", addop->table.size,
                (char *)addop->table.data);
@@ -2710,12 +2710,12 @@ int handle_commit(DB_ENV *dbenv, u_int32_t rectype,
         lprev = &args->prevllsn;
         /* keep format similar to berkeley - except for the raw data -
            dump that in more readable format */
-        printf("[%lu][%lu] CUSTOM: %s: %lu txnid %lx prevlsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: %s: %lu txnid %lx prevlsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu] tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset,
                args->isabort ? "abort" : "commit", (u_long)rectype,
                (u_long)args->txnid->txnid, (u_long)args->prev_lsn.file,
-               (u_long)args->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)args->prev_lsn.offset, (u_long)args->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, args->ltranid);
         printf("\n");
         break;
@@ -2769,11 +2769,11 @@ int handle_start(DB_ENV *dbenv, u_int32_t rectype, llog_ltran_start_args *args,
 
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
-        printf("[%lu][%lu] CUSTOM: start: %lu txnid %lx prevlsn[%lu][%lu] "
+        printf("[%lu][%lu] CUSTOM: start: %lu txnid %lx prevlsn[%lu][%lu] utxnid \%"PRIx64" "
                "tranid %016llx\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)args->txnid->txnid, (u_long)args->prev_lsn.file,
-               (u_long)args->prev_lsn.offset, ltranid);
+               (u_long)args->prev_lsn.offset, (u_long)args->txnid->utxnid, ltranid);
         printf("\n");
         break;
 
@@ -2818,11 +2818,11 @@ int handle_comprec(DB_ENV *dbenv, u_int32_t rectype,
 
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
-        printf("[%lu][%lu] CUSTOM: comprec: %lu txnid %lx prevlsn[%lu][%lu] "
+        printf("[%lu][%lu] CUSTOM: comprec: %lu txnid %lx prevlsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu] tranid %016llx\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)args->txnid->txnid, (u_long)args->prev_lsn.file,
-               (u_long)args->prev_lsn.offset, (u_long)prevllsn.file,
+               (u_long)args->prev_lsn.offset, (u_long)args->txnid->utxnid, (u_long)prevllsn.file,
                (u_long)prevllsn.offset, ltranid);
         printf("\tcomplsn: %d:%d\n", undolsn.file, undolsn.offset);
         printf("\n");
@@ -3085,11 +3085,11 @@ int handle_undo_del_dta(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &delop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: del_dta %lu txnid %lx prevlsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: del_dta %lu txnid %lx prevlsn[%lu][%lu] utxnid \%"PRIx64" " 
                "prevllsn[%lu][%lu]  tranid %016llx\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)delop->txnid->txnid, (u_long)delop->prev_lsn.file,
-               (u_long)delop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)delop->prev_lsn.offset, (u_long)delop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, ltranid);
         printf("\ttable:       %.*s\n", delop->table.size,
                (char *)delop->table.data);
@@ -3162,11 +3162,11 @@ int handle_undo_del_ix(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &delop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: del_ix %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: del_ix %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016llx\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)delop->txnid->txnid, (u_long)delop->prev_lsn.file,
-               (u_long)delop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)delop->prev_lsn.offset, (u_long)delop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, ltranid);
         printf("\ttable:   %.*s\n", delop->table.size,
                (char *)delop->table.data);
@@ -3241,11 +3241,11 @@ int handle_undo_upd_dta(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &updop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: upd_dta %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: upd_dta %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016llx\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)updop->txnid->txnid, (u_long)updop->prev_lsn.file,
-               (u_long)updop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)updop->prev_lsn.offset, (u_long)updop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, ltranid);
         printf("\ttable:       %.*s\n", updop->table.size,
                (char *)updop->table.data);
@@ -3341,11 +3341,11 @@ int handle_undo_upd_ix(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &updop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: upd_ix %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: upd_ix %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016llx\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)updop->txnid->txnid, (u_long)updop->prev_lsn.file,
-               (u_long)updop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)updop->prev_lsn.offset, (u_long)updop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, ltranid);
         printf("\ttable:       %.*s\n", updop->table.size,
                (char *)updop->table.data);
@@ -3705,9 +3705,9 @@ int handle_repblob(DB_ENV *dbenv, u_int32_t rectype, llog_repblob_args *repblob,
 
     if (op == DB_TXN_PRINT || op == DB_TXN_SNAPISOL) {
         printf("[%u][%u] CUSTOM: repblob: rec: %u txnid %x"
-               " prevlsn[%u][%u] sessionid %d seqno %d dtasz %d\n\n",
+               " prevlsn[%u][%u] utxnid \%"PRIx64" sessionid %d seqno %d dtasz %d\n\n",
                lsn->file, lsn->offset, rectype, repblob->txnid->txnid,
-               repblob->prev_lsn.file, repblob->prev_lsn.offset,
+               repblob->prev_lsn.file, repblob->prev_lsn.offset, repblob->txnid->utxnid,
                repblob->sessionid, repblob->seqno, repblob->data.size);
     }
 
@@ -3758,11 +3758,11 @@ int handle_undo_del_dta_lk(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &delop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: del_dta_lk %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: del_dta_lk %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)delop->txnid->txnid, (u_long)delop->prev_lsn.file,
-               (u_long)delop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)delop->prev_lsn.offset, (u_long)delop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, delop->ltranid);
         printf("\ttable:       %.*s\n", delop->table.size,
                (char *)delop->table.data);
@@ -3842,11 +3842,11 @@ int handle_undo_del_ix_lk(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &delop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: del_ix_lk %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: del_ix_lk %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)delop->txnid->txnid, (u_long)delop->prev_lsn.file,
-               (u_long)delop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)delop->prev_lsn.offset, (u_long)delop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, delop->ltranid);
         printf("\ttable:        %.*s\n", delop->table.size,
                (char *)delop->table.data);
@@ -3926,11 +3926,11 @@ int handle_undo_upd_dta_lk(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &updop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: upd_dta_lk %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: upd_dta_lk %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)updop->txnid->txnid, (u_long)updop->prev_lsn.file,
-               (u_long)updop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)updop->prev_lsn.offset, (u_long)updop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, updop->ltranid);
         printf("\ttable:       %.*s\n", updop->table.size,
                (char *)updop->table.data);
@@ -4029,11 +4029,11 @@ int handle_undo_upd_ix_lk(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         lprev = &updop->prevllsn;
-        printf("[%lu][%lu] CUSTOM: upd_ix_lk %lu txnid %lx prelsn[%lu][%lu]  "
+        printf("[%lu][%lu] CUSTOM: upd_ix_lk %lu txnid %lx prelsn[%lu][%lu] utxnid \%"PRIx64" "
                "prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)updop->txnid->txnid, (u_long)updop->prev_lsn.file,
-               (u_long)updop->prev_lsn.offset, (u_long)lprev->file,
+               (u_long)updop->prev_lsn.offset, (u_long)updop->txnid->utxnid, (u_long)lprev->file,
                (u_long)lprev->offset, updop->ltranid);
         printf("\ttable:       %.*s\n", updop->table.size,
                (char *)updop->table.data);
@@ -4099,12 +4099,13 @@ int handle_rowlocks_log_bench(DB_ENV *dbenv, u_int32_t rectype,
 
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
-        printf("[%lu][%lu] CUSTOM: rowlocks_log_bench %lu txnid %lx "
+        printf("[%lu][%lu] CUSTOM: rowlocks_log_bench %lu txnid %lx utxnid \%"PRIx64" "
                "prelsn[%lu][%lu]  prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)rl_log_bench->txnid->txnid,
                (u_long)rl_log_bench->prev_lsn.file,
                (u_long)rl_log_bench->prev_lsn.offset,
+	       (u_long)rl_log_bench->txnid->utxnid,
                (u_long)rl_log_bench->prevllsn.file,
                (u_long)rl_log_bench->prevllsn.offset, rl_log_bench->ltranid);
         printf("\top:          %d\n", rl_log_bench->op);
@@ -4153,11 +4154,12 @@ int handle_commit_log_bench(DB_ENV *dbenv, u_int32_t rectype,
     case DB_TXN_SNAPISOL:
     case DB_TXN_PRINT:
         printf("[%lu][%lu] CUSTOM: commit_log_bench %lu txnid %lx "
-               "prelsn[%lu][%lu]  prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
+               "prelsn[%lu][%lu] utxnid \%"PRIx64" prevllsn[%lu][%lu]  tranid %016" PRIx64 "\n",
                (u_long)lsn->file, (u_long)lsn->offset, (u_long)rectype,
                (u_long)c_log_bench->txnid->txnid,
                (u_long)c_log_bench->prev_lsn.file,
                (u_long)c_log_bench->prev_lsn.offset,
+	       (u_long)c_log_bench->txnid->utxnid,
                (u_long)c_log_bench->prevllsn.file,
                (u_long)c_log_bench->prevllsn.offset, c_log_bench->ltranid);
         printf("\top:          %d\n", c_log_bench->op);

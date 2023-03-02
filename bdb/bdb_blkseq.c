@@ -208,9 +208,9 @@ int bdb_blkseq_recover(DB_ENV *dbenv, u_int32_t rectype, llog_blkseq_args *args,
     // printf("at "PR_LSN", blkseq\n", PARM_LSNP(lsn));
     if (op == DB_TXN_PRINT) {
         printf("[%u][%u] CUSTOM: add_blkseq: rec: %u txnid %x"
-               " prevlsn[" PR_LSN "]\n",
+               " prevlsn[" PR_LSN "] utxnid %"PRIx64"\n",
                lsn->file, lsn->offset, rectype, args->txnid->txnid,
-               PARM_LSN(args->prev_lsn));
+               PARM_LSN(args->prev_lsn), args->txnid->utxnid);
         printf("\ttime:     %" PRId64 "\n", args->time);
         printf("\tkey:      ");
         hexdumpdbt(&args->key);

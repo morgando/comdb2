@@ -139,7 +139,7 @@ static int print_log_records(bdb_state_type *bdb_state, DB_LSN *lsn)
         }
 
         LOGCOPY_32(&rectype, logent.data);
-        /* first 2 words are type + txnid + utxnid */
+        /* first 2 words are type + txnid */
 
         logmsg(LOGMSG_USER, "%d\n", rectype);
 
@@ -259,7 +259,7 @@ static int get_next_addrem_buffer(bdb_state_type *bdb_state, DB_LSN *lsn,
             break;
         }
         LOGCOPY_32(&rectype, logent.data);
-        /* first 3 words are type + txnid + utxnid */
+        /* first 2 words are type + txnid */
         LOGCOPY_TOLSN(&prevlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
         *nextlsn = prevlsn;

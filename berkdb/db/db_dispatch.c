@@ -322,7 +322,7 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	case DB___qam_del:
 	case DB___qam_add:
 	case DB___qam_delext:
-		off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(u_int64_t) + sizeof(DB_LSN);
+		off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t);
 		break;
 
 	case DB___db_addrem:
@@ -336,7 +336,7 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 		 * before the fileid
 		 */
 		off =
-		    sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(u_int64_t) + sizeof(DB_LSN) +
+		    sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t) +
 		    sizeof(u_int32_t);
 		break;
 

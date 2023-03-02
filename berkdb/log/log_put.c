@@ -240,7 +240,7 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 	}
 	unsigned long long ltranid = 0;
 	if (10006 == rectype) {
-		/* Find the logical tranid.  Offset should be (rectype + txn_num + txn_unum + last_lsn) */
+		/* Find the logical tranid.  Offset should be (rectype + txn_num + last_lsn + txn_unum) */
 		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8 + 8]);
 	}
 
@@ -719,7 +719,7 @@ __log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, 
 
 		if (rectype == DB___txn_regop_rowlocks)
 		{
-			/* rectype(4)+txn_num(4)+txn_unum(8)+db_lsn(8)+opcode(4)+LTRANID(8)+begin_lsn(8)+last_commit_lsn(8)+context(8)+timestamp(8)+lflags(4)+GENERATION(4)+txn_num_uint64(8) */
+			/* rectype(4)+txn_num(4)+db_lsn(8)+txn_unum(8)+opcode(4)+LTRANID(8)+begin_lsn(8)+last_commit_lsn(8)+context(8)+timestamp(8)+lflags(4)+GENERATION(4) */
 			ltranid = (unsigned long long *)(&pp[4 + 4 + 8 + 8 + 4]);
 			LOGCOPY_32( &generation, &pp[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
 			pushlog = (flags & DB_LOG_LOGICAL_COMMIT);
@@ -727,7 +727,7 @@ __log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, 
 
 		if (rectype == DB___txn_regop_gen)
 		{
-			/* rectype(4)+txn_num(4)+txn_num_uint64(8)+db_lsn(8)+opcode(4)+GENERATION(4) */
+			/* rectype(4)+txn_num(4)+db_lsn(8)+txn_unum(8)+opcode(4)+GENERATION(4) */
 			LOGCOPY_32( &generation, &pp[ 4 + 4 + 8 + 8 + 4] );
 		}
 

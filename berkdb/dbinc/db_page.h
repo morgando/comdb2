@@ -272,7 +272,7 @@ typedef struct _db_page {
  * the SIZEOF_PAGE.  When giving the sizeof(), many compilers will
  * pad it out to the next 4-byte boundary.
  */
-#define	SIZEOF_PAGE 26
+#define	SIZEOF_PAGE	26
 /*
  * !!!
  * DB_AM_ENCRYPT always implies DB_AM_CHKSUM so that must come first.

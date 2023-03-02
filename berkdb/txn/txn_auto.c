@@ -476,10 +476,10 @@ __txn_regop_print(dbenv, dbtp, lsnp, notused2, notused3)
         memcpy(&commit_context, p, 8);
     }
     printf("\tcommit-context: 0x%llx\n", commit_context);
-    	fflush(stdout);
+	(void)printf("\n");
 
     /* Print commit context */
-	(void)printf("\n");
+    	fflush(stdout);
 	__os_free(dbenv, argp);
 
 	return (0);
@@ -526,8 +526,8 @@ __txn_ckp_log(dbenv, txnid, ret_lsnp, flags,
 	DB_LSN * ckp_lsn;
 	DB_LSN * last_ckp;
 	int32_t timestamp;
-    u_int32_t rep_gen;
-    u_int64_t max_utxnid;
+	u_int32_t rep_gen;
+	u_int64_t max_utxnid;
 {
 	DBT logrec;
 	DB_TXNLOGREC *lr;

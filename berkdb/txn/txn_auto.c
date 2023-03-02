@@ -868,14 +868,15 @@ __txn_ckp_print(dbenv, dbtp, lsnp, notused2, notused3)
 	if ((ret = __txn_ckp_read_int(dbenv, dbtp->data, 0, &argp)) != 0)
 		return (ret);
 	(void)printf(
-	    "[%lu][%lu]__txn_ckp%s: rec: %lu txnid %lx prevlsn [%lu][%lu]\n",
+	    "[%lu][%lu]__txn_ckp%s: rec: %lu txnid %lx prevlsn [%lu][%lu] utxnid \%"PRIx64"\n",
 	    (u_long)lsnp->file,
 	    (u_long)lsnp->offset,
 	    (argp->type & DB_debug_FLAG) ? "_debug" : "",
 	    (u_long)argp->type,
 	    (u_long)argp->txnid->txnid,
 	    (u_long)argp->prev_lsn.file,
-	    (u_long)argp->prev_lsn.offset);
+	    (u_long)argp->prev_lsn.offset,
+	    (uint64_t)argp->txnid->utxnid);
 	(void)printf("\tckp_lsn: [%lu][%lu]\n",
 	    (u_long)argp->ckp_lsn.file, (u_long)argp->ckp_lsn.offset);
 	fflush(stdout);
@@ -1234,14 +1235,15 @@ __txn_child_print(dbenv, dbtp, lsnp, notused2, notused3)
 	if ((ret = __txn_child_read_int(dbenv, dbtp->data, 0, &argp)) != 0)
 		return (ret);
 	(void)printf(
-	    "[%lu][%lu]__txn_child%s: rec: %lu txnid %lx prevlsn [%lu][%lu]\n",
+	    "[%lu][%lu]__txn_child%s: rec: %lu txnid %lx prevlsn [%lu][%lu] utxnid \%"PRIx64"\n",
 	    (u_long)lsnp->file,
 	    (u_long)lsnp->offset,
 	    (argp->type & DB_debug_FLAG) ? "_debug" : "",
 	    (u_long)argp->type,
 	    (u_long)argp->txnid->txnid,
 	    (u_long)argp->prev_lsn.file,
-	    (u_long)argp->prev_lsn.offset);
+	    (u_long)argp->prev_lsn.offset,
+	    (uint64_t)argp->txnid->utxnid);
 	(void)printf("\tchild: 0x%lx\n", (u_long)argp->child);
 	fflush(stdout);
 	(void)printf("\tc_lsn: [%lu][%lu]\n",
@@ -1655,14 +1657,15 @@ __txn_xa_regop_print(dbenv, dbtp, lsnp, notused2, notused3)
 	if ((ret = __txn_xa_regop_read_int(dbenv, dbtp->data, 0, &argp)) != 0)
 		return (ret);
 	(void)printf(
-	    "[%lu][%lu]__txn_xa_regop%s: rec: %lu txnid %lx prevlsn [%lu][%lu]\n",
+	    "[%lu][%lu]__txn_xa_regop%s: rec: %lu txnid %lx prevlsn [%lu][%lu] utxnid \%"PRIx64"\n",
 	    (u_long)lsnp->file,
 	    (u_long)lsnp->offset,
 	    (argp->type & DB_debug_FLAG) ? "_debug" : "",
 	    (u_long)argp->type,
 	    (u_long)argp->txnid->txnid,
 	    (u_long)argp->prev_lsn.file,
-	    (u_long)argp->prev_lsn.offset);
+	    (u_long)argp->prev_lsn.offset,
+	    (uint64_t)argp->txnid->utxnid);
 	(void)printf("\topcode: %lu\n", (u_long)argp->opcode);
 	fflush(stdout);
 	(void)printf("\txid: \n");
@@ -2012,14 +2015,15 @@ __txn_recycle_print(dbenv, dbtp, lsnp, notused2, notused3)
 	if ((ret = __txn_recycle_read_int(dbenv, dbtp->data, 0, &argp)) != 0)
 		return (ret);
 	(void)printf(
-	    "[%lu][%lu]__txn_recycle%s: rec: %lu txnid %lx prevlsn [%lu][%lu]\n",
+	    "[%lu][%lu]__txn_recycle%s: rec: %lu txnid %lx prevlsn [%lu][%lu] utxnid \%"PRIx64"\n",
 	    (u_long)lsnp->file,
 	    (u_long)lsnp->offset,
 	    (argp->type & DB_debug_FLAG) ? "_debug" : "",
 	    (u_long)argp->type,
 	    (u_long)argp->txnid->txnid,
 	    (u_long)argp->prev_lsn.file,
-	    (u_long)argp->prev_lsn.offset);
+	    (u_long)argp->prev_lsn.offset,
+	    (uint64_t)argp->txnid->utxnid);
 	(void)printf("\tmin: %u\n", argp->min);
 	fflush(stdout);
 	(void)printf("\tmax: %u\n", argp->max);
@@ -2510,7 +2514,7 @@ __txn_regop_rowlocks_print(dbenv, dbtp, lsnp, notused2, notused3)
 	    (u_long)argp->txnid->txnid,
 	    (u_long)argp->prev_lsn.file,
 	    (u_long)argp->prev_lsn.offset,
-	    (uint64_t) argp->txnid->utxnid);
+	    (uint64_t)argp->txnid->utxnid);
 	(void)printf("\topcode: %lu\n", (u_long)argp->opcode);
 	fflush(stdout);
 	(void)printf("\tltranid: %"PRIx64"\n", argp->ltranid);
@@ -2946,14 +2950,15 @@ __txn_regop_gen_print(dbenv, dbtp, lsnp, notused2, notused3)
 	if ((ret = __txn_regop_gen_read_int(dbenv, dbtp->data, 0, &argp)) != 0)
 		return (ret);
 	(void)printf(
-	    "[%lu][%lu]__txn_regop_gen%s: rec: %lu txnid %lx prevlsn [%lu][%lu]\n",
+	    "[%lu][%lu]__txn_regop_gen%s: rec: %lu txnid %lx prevlsn [%lu][%lu] utxnid \%"PRIx64"\n",
 	    (u_long)lsnp->file,
 	    (u_long)lsnp->offset,
 	    (argp->type & DB_debug_FLAG) ? "_debug" : "",
 	    (u_long)argp->type,
 	    (u_long)argp->txnid->txnid,
 	    (u_long)argp->prev_lsn.file,
-	    (u_long)argp->prev_lsn.offset);
+	    (u_long)argp->prev_lsn.offset,
+	    (u_int64_t)argp->txnid->utxnid);
 	(void)printf("\topcode: %lu\n", (u_long)argp->opcode);
 	fflush(stdout);
 	(void)printf("\tgeneration: %u\n", argp->generation);
@@ -2981,7 +2986,6 @@ __txn_regop_gen_print(dbenv, dbtp, lsnp, notused2, notused3)
     }
 	fflush(stdout);
 	(void)printf("\tlocks: \n");
-	(void)printf("\tutxnid: %"PRIx64"\n", argp->txnid->utxnid);
 
     DB_LSN ignored;
     int pglogs;

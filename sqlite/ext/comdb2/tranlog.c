@@ -33,8 +33,10 @@
 #define TRANLOG_COLUMN_LSN          3
 #define TRANLOG_COLUMN_RECTYPE      4
 #define TRANLOG_COLUMN_GENERATION   5
-#define TRANLOG_COLUMN_TIMESTAMP    6
-#define TRANLOG_COLUMN_LOG          7
+#define TRANLOG_COLUMN_TXNID		6
+#define TRANLOG_COLUMN_UTXNID		7
+#define TRANLOG_COLUMN_TIMESTAMP    8
+#define TRANLOG_COLUMN_LOG          9
 
 
 /* Modeled after generate_series */
@@ -68,7 +70,7 @@ static int tranlogConnect(
   int rc;
 
   rc = sqlite3_declare_vtab(db,
-     "CREATE TABLE x(minlsn hidden,maxlsn hidden, flags hidden,lsn,rectype integer,generation integer,timestamp integer,payload)");
+     "CREATE TABLE x(minlsn hidden,maxlsn hidden, flags hidden,lsn,rectype integer,generation integer,txnid integer,utxnid integer,timestamp integer,payload)");
   if( rc==SQLITE_OK ){
     pNew = *ppVtab = sqlite3_malloc( sizeof(*pNew) );
     if( pNew==0 ) return SQLITE_NOMEM;
@@ -370,6 +372,8 @@ static int tranlogColumn(
   u_int32_t rectype = 0;
   u_int32_t generation = 0;
   int64_t timestamp = 0;
+  u_int32_t txnid = 0;
+  u_int64_t utxnid = 0;
 
   switch( i ){
     case TRANLOG_COLUMN_START:
@@ -425,7 +429,14 @@ static int tranlogColumn(
             sqlite3_result_null(ctx);
         }
         break;
-
+	case TRANLOG_COLUMN_TXNID:
+		LOGCOPY_32(&txnid, &((char *) pCur->data.data)[4 + 4]); 
+		sqlite3_result_int64(ctx, txnid);
+		break;
+	case TRANLOG_COLUMN_UTXNID:
+		LOGCOPY_64(&utxnid, &((char *) pCur->data.data)[4 + 4 + 8]); 
+		sqlite3_result_int64(ctx, utxnid);
+		break;
     case TRANLOG_COLUMN_TIMESTAMP:
         if (pCur->data.data)
             LOGCOPY_32(&rectype, pCur->data.data); 

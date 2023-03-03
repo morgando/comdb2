@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+bash -n "$0" | exit 1
+source ${TESTSROOTDIR}/tools/cluster_utils.sh
+a_dbn=$1
+
+#####################################################
+
+NUM_INVALID_IDS=$(cdb2sql %{CDB2_OPTIONS} $a_dbn default 'select COUNT(*) from comdb2_transaction_logs AS a, comdb2_transaction_logs AS b WHERE (a.utxnid!=b.utxnid && a.txnid==b.txnid) || (a.utxnid==b.utxnid && a.txnid!=b.txnid)')
+
+# fail if needed
+
+cdb2sql %{CDB2_OPTIONS} $a_dbn default 'exec procedure sys.cmd.send("bdb checkpoint")'
+
+sleep 1
+
+MAX_UTXNID=$(cdb2sql %{CDB2_OPTIONS} $a_dbn default 'select lsn, left(payload, 8) from comdb2_transaction_logs where rectype==11')
+
+bounce_cluster
+
+cdb2sql %{CDB2_OPTIONS} $a_dbn default - <<EOF
+create table t(i int);$$
+insert into t values(1);
+EOF
+
+NUM_INVALID_IDS=$(cdb2sql %{CDB2_OPTIONS} $a_dbn default 'select COUNT(*) from comdb2_transaction_logs where utxnid < MAX_UTXNID')
+
+# fail if needed
+

@@ -433,6 +433,7 @@ __txn_xa_begin(dbenv, txn)
 	txn->parent = NULL;
 	ZERO_LSN(txn->last_lsn);
 	txn->txnid = TXN_INVALID;
+	txn->utxnid = TXN_INVALID;
 	txn->tid = 0;
 	txn->cursors = 0;
 	memset(&txn->lock_timeout, 0, sizeof(db_timeout_t));

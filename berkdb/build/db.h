@@ -2170,6 +2170,7 @@ struct __lsn_collection {
 
 struct __lc_cache_entry {
 	u_int32_t txnid;
+	u_int64_t utxnid;
 	int cacheid;  /* offset in __lc_cache.ent */
 	DB_LSN last_seen_lsn;
 	LINKC_T(struct __lc_cache_entry) lnk;

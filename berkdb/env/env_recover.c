@@ -1126,9 +1126,17 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 	do {
 		/* txnid is after rectype, which is a u_int32. */
 		LOGCOPY_32(&txnid, (u_int8_t *)data.data + sizeof(u_int32_t));
+		/* utxnid is after rectype (u_int32), txnid (u_int32), and lsn */
+		Pthread_mutex_lock(&dbenv->utxnid_lock);
+		LOGCOPY_64(&dbenv->next_utxnid, (u_int8_t *)data.data + sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN));
+		printf("\%"PRIx64" next utxnid\n", dbenv->next_utxnid);
+		Pthread_mutex_unlock(&dbenv->utxnid_lock);
 		if (txnid != 0)
 			break;
 	} while ((ret = __log_c_get(logc, &lsn, &data, DB_PREV)) == 0);
+	Pthread_mutex_lock(&dbenv->utxnid_lock);
+	dbenv->next_utxnid++;
+	Pthread_mutex_unlock(&dbenv->utxnid_lock);
 
 	/*
 	 * There are no transactions, so there is nothing to do unless
@@ -1222,12 +1230,12 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 					goto err;
 				}
 				first_lsn = ckp_args->ckp_lsn;
-				// Get a starting next_utxnid that's higher than the checkpoint.
+				/*// Get a starting next_utxnid that's higher than the checkpoint.
 				// This will be updated as transactions are processed during 
 				// forward roll. 
 				Pthread_mutex_lock(&dbenv->utxnid_lock);
 				dbenv->next_utxnid = ckp_args->max_utxnid+1;
-				Pthread_mutex_unlock(&dbenv->utxnid_lock);
+				Pthread_mutex_unlock(&dbenv->utxnid_lock);*/
 				have_rec = 0;
 				logmsg(LOGMSG_DEBUG, "checkpoint %u:%u points to last lsn %u:%u\n",
 					logged_checkpoint_lsn.file,

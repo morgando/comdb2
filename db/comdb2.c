@@ -444,6 +444,7 @@ int gbl_enable_berkdb_retry_deadlock_bias = 0;
 int gbl_enable_cache_internal_nodes = 1;
 int gbl_use_appsock_as_sqlthread = 0;
 int gbl_rep_process_txn_time = 0;
+int gbl_utxnid_log = 0; // Is this the right place for this?
 
 /* how many times we retry osql for verify */
 int gbl_osql_verify_retries_max = 499;

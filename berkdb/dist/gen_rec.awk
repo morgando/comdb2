@@ -70,6 +70,7 @@ BEGIN {
 
 	printf("#include \"db_config.h\"\n\n") >> CFILE
 	printf("extern int gbl_ufid_log;\n") >> CFILE
+	printf("extern int gbl_utxnid_log;\n") >> CFILE
 	printf("extern int gbl_ufid_dbreg_test;\n") >> CFILE
 
 	if (!dbprivate) {
@@ -427,6 +428,7 @@ function log_function() {
 	if (has_dbp == 1) {
 		printf("\tDB_ENV *dbenv;\n") >> CFILE;
 		printf("\tint ufid_log = gbl_ufid_log || (gbl_ufid_dbreg_test ? rand() % 2 : 0);\n") >> CFILE;
+		printf("\tint utxnid_log = gbl_utxnid_log;\n") >> CFILE;
 	}
 	if (dbprivate)
 		printf("\tDB_TXNLOGREC *lr;\n") >> CFILE;
@@ -459,7 +461,10 @@ function log_function() {
 	if (has_dbp == 1)
 		printf("\tdbenv = dbp->dbenv;\n") >> CFILE;
 	if (has_dbp == 1) {
-		printf("\tif (ufid_log)\n") >> CFILE
+		printf("\tif (utxnid_log)\n") >> CFILE;
+		# If utxnid logging is enabled, then ufid logging is enabled as well.
+		printf("\t\trectype = (DB_%s + 2000);\n", funcname) >> CFILE;
+		printf("\telse if (ufid_log)\n") >> CFILE;
 		printf("\t\trectype = (DB_%s + 1000);\n", funcname) >> CFILE;
 		printf("\telse\n") >> CFILE
 		printf("\t\trectype = DB_%s;\n", funcname) >> CFILE;
@@ -509,6 +514,9 @@ function log_function() {
 	# Malloc
 	printf("\tlogrec.size = sizeof(rectype) + ") >> CFILE;
 	printf("sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_num_uint64)") >> CFILE;
+	if (has_dbp) {
+		printf(" + (utxnid_log ? sizeof(txn_num_uint64) : 0)") >> CFILE;
+	}
 	for (i = 0; i < nvars; i++)
 		printf("\n\t    + %s", sizes[i]) >> CFILE;
 	printf(";\n") >> CFILE
@@ -564,8 +572,12 @@ function log_function() {
 	printf("\tbp += sizeof(txn_num);\n\n") >> CFILE;
 	printf("\tLOGCOPY_FROMLSN(bp, lsnp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
-	printf("\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
-	printf("\tbp += sizeof(txn_num_uint64);\n\n") >> CFILE;
+
+	if (has_dbp) {
+		printf("\tif (utxnid_log) {\n") >> CFILE;
+		printf("\t\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
+		printf("\t\tbp += sizeof(txn_num_uint64);\n}\n") >> CFILE;
+	}
 
 	for (i = 0; i < nvars; i ++) {
 		if (modes[i] == "ARG" || modes[i] == "TIME") {
@@ -938,8 +950,13 @@ function read_function_int() {
 	printf("\tbp += sizeof(argp->txnid->txnid);\n\n") >> CFILE;
 	printf("\tLOGCOPY_TOLSN(&argp->prev_lsn, bp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
-	printf("\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
-	printf("\tbp += sizeof(argp->txnid->utxnid);\n\n") >> CFILE;
+
+	# Only read utxnid if it was logged (indicated by +2000 in the rectype)
+	printf("\tif (argp->type == (DB_%s + 2000)) {\n", funcname) >> CFILE;
+	printf("\t\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
+	printf("\t\tbp += sizeof(argp->txnid->utxnid); \n\t}\n") >> CFILE;
+	printf("\telse {\n") >> CFILE;
+	printf("\t\targp->txnid->utxnid=0;\n\t}\n") >> CFILE;
 
 	# Now get rest of data.
 	for (i = 0; i < nvars; i ++) {

@@ -240,6 +240,7 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 	}
 	unsigned long long ltranid = 0;
 	if (10006 == rectype) {
+		// TODO
 		/* Find the logical tranid.  Offset should be (rectype + txn_num + last_lsn + txn_unum) */
 		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8 + 8]);
 	}

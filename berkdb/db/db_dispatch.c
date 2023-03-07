@@ -275,14 +275,20 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	int off = -1;
 	u_int32_t fileid = UINT32_MAX;
 	int is_fuid = 0;
+	int is_utxnid = 0;
 
 	/* Skip custom log recs */
 	if (rectype < 10000) {
 		log_event_counts[rectype]++;
-		if (rectype > 1000) {
+		if (rectype > 2000) {
+			is_fuid = 1;
+			is_utxnid = 1;
+			rectype -= 2000;
+		} else if (rectype > 1000) {
 			is_fuid = 1;
 			rectype -= 1000;
 		}
+		
 	}
 
 	/*
@@ -322,7 +328,10 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	case DB___qam_del:
 	case DB___qam_add:
 	case DB___qam_delext:
-		off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t);
+		if (is_utxnid)
+			off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t);
+		else
+			off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN);
 		break;
 
 	case DB___db_addrem:
@@ -335,9 +344,13 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 		 * These records take an additional 'opcode' parameter
 		 * before the fileid
 		 */
-		off =
-		    sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t) +
-		    sizeof(u_int32_t);
+		if (is_utxnid)
+			off =
+				sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t) +
+				sizeof(u_int32_t);
+		else
+			off =
+				sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int32_t);
 		break;
 
 	case DB___dbreg_register:

@@ -29,14 +29,15 @@
 /* Column numbers */
 #define TRANLOG_COLUMN_START        0
 #define TRANLOG_COLUMN_STOP         1
-#define TRANLOG_COLUMN_FLAGS        2
-#define TRANLOG_COLUMN_LSN          3
-#define TRANLOG_COLUMN_RECTYPE      4
-#define TRANLOG_COLUMN_GENERATION   5
-#define TRANLOG_COLUMN_TXNID		6
-#define TRANLOG_COLUMN_UTXNID		7
-#define TRANLOG_COLUMN_TIMESTAMP    8
-#define TRANLOG_COLUMN_LOG          9
+#define TRANLOG_COLUMN_MAXUTXNID    2
+#define TRANLOG_COLUMN_FLAGS        3
+#define TRANLOG_COLUMN_LSN          4
+#define TRANLOG_COLUMN_RECTYPE      5
+#define TRANLOG_COLUMN_GENERATION   6
+#define TRANLOG_COLUMN_TXNID		7
+#define TRANLOG_COLUMN_UTXNID		8
+#define TRANLOG_COLUMN_TIMESTAMP    9
+#define TRANLOG_COLUMN_LOG          10
 
 
 /* Modeled after generate_series */
@@ -70,7 +71,7 @@ static int tranlogConnect(
   int rc;
 
   rc = sqlite3_declare_vtab(db,
-     "CREATE TABLE x(minlsn hidden,maxlsn hidden, flags hidden,lsn,rectype integer,generation integer,txnid integer,utxnid integer,timestamp integer,payload)");
+     "CREATE TABLE x(minlsn hidden,maxlsn hidden,maxutxnid hidden,flags hidden,lsn,rectype integer,generation integer,txnid integer,utxnid integer,timestamp integer,payload)");
   if( rc==SQLITE_OK ){
     pNew = *ppVtab = sqlite3_malloc( sizeof(*pNew) );
     if( pNew==0 ) return SQLITE_NOMEM;
@@ -374,6 +375,7 @@ static int tranlogColumn(
   int64_t timestamp = 0;
   u_int32_t txnid = 0;
   u_int64_t utxnid = 0;
+  u_int64_t maxutxnid = 0;
 
   switch( i ){
     case TRANLOG_COLUMN_START:
@@ -391,7 +393,17 @@ static int tranlogColumn(
         }
         sqlite3_result_text(ctx, pCur->maxLsnStr, -1, NULL);
         break;
+	case TRANLOG_COLUMN_MAXUTXNID: 
+        if (pCur->data.data)
+            LOGCOPY_32(&rectype, pCur->data.data); 
 
+		if (rectype == DB___txn_ckp) {
+			LOGCOPY_64(&maxutxnid, &((char*)pCur->data.data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
+			sqlite3_result_int64(ctx, maxutxnid);
+		} else {
+			sqlite3_result_null(ctx);
+		}
+		break;
     case TRANLOG_COLUMN_FLAGS:
         sqlite3_result_int64(ctx, pCur->flags);
         break;

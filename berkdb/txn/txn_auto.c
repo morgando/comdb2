@@ -79,6 +79,9 @@ __txn_regop_log_int(dbenv, txnid, ret_lsnp, ret_contextp, flags,
 #endif
 
 	rectype = DB___txn_regop;
+	if (gbl_utxnid_log) {
+		rectype += 2000;
+	}
 	npad = 0;
 
 	is_durable = 1;
@@ -105,7 +108,7 @@ __txn_regop_log_int(dbenv, txnid, ret_lsnp, ret_contextp, flags,
 		lsnp = &txnid->last_lsn;
 	}
 
-	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_unum) 
+	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + (gbl_utxnid_log ? sizeof(txn_unum) : 0)
 	    + sizeof(u_int32_t)
 	    + sizeof(u_int32_t)
 	    + sizeof(u_int32_t) + (locks == NULL ? 0 : locks->size);
@@ -166,8 +169,10 @@ do_malloc:
 	LOGCOPY_FROMLSN(bp, lsnp);
 	bp += sizeof(DB_LSN);
 
-	LOGCOPY_64(bp, &txn_unum);
-	bp += sizeof(txn_unum);
+	if (gbl_utxnid_log) {
+		LOGCOPY_64(bp, &txn_unum);
+		bp += sizeof(txn_unum);
+	}
 
 	uinttmp = (u_int32_t)opcode;
 	LOGCOPY_32(bp, &uinttmp);
@@ -388,8 +393,10 @@ __txn_regop_read_int(dbenv, recbuf, do_pgswp, argpp)
 	LOGCOPY_TOLSN(&argp->prev_lsn, bp);
 	bp += sizeof(DB_LSN);
 
-	LOGCOPY_64(&argp->txnid->utxnid, bp);
-	bp += sizeof(argp->txnid->utxnid);
+	if (gbl_utxnid_log) {
+		LOGCOPY_64(&argp->txnid->utxnid, bp);
+		bp += sizeof(argp->txnid->utxnid);
+	}
 
 	LOGCOPY_32(&uinttmp, bp);
 	argp->opcode = (u_int32_t)uinttmp;
@@ -550,6 +557,9 @@ __txn_ckp_log(dbenv, txnid, ret_lsnp, flags,
 #endif
 
 	rectype = DB___txn_ckp;
+	if (gbl_utxnid_log) {
+		rectype += 2000;
+	}
 	npad = 0;
 
 	is_durable = 1;
@@ -576,7 +586,7 @@ __txn_ckp_log(dbenv, txnid, ret_lsnp, flags,
 		lsnp = &txnid->last_lsn;
 	}
 
-	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_unum)
+	logrec.size = sizeof(rectype) + sizeof(txn_num) + sizeof(DB_LSN) + (gbl_utxnid_log ? sizeof(txn_unum) : 0)
 	    + sizeof(*ckp_lsn)
 	    + sizeof(*last_ckp)
 	    + sizeof(u_int32_t)
@@ -639,8 +649,10 @@ do_malloc:
 	LOGCOPY_FROMLSN(bp, lsnp);
 	bp += sizeof(DB_LSN);
 
-	LOGCOPY_64(bp, &txn_unum);
-	bp += sizeof(txn_unum);
+	if (gbl_utxnid_log) {
+		LOGCOPY_64(bp, &txn_unum);
+		bp += sizeof(txn_unum);
+	}
 
 	if (ckp_lsn != NULL)
 		LOGCOPY_FROMLSN(bp, ckp_lsn);
@@ -2896,8 +2908,10 @@ __txn_regop_gen_read_int(dbenv, recbuf, do_pgswp, argpp)
 	LOGCOPY_TOLSN(&argp->prev_lsn, bp);
 	bp += sizeof(DB_LSN);
 
-	LOGCOPY_64(&argp->txnid->utxnid,  bp);
-	bp += sizeof(argp->txnid->utxnid);
+	if (gbl_utxnid_log) {
+		LOGCOPY_64(&argp->txnid->utxnid,  bp);
+		bp += sizeof(argp->txnid->utxnid);
+	}
 
 	LOGCOPY_32(&uinttmp, bp);
 	argp->opcode = (u_int32_t)uinttmp;

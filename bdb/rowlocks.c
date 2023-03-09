@@ -265,7 +265,11 @@ static int get_next_addrem_buffer(bdb_state_type *bdb_state, DB_LSN *lsn,
         *nextlsn = prevlsn;
 
         if (rectype < 10000 && rectype > 1000) {
-            rectype -= 1000;
+			if (rectype > 2000) {
+				rectype -= 2000;
+			} else {
+				rectype -= 1000;
+			}
         }
         if (rectype == DB___db_pg_free || rectype == DB___db_pg_freedata)
             /* pg_free is generating an extra addrem that I don't understand.
@@ -752,7 +756,11 @@ int bdb_reconstruct_key_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
 
         if (rectype < 10000 && rectype > 1000) {
-            rectype -= 1000;
+			if (rectype > 2000) {
+				rectype -= 2000;
+			} else {
+				rectype -= 1000;
+			}
         }
 
         if (rectype == DB___bam_repl) {
@@ -851,7 +859,11 @@ int bdb_reconstruct_inplace_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
 
         if (rectype < 10000 && rectype > 1000) {
-            rectype -= 1000;
+			if (rectype > 2000) {
+				rectype -= 2000;
+			} else {
+				rectype -= 1000;
+			}
         }
 
         /* Find a btree-replace log record. */
@@ -1289,8 +1301,13 @@ int undo_commit(bdb_state_type *bdb_state, tran_type *tran,
 
 char *rectypestr(int rectype)
 {
-    if (rectype < 10000 && rectype > 1000)
-        rectype -= 1000;
+    if (rectype < 10000 && rectype > 1000) {
+		if (rectype > 2000) {
+			rectype -= 2000;
+		} else {
+			rectype -= 1000;
+		}
+	}
     switch (rectype) {
     case DB_llog_savegenid:
         return "savegenid";

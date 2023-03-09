@@ -463,6 +463,9 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 	int make_call, ret;
 
 	LOGCOPY_32(&rectype, db->data);
+	if (rectype < 10000 && rectype > 2000) {
+		rectype -= 2000;
+	}
 	LOGCOPY_32(&txnid, (u_int8_t *)db->data + sizeof(rectype));
 	make_call = ret = 0;
 
@@ -720,7 +723,9 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 			 * the standard table, use the standard table's size
 			 * as our sanity check.
 			 */
-			if (rectype > 1000) {
+			if (rectype > 2000) {
+				rectype -= 2000;
+			} else if (rectype > 1000) {
 				rectype -= 1000;
 			}
 			if (rectype > dtabsize || dtab[rectype] == NULL) {

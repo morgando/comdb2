@@ -121,6 +121,7 @@ extern int gbl_num_logput_listeners;
 extern pthread_mutex_t gbl_durable_lsn_lk;
 extern pthread_cond_t gbl_durable_lsn_cond;
 extern int comdb2_sql_tick();
+extern int gbl_utxnid_log;
 
 /*
 ** Advance a tranlog cursor to the next log entry
@@ -278,49 +279,77 @@ static inline int parse_lsn(const unsigned char *lsnstr, DB_LSN *lsn)
 static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 {
     u_int64_t timestamp;
-    LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
+	if (gbl_utxnid_log) {
+		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
+	} else {
+		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 4 + 4 + 8] );
+	}
     return timestamp;
 }
 
 static u_int32_t get_generation_from_regop_gen_record(char *data)
 {
     u_int32_t generation;
-    LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 8 + 4] );
+	if (gbl_utxnid_log) {
+		LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 8 + 4] );
+	} else {
+		LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 4] );
+	}
     return generation;
 }
 
 static u_int64_t get_timestamp_from_regop_rowlocks_record(char *data)
 {
     u_int64_t timestamp;
-    LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8] );
+	if (gbl_utxnid_log) {
+		LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8] );
+	} else {
+		LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4 + 8 + 8 + 8 + 8] );
+	}
     return timestamp;
 }
 
 static u_int32_t get_generation_from_regop_rowlocks_record(char *data)
 {
     u_int32_t generation;
-    LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
+	if (gbl_utxnid_log) {
+		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
+	} else {
+		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
+	}
     return generation;
 }
 
 static u_int32_t get_timestamp_from_regop_record(char *data)
 {
     u_int32_t timestamp;
-    LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 4] );
+	if (gbl_utxnid_log) {
+		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 4] );
+	} else {
+		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 4] );
+	}
     return timestamp;
 }
 
 static u_int32_t get_timestamp_from_ckp_record(char *data)
 {
     u_int32_t timestamp;
-    LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8 + 8] );
+	if (gbl_utxnid_log) { 
+		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8 + 8] );
+	} else {
+		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8] );
+	}
     return timestamp;
 }
 
 static u_int32_t get_generation_from_ckp_record(char *data)
 {
     u_int32_t generation;
-    LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 8 + 4] );
+	if (gbl_utxnid_log) {
+		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 8 + 4] );
+	} else {
+		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 4] );
+	}
     return generation;
 }
 
@@ -397,7 +426,7 @@ static int tranlogColumn(
         if (pCur->data.data)
             LOGCOPY_32(&rectype, pCur->data.data); 
 
-		if (rectype == DB___txn_ckp) {
+		if (gbl_utxnid_log && (rectype == DB___txn_ckp)) {
 			LOGCOPY_64(&maxutxnid, &((char*)pCur->data.data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
 			sqlite3_result_int64(ctx, maxutxnid);
 		} else {
@@ -446,8 +475,12 @@ static int tranlogColumn(
 		sqlite3_result_int64(ctx, txnid);
 		break;
 	case TRANLOG_COLUMN_UTXNID:
-		LOGCOPY_64(&utxnid, &((char *) pCur->data.data)[4 + 4 + 8]); 
-		sqlite3_result_int64(ctx, utxnid);
+		if (gbl_utxnid_log) {
+			LOGCOPY_64(&utxnid, &((char *) pCur->data.data)[4 + 4 + 8]); 
+			sqlite3_result_int64(ctx, utxnid);
+		} else {
+			sqlite3_result_null(ctx);
+		}
 		break;
     case TRANLOG_COLUMN_TIMESTAMP:
         if (pCur->data.data)

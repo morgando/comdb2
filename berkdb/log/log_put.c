@@ -240,7 +240,8 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 	}
 	unsigned long long ltranid = 0;
 	if (10006 == rectype) {
-		// TODO
+		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8]);
+	} else if (10006+2000 == rectype) {
 		/* Find the logical tranid.  Offset should be (rectype + txn_num + last_lsn + txn_unum) */
 		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8 + 8]);
 	}
@@ -277,7 +278,7 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 	lsn = *lsnp;
 
 	/*if (DB_llog_ltran_start == rectype) */
-	if (10006 == rectype) {
+	if ((10006 == rectype) || (10006+2000 == rectype)) {
 		bdb_update_startlwm_berk(dbenv->app_private, ltranid, &lsn);
 	}
 

@@ -591,8 +591,7 @@ __txn_ckp_log(dbenv, txnid, ret_lsnp, flags,
 	    + sizeof(*ckp_lsn)
 	    + sizeof(*last_ckp)
 	    + sizeof(u_int32_t)
-	    + sizeof(u_int32_t)
-	    + sizeof(u_int64_t);
+	    + sizeof(u_int32_t);
 	if (CRYPTO_ON(dbenv)) {
 		npad =
 		    ((DB_CIPHER *)dbenv->crypto_handle)->adj_size(logrec.size);
@@ -674,10 +673,6 @@ do_malloc:
 	uinttmp = (u_int32_t)rep_gen;
 	LOGCOPY_32(bp, &uinttmp);
 	bp += sizeof(uinttmp);
-
-	uint64tmp = (u_int64_t)max_utxnid;
-	LOGCOPY_64(bp, &uint64tmp);
-	bp += sizeof(uint64tmp);
 
 	DB_ASSERT((u_int32_t)(bp - (u_int8_t *)logrec.data) <= logrec.size);
 
@@ -850,10 +845,6 @@ __txn_ckp_read_int(dbenv, recbuf, do_pgswp, argpp)
 	argp->rep_gen = (u_int32_t)uinttmp;
 	bp += sizeof(uinttmp);
 
-	LOGCOPY_64(&uint64tmp, bp);
-	argp->max_utxnid = (u_int64_t)uint64tmp;
-	bp += sizeof(uint64tmp);
-
 	*argpp = argp;
 	return (0);
 }
@@ -912,8 +903,6 @@ __txn_ckp_print(dbenv, dbtp, lsnp, notused2, notused3)
     }
 	fflush(stdout);
 	(void)printf("\trep_gen: %ld\n", (long)argp->rep_gen);
-	fflush(stdout);
-	(void)printf("\tmax_utxnid: %"PRIx64"\n", argp->max_utxnid);
 	fflush(stdout);
 	(void)printf("\n");
 	__os_free(dbenv, argp);

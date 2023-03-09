@@ -472,6 +472,7 @@ function log_function() {
 		printf("\tif (utxnid_log)\n") >> CFILE;
 		# If utxnid logging is enabled, then ufid logging is enabled as well.
 		printf("\t\trectype = (DB_%s + 2000);\n", funcname) >> CFILE;
+		printf("\telse\n") >> CFILE
 		printf("\trectype = DB_%s;\n", funcname) >> CFILE;
 	}
 	printf("\tnpad = 0;\n\n") >> CFILE;

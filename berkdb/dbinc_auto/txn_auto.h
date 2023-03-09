@@ -22,7 +22,6 @@ typedef struct ___txn_ckp_args {
 	DB_LSN	last_ckp;
 	int32_t	timestamp;
 	u_int32_t	rep_gen;
-	u_int64_t	max_utxnid;
 } __txn_ckp_args;
 
 #define	DB___txn_child	12

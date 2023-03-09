@@ -123,7 +123,7 @@ __checkpoint_get_recovery_lsn(DB_ENV *dbenv, DB_LSN *lsnout)
 	}
 
 	LOGCOPY_32(&type, dbt.data);
-	if (type != DB___txn_ckp) {
+	if (type != DB___txn_ckp || type != (DB___txn_ckp + 2000)) {
 		logmsg(LOGMSG_ERROR, "checkpoint record unexpeted type %d\n", type);
 		goto err;
 	}
@@ -1449,7 +1449,7 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 		 * forward beyond the soon-to-be end of log.
 		 */
 
-		/* TODO: update max_utxnid */
+		/* TODO: update mon of genids, or the current incrementing/restore in recovery long txnid?  Either wouldsssssssss */
 
 		if (log_compare(&lsn, &stop_lsn) > 0)
 			break;

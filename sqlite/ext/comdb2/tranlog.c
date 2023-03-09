@@ -278,6 +278,7 @@ static inline int parse_lsn(const unsigned char *lsnstr, DB_LSN *lsn)
 
 static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 {
+	printf("%d utxnid log\n", gbl_utxnid_log);
     u_int64_t timestamp;
 	if (gbl_utxnid_log) {
 		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );

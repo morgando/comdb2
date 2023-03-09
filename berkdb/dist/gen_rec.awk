@@ -428,8 +428,8 @@ function log_function() {
 	if (has_dbp == 1) {
 		printf("\tDB_ENV *dbenv;\n") >> CFILE;
 		printf("\tint ufid_log = gbl_ufid_log || (gbl_ufid_dbreg_test ? rand() % 2 : 0);\n") >> CFILE;
-		printf("\tint utxnid_log = gbl_utxnid_log;\n") >> CFILE;
 	}
+	printf("\tint utxnid_log = gbl_utxnid_log;\n") >> CFILE;
 	if (dbprivate)
 		printf("\tDB_TXNLOGREC *lr;\n") >> CFILE;
 	printf("\tDB_LSN *lsnp, null_lsn;\n") >> CFILE;
@@ -469,6 +469,9 @@ function log_function() {
 		printf("\telse\n") >> CFILE
 		printf("\t\trectype = DB_%s;\n", funcname) >> CFILE;
 	} else {
+		printf("\tif (utxnid_log)\n") >> CFILE;
+		# If utxnid logging is enabled, then ufid logging is enabled as well.
+		printf("\t\trectype = (DB_%s + 2000);\n", funcname) >> CFILE;
 		printf("\trectype = DB_%s;\n", funcname) >> CFILE;
 	}
 	printf("\tnpad = 0;\n\n") >> CFILE;
@@ -513,10 +516,8 @@ function log_function() {
 
 	# Malloc
 	printf("\tlogrec.size = sizeof(rectype) + ") >> CFILE;
-	printf("sizeof(txn_num) + sizeof(DB_LSN) + sizeof(txn_num_uint64)") >> CFILE;
-	if (has_dbp) {
-		printf(" + (utxnid_log ? sizeof(txn_num_uint64) : 0)") >> CFILE;
-	}
+	printf("sizeof(txn_num) + sizeof(DB_LSN)") >> CFILE;
+	printf(" + (utxnid_log ? sizeof(txn_num_uint64) : 0)") >> CFILE;
 	for (i = 0; i < nvars; i++)
 		printf("\n\t    + %s", sizes[i]) >> CFILE;
 	printf(";\n") >> CFILE
@@ -573,11 +574,9 @@ function log_function() {
 	printf("\tLOGCOPY_FROMLSN(bp, lsnp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
 
-	if (has_dbp) {
-		printf("\tif (utxnid_log) {\n") >> CFILE;
-		printf("\t\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
-		printf("\t\tbp += sizeof(txn_num_uint64);\n}\n") >> CFILE;
-	}
+	printf("\tif (utxnid_log) {\n") >> CFILE;
+	printf("\t\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
+	printf("\t\tbp += sizeof(txn_num_uint64);\n}\n") >> CFILE;
 
 	for (i = 0; i < nvars; i ++) {
 		if (modes[i] == "ARG" || modes[i] == "TIME") {

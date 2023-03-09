@@ -2141,7 +2141,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 		first_lsn; ret == 0;
 		ret = __log_c_get(logc, &lsn, &data, DB_NEXT)) {
 		LOGCOPY_32(&rectype, data.data);
-		if (rectype < 10000 && rectype > 2000) {
+		if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
 			rectype -= 2000;
 		}
 		switch (rectype) {

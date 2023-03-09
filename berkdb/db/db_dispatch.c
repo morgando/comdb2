@@ -277,16 +277,17 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	int is_fuid = 0;
 	int is_utxnid = 0;
 
-	/* Skip custom log recs */
-	if (rectype < 10000) {
-		log_event_counts[rectype]++;
-		if (rectype > 2000) {
+	if (rectype > 1000) {
+		if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
 			is_fuid = 1;
 			is_utxnid = 1;
 			rectype -= 2000;
-		} else if (rectype > 1000) {
+			log_event_counts[rectype]++;
+		} else if ((rectype < 10000) && (rectype > 1000)) {
+			/* Skip custom log recs */
 			is_fuid = 1;
 			rectype -= 1000;
+			log_event_counts[rectype]++;
 		}
 		
 	}
@@ -463,7 +464,7 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 	int make_call, ret;
 
 	LOGCOPY_32(&rectype, db->data);
-	if (rectype < 10000 && rectype > 2000) {
+	if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
 		rectype -= 2000;
 	}
 	LOGCOPY_32(&txnid, (u_int8_t *)db->data + sizeof(rectype));

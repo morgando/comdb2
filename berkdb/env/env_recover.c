@@ -87,6 +87,7 @@ static int __log_find_latest_checkpoint_before_lsn_try_harder(DB_ENV *dbenv,
 	DB_LOGC *logc, DB_LSN *max_lsn, DB_LSN *foundlsn);
 int gbl_ufid_dbreg_test = 0;
 int gbl_ufid_log = 0;
+extern int gbl_utxnid_log;
 
 /* Get the recovery LSN. */
 int
@@ -123,7 +124,7 @@ __checkpoint_get_recovery_lsn(DB_ENV *dbenv, DB_LSN *lsnout)
 	}
 
 	LOGCOPY_32(&type, dbt.data);
-	if (type != DB___txn_ckp || type != (DB___txn_ckp + 2000)) {
+	if (type != DB___txn_ckp && type != (DB___txn_ckp + 2000)) {
 		logmsg(LOGMSG_ERROR, "checkpoint record unexpeted type %d\n", type);
 		goto err;
 	}
@@ -1126,11 +1127,6 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 	do {
 		/* txnid is after rectype, which is a u_int32. */
 		LOGCOPY_32(&txnid, (u_int8_t *)data.data + sizeof(u_int32_t));
-		/* utxnid is after rectype (u_int32), txnid (u_int32), and lsn */
-		Pthread_mutex_lock(&dbenv->utxnid_lock);
-		LOGCOPY_64(&dbenv->next_utxnid, (u_int8_t *)data.data + sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN));
-		printf("\%"PRIx64" next utxnid\n", dbenv->next_utxnid);
-		Pthread_mutex_unlock(&dbenv->utxnid_lock);
 		if (txnid != 0)
 			break;
 	} while ((ret = __log_c_get(logc, &lsn, &data, DB_PREV)) == 0);

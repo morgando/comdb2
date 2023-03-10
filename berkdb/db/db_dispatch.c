@@ -461,11 +461,21 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 {
 	DB_LSN prev_lsn;
 	u_int32_t rectype, txnid;
+	u_int64_t utxnid;
 	int make_call, ret;
 
 	LOGCOPY_32(&rectype, db->data);
 	if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
 		rectype -= 2000;
+		if (redo == DB_TXN_OPENFILES) {
+			LOGCOPY_64(&utxnid, &((char*)db->data)[4 + 4 + 8]);
+			printf("\%"PRIx64" utxnid\n", utxnid);
+			Pthread_mutex_lock(&dbenv->utxnid_lock);
+			if (utxnid > dbenv->next_utxnid) {
+				dbenv->next_utxnid = utxnid + 1;
+			}
+			Pthread_mutex_unlock(&dbenv->utxnid_lock);
+		}
 	}
 	LOGCOPY_32(&txnid, (u_int8_t *)db->data + sizeof(rectype));
 	make_call = ret = 0;

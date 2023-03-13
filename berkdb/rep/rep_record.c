@@ -142,11 +142,14 @@ int64_t gbl_rep_trans_parallel = 0, gbl_rep_trans_serial =
 
 static inline int wait_for_running_transactions(DB_ENV *dbenv);
 
-#define	IS_SIMPLE(R)	((R) != DB___txn_regop && (R) != DB___txn_xa_regop && \
-	(R) != DB___txn_regop_rowlocks && (R) != DB___txn_regop_gen && (R) != \
+#define	IS_SIMPLE(R)	((R) != DB___txn_regop && \
+	(R) != DB___txn_xa_regop && \
+	(R) != DB___txn_regop_rowlocks && \
+	(R) != DB___txn_regop_gen && (R) != \
 	DB___txn_ckp && (R) != DB___dbreg_register)
 
 int gbl_rep_process_msg_print_rc;
+extern int gbl_utxnid_log;
 
 #define PRINT_RETURN(retrc, fromline)										\
 	do {																	\
@@ -388,6 +391,16 @@ lc_free(DB_ENV *dbenv, struct __recovery_processor *rp, LSN_COLLECTION * lc)
 	lc->nalloc = 0;
 }
 
+int normalize_rectype(u_int32_t *rectype) {
+	if (*rectype > 12000 || (*rectype > 2000 && *rectype < 10000)) {
+		assert (gbl_utxnid_log);
+		*rectype -= 2000;
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
 int gbl_match_on_ckp = 1;
 /*
  * matchable_log_type --
@@ -532,11 +545,13 @@ static void *apply_thread(void *arg)
 		while (!IN_ELECTION_TALLY_WAITSTART(rep) && !bdb_the_lock_desired() && 
 				(max_dequeue-- > 0) && (q = listc_rtl(&log_queue))) {
 			Pthread_cond_broadcast(&release_cond);
-			if (q->rp->rectype == REP_LOG_MORE) {
+			u_int32_t rectype = q->rp->rectype;
+			normalize_rectype(&rectype);
+			if (rectype == REP_LOG_MORE) {
 				queue_log_more_count--;
 				log_more_count = queue_log_more_count;
 			}
-			if (q->rp->rectype == REP_LOG_FILL) {
+			if (rectype == REP_LOG_FILL) {
 				queue_log_fill_count--;
 				log_fill_count = queue_log_fill_count;
 			}
@@ -604,7 +619,7 @@ static void *apply_thread(void *arg)
 				}
 
 				/* Continue LOG_MORE */
-				if (q->rp->rectype == REP_LOG_MORE && log_more_count == 0) {
+				if (rectype == REP_LOG_MORE && log_more_count == 0) {
 					DB_LSN lsn;
 					MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 					master_eid = rep->master_id;
@@ -885,10 +900,12 @@ __rep_enqueue_log(dbenv, rp, rec, gen)
 		max_queued_lsn = q->rp->lsn;
 	}
 
-	if (q->rp->rectype == REP_LOG_MORE) {
+	u_int32_t rectype = q->rp->rectype;
+	normalize_rectype(&rectype);
+	if (rectype == REP_LOG_MORE) {
 		queue_log_more_count++;
 	}
-	if (q->rp->rectype == REP_LOG_FILL) {
+	if (rectype == REP_LOG_FILL) {
 		queue_log_fill_count++;
 	}
 	listc_abl(&log_queue, q);
@@ -964,6 +981,7 @@ __rep_verify_will_recover(dbenv, control, rec)
 		will_recover = 1;
 
 	LOGCOPY_32(&rectype, mylog.data);
+	normalize_rectype(&rectype);
 
 	if ((will_recover == 1 && !matchable_log_type(rectype)) &&
 			((ret = __log_c_get(logc, &lsn, &mylog, DB_PREV)) == 0)){
@@ -1074,7 +1092,9 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 		__rep_control_swap(rp);
 
 	if (gbl_verbose_master_req) {
-		switch (rp->rectype) {
+		rectype = rp->rectype;
+		normalize_rectype(&rectype);
+		switch (rectype) {
 			case REP_MASTER_REQ:
 				logmsg(LOGMSG_USER, "%s processing REP_MASTER_REQ\n", __func__);
 				break;
@@ -1159,8 +1179,10 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 	 * except requests that are indicative of a new client that needs
 	 * to get in sync.
 	 */
-	if (rp->gen < gen && rp->rectype != REP_ALIVE_REQ &&
-		rp->rectype != REP_NEWCLIENT && rp->rectype != REP_MASTER_REQ) {
+	rectype = rp->rectype;
+	normalize_rectype(&rectype);
+	if (rp->gen < gen && rectype != REP_ALIVE_REQ &&
+		rectype != REP_NEWCLIENT && rectype != REP_MASTER_REQ) {
 		/*
 		 * We don't hold the rep mutex, and could miscount if we race.
 		 */
@@ -1170,7 +1192,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 		u_int32_t now;
 		if (gbl_rep_badgen_trace && ((now = time(NULL)) - lastpr)) {
 			logmsg(LOGMSG_USER, "Ignoring rp->gen %u from %s mygen is %u, "
-				"rectype=%u cnt %u\n", rp->gen, *eidp, gen, rp->rectype, 
+				"rectype=%u cnt %u\n", rp->gen, *eidp, gen, rectype, 
 				rep->stat.st_msgs_badgen);
 			lastpr = now;
 		}
@@ -1188,7 +1210,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 			u_int32_t now;
 			if (gbl_rep_badgen_trace && ((now = time(NULL)) - lastpr)) {
 				logmsg(LOGMSG_USER, "rp->gen %u from %s is larger than "
-					"mygen %u, rectype=%u\n", rp->gen, *eidp, gen, rp->rectype);
+					"mygen %u, rectype=%u\n", rp->gen, *eidp, gen, rectype);
 				lastpr = now;
 			}
 
@@ -1206,9 +1228,9 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 		 * elections and communication. Otherwise, I need to hear about
 		 * a new master and sync up.
 		 */
-		if (rp->rectype == REP_VOTE1 || rp->rectype == REP_VOTE2 ||
-			rp->rectype == REP_GEN_VOTE1 ||
-			rp->rectype == REP_GEN_VOTE2) {
+		if (rectype == REP_VOTE1 || rectype == REP_VOTE2 ||
+			rectype == REP_GEN_VOTE1 ||
+			rectype == REP_GEN_VOTE2) {
 			MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 #ifdef DIAGNOSTIC
 			if (FLD_ISSET(dbenv->verbose, DB_VERB_REPLICATION))
@@ -1216,7 +1238,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 					(u_long)gen, (u_long)rp->gen);
 #endif
 			logmsg(LOGMSG_DEBUG, "%s line %d setting rep->gen to %d for rectype "
-					"%d\n", __func__, __LINE__, rp->gen, rp->rectype);
+					"%d\n", __func__, __LINE__, rp->gen, rectype);
 			__rep_set_gen(dbenv, __func__, __LINE__, rp->gen);
 			gen = rp->gen;
 			if (rep->egen <= gen)
@@ -1227,7 +1249,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 					(u_long)rep->egen);
 #endif
 			MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
-		} else if (rp->rectype != REP_NEWMASTER) {
+		} else if (rectype != REP_NEWMASTER) {
 			send_master_req(dbenv, __func__, __LINE__);
 			fromline = __LINE__;
 			goto errlock;
@@ -1247,7 +1269,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 	 * NEW* and ALIVE_REQ.
 	 */
 	if (recovering) {
-		switch (rp->rectype) {
+		switch (rectype) {
 		case REP_VERIFY:
 			MUTEX_LOCK(dbenv, db_rep->db_mutexp);
 			cmp = log_compare(&lp->verify_lsn, &rp->lsn);
@@ -1302,7 +1324,7 @@ skip:				/*
 				 * a MASTER_REQ.
 				 */
 				if (rep->master_id == db_eid_invalid &&
-					rp->rectype != REP_MASTER_REQ) {
+					rectype != REP_MASTER_REQ) {
 					static time_t master_req_print = 0;
 					static unsigned long long master_req_count = 0;
 
@@ -1338,7 +1360,7 @@ skip:				/*
 		}
 	}
 
-	switch (rp->rectype) {
+	switch (rectype) {
 	case REP_ALIVE:
 		ANYSITE(rep);
 		egen = *(u_int32_t *)rec->data;
@@ -1561,7 +1583,7 @@ more:
 			goto errlock;
 		}
 
-		if ((ret == 0 || ret == DB_REP_ISPERM) && rp->rectype == REP_LOG_MORE && !gbl_decoupled_logputs) {
+		if ((ret == 0 || ret == DB_REP_ISPERM) && rectype == REP_LOG_MORE && !gbl_decoupled_logputs) {
 			MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 			master = rep->master_id;
 			MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
@@ -1938,6 +1960,8 @@ more:
 		match = 0;
 
 		LOGCOPY_32(&rectype, mylog.data);
+
+		int utxnid_logged =	normalize_rectype(&rectype);
 		if (rectype == DB___txn_regop) {
 			/* If it's a commit, copy the timestamp - if we're about to unroll too
 			 * far, we want to notice and not do it. */
@@ -1952,7 +1976,7 @@ more:
 			LOGCOPY_32(&timestamp,
 				(uint8_t *)mylog.data + sizeof(a.type) +
 				sizeof(a.txnid->txnid) + sizeof(DB_LSN) +
-				sizeof(u_int32_t));
+				(utxnid_logged ? sizeof(u_int64_t) : 0) + sizeof(u_int32_t));
 			t = timestamp;
 			if (dbenv->newest_rep_verify_tran_time == 0) {
 				dbenv->newest_rep_verify_tran_time = t;
@@ -1978,10 +2002,12 @@ more:
 
 			if (gbl_berkdb_verify_skip_skipables) {
 				LOGCOPY_32(&rectype, mylog.data);
+				normalize_rectype(&rectype);
 				while (!matchable_log_type(rectype) && (ret =
 					__log_c_get(logc, &lsn, &mylog,
 						DB_PREV)) == 0) {
 					LOGCOPY_32(&rectype, mylog.data);
+					normalize_rectype(&rectype);
 				}
 
 				if (ret == DB_NOTFOUND) {
@@ -2170,7 +2196,7 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 			goto errlock;
 		}
 
-		if (rp->rectype == REP_VOTE1) {
+		if (rectype == REP_VOTE1) {
 			vi = (REP_VOTE_INFO *) rec->data;
 			if (LOG_SWAPPED())
 				__rep_vote_info_swap(vi);
@@ -2206,13 +2232,13 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 		 */
 		if (vi_egen < rep->egen) {
 			logmsg(LOGMSG_DEBUG, "%s line %d ignoring %s from %s: it's egen is %d my-egen is %d\n",
-					__func__, __LINE__, rp->rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
+					__func__, __LINE__, rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
 					*eidp, vi_egen, rep->egen);
 			goto errunlock;
 		}
 		if (vi_egen > rep->egen) {
 			logmsg(LOGMSG_DEBUG, "%s line %d reseting election for %s from %s: it's egen is %d my-egen is %d\n",
-					__func__, __LINE__, rp->rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
+					__func__, __LINE__, rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
 					*eidp, vi_egen, rep->egen);
 			__rep_elect_done(dbenv, rep, vi_egen, __func__, __LINE__);
 			//rep->egen = vi_egen;
@@ -2369,7 +2395,7 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 		 * election thread catches up we'll have the votes we
 		 * already received.
 		 */
-		if (rp->rectype == REP_VOTE2) {
+		if (rectype == REP_VOTE2) {
 			vi = (REP_VOTE_INFO *) rec->data;
 			if (LOG_SWAPPED())
 				__rep_vote_info_swap(vi);
@@ -2457,7 +2483,7 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 	default:
 		__db_err(dbenv,
 			"DB_ENV->rep_process_message: unknown replication message: type %lu",
-			(u_long)rp->rectype);
+			(u_long)rectype);
 		ret = EINVAL;
 		fromline = __LINE__;
 		goto errlock;
@@ -2956,8 +2982,10 @@ __rep_apply_int(dbenv, rp, rec, ret_lsnp, commit_gen, decoupled)
 		return 0;
 	}
 
-	if (gbl_verify_rep_log_records && rec->size >= HDR_NORMAL_SZ)
+	if (gbl_verify_rep_log_records && rec->size >= HDR_NORMAL_SZ) {
 		LOGCOPY_32(&rectype, rec->data);
+		normalize_rectype(&rectype);
+	}
 
 	if (gbl_verify_rep_log_records && IS_SIMPLE(rectype) &&
 		rec->size >= HDR_NORMAL_SZ) {
@@ -3043,7 +3071,9 @@ __rep_apply_int(dbenv, rp, rec, ret_lsnp, commit_gen, decoupled)
 	
 	if (cmp == 0) {
 		/* We got the log record that we are expecting. */
-		if (rp->rectype == REP_NEWFILE) {
+		u_int32_t rp_rectype = rp->rectype;
+		normalize_rectype(&rp_rectype);
+		if (rp_rectype == REP_NEWFILE) {
 
 			/* this will flush in-memory buffer, but we don't have the region lock for it;
 			 * get it here */
@@ -3065,6 +3095,7 @@ __rep_apply_int(dbenv, rp, rec, ret_lsnp, commit_gen, decoupled)
 			}
 
 			LOGCOPY_32(&rectype, rec->data);
+			normalize_rectype(&rectype);
 
 			/* 
 			 * If the rectype is DB___txn_ckp and out-of-band checkpoints are
@@ -3141,10 +3172,13 @@ gap_check:		max_lsn_dbtp = NULL;
 			}
 
 			rp = (REP_CONTROL *)control_dbt.data;
+			u_int32_t rp_rectype = rp->rectype;
+			normalize_rectype(&rp_rectype);
 			rec = &rec_dbt;
 			LOGCOPY_32(&rectype, rec->data);
+			normalize_rectype(&rectype);
 
-			if (rp->rectype != REP_NEWFILE) {
+			if (rp_rectype != REP_NEWFILE) {
 
 				/* 
 				 * If the rectype is DB___txn_ckp and out-of-band checkpoints are
@@ -3738,6 +3772,7 @@ err:	if (dbc != NULL && (t_ret = __db_c_close(dbc)) != 0 && ret == 0) {
 	 * have to report it to the bdb caller so that lsn is updated
 	 * correctly 
 	 * if (ret == 0 && cmp == 0 && !IS_SIMPLE(rectype)) {
+	 *  recovery start record found prior to checkpoint
 	 * if (ret_lsnp != NULL)
 	 * {
 	 * *ret_lsnp = rp->lsn;
@@ -3900,6 +3935,7 @@ worker_thd(struct thdpool *pool, void *work, void *thddata, int op)
 				abort();
 			}
 			LOGCOPY_32(&rectype, tmpdbt.data);
+			normalize_rectype(&rectype);
 			tmpdbt.app_data = &rp->context;
 
 			/* Map the txnid to the context */
@@ -3912,6 +3948,7 @@ worker_thd(struct thdpool *pool, void *work, void *thddata, int op)
 		} else {
 
 			LOGCOPY_32(&rectype, rr->logdbt.data);
+			normalize_rectype(&rectype);
 
 			rr->logdbt.app_data = &rp->context;
 			if (dispatch_rectype(rectype)) {
@@ -4162,11 +4199,13 @@ processor_thd(struct thdpool *pool, void *work, void *thddata, int op)
 				goto err;
 			}
 			LOGCOPY_32(&rectype, data_dbt.data);
+			normalize_rectype(&rectype);
 			found_ufid =
 				(int)ufid_for_recovery_record(dbenv, NULL,
 				rectype, fuid, &data_dbt);
 		} else {
 			LOGCOPY_32(&rectype, rp->lc.array[i].rec.data);
+			normalize_rectype(&rectype);
 			found_ufid =
 				(int)ufid_for_recovery_record(dbenv, NULL,
 				rectype, fuid, &rp->lc.array[i].rec);
@@ -4551,9 +4590,10 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 	 * Check which and behave appropriately.
 	 */
 	LOGCOPY_32(&rectype, rec->data);
+	normalize_rectype(&rectype);
 	memset(&lc, 0, sizeof(lc));
 
-	if (rectype == DB___txn_regop_rowlocks) {
+	if (rectype == DB___txn_regop_rowlocks || rectype == DB___txn_regop_rowlocks) {
 
 		int dontlock = 0;
 
@@ -4910,6 +4950,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 			LOGCOPY_32(&rectype, lcin_dbt.data);
 			needed_to_get_record_from_log = 0;
 		}
+		normalize_rectype(&rectype);
 
 		if (dispatch_rectype(rectype)) {
 			if ((ret = __db_dispatch(dbenv, dbenv->recover_dtab,
@@ -5330,6 +5371,7 @@ bad_resize:	;
 	 * Check which and behave appropriately.
 	 */
 	LOGCOPY_32(&rectype, rec->data);
+	normalize_rectype(&rectype);
 	if (rectype == DB___txn_regop_rowlocks) {
 		if ((ret =
 			__txn_regop_rowlocks_read(dbenv, rec->data,
@@ -5898,6 +5940,7 @@ __rep_collect_txn_from_log(dbenv, lsnp, lc, had_serializable_records, rp)
 			goto err;
 		}
 		LOGCOPY_32(&rectype, data.data);
+		normalize_rectype(&rectype);
 		if (rectype == DB___txn_child) {
 			if ((ret = __txn_child_read(dbenv,
 					data.data, &argp)) != 0)
@@ -6592,6 +6635,7 @@ restart:
 		logflags = DB_PREV;
 		lockcnt = 0;
 		LOGCOPY_32(&rectype, mylog.data);
+		normalize_rectype(&rectype);
 		if (rectype == DB___txn_regop_rowlocks) {
 			if ((ret =
 				__txn_regop_rowlocks_read(dbenv, mylog.data,
@@ -6795,6 +6839,7 @@ get_committed_lsns(dbenv, inlsns, n_lsns, epoch, file, offset)
 		while (!done &&
 			   (lsn.file > file || (lsn.file == file && lsn.offset > offset))) {
 			LOGCOPY_32(&rectype, mylog.data);
+			normalize_rectype(&rectype);
 			switch (rectype) {
 			case DB___txn_regop_rowlocks: {
 				if ((ret = __txn_regop_rowlocks_read(dbenv, mylog.data,
@@ -7108,6 +7153,7 @@ get_lsn_context_from_timestamp(dbenv, timestamp, ret_lsn, ret_context)
 
 	for (rc = 0; rc == 0; rc = logc->get(logc, &lsn, &logdta, DB_NEXT)) {
 		LOGCOPY_32(&rectype, logdta.data);
+		normalize_rectype(&rectype);
 		if (rectype == DB___txn_regop) {
 			if ((rc =
 				__txn_regop_read(dbenv, logdta.data,
@@ -7229,6 +7275,7 @@ get_context_from_lsn(dbenv, lsn, ret_context)
 	}
 
 	LOGCOPY_32(&rectype, logdta.data);
+	normalize_rectype(&rectype);
 	while (rectype != DB___txn_regop && rectype != DB___txn_regop_gen && 
 			rectype != DB___txn_regop_rowlocks) {
 		if ((rc = logc->get(logc, &lsn, &logdta, DB_PREV)) != 0) {
@@ -7242,6 +7289,7 @@ get_context_from_lsn(dbenv, lsn, ret_context)
 			return -1;
 		}
 		LOGCOPY_32(&rectype, logdta.data);
+		normalize_rectype(&rectype);
 	}
 
 	assert(rectype == DB___txn_regop || rectype == DB___txn_regop_gen ||

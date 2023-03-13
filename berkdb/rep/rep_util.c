@@ -44,6 +44,7 @@ void bdb_set_rep_handle_dead(struct bdb_state_tag *);
 int bdb_num_connected_nodes(struct bdb_state_tag *);
 #endif
 
+int normalize_rectype(u_int32_t * rectype);
 int gbl_verbose_master_req = 0;
 int gbl_trace_repmore_reqs = 0;
 
@@ -179,8 +180,10 @@ __rep_send_message(dbenv, eid, rtype, lsnp, dbtp, flags, usr_ptr)
 	 * REQ_ALL request 
 	 */
 #if 0
-	if (dbtp->size >= sizeof(rectype))
+	if (dbtp->size >= sizeof(rectype)) {
 		LOGCOPY_32(&rectype, dbtp->data);
+		normalize_rectype(&rectype);
+	}
 
 	if ((rtype == REP_LOG || rtype == REP_LOG_LOGPUT) &&
 		(rectype == DB___txn_regop)) {
@@ -218,6 +221,7 @@ __rep_send_message(dbenv, eid, rtype, lsnp, dbtp, flags, usr_ptr)
 		 * so we know that dbtp is a log record.
 		 */
 		memcpy(&rectype, dbtp->data, sizeof(rectype));
+		normalize_rectype(&rectype);
 		if (rectype == DB___txn_regop || rectype == DB___txn_regop_gen
 			|| rectype == DB___txn_ckp ||
 			rectype == DB___txn_regop_rowlocks)
@@ -1201,7 +1205,9 @@ __rep_print_message(dbenv, eid, rp, str)
 	char *str;
 {
 	char *type;
-	switch (rp->rectype) {
+	u_int32_t rectype = rp->rectype;
+	normalize_rectype(&rectype);
+	switch (rectype) {
 	case REP_ALIVE:
 		type = "alive";
 		break;

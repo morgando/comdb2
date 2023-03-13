@@ -394,7 +394,8 @@ lc_free(DB_ENV *dbenv, struct __recovery_processor *rp, LSN_COLLECTION * lc)
 int normalize_rectype(u_int32_t *rectype) {
 	if (*rectype > 12000 || (*rectype > 2000 && *rectype < 10000)) {
 		assert (gbl_utxnid_log);
-		*rectype -= 2000;
+		// Don't -1000 from +3000 records. Existing ufid code works with rectypes > 1000. 
+		rectype -= 2000;
 		return 1;
 	} else {
 		return 0;

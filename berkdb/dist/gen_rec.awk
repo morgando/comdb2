@@ -460,20 +460,15 @@ function log_function() {
 	# Initialization
 	if (has_dbp == 1)
 		printf("\tdbenv = dbp->dbenv;\n") >> CFILE;
+	printf("\trectype = DB_%s;\n", funcname) >> CFILE;
 	if (has_dbp == 1) {
 		printf("\tif (utxnid_log)\n") >> CFILE;
-		# If utxnid logging is enabled, then ufid logging is enabled as well.
-		printf("\t\trectype = (DB_%s + 2000);\n", funcname) >> CFILE;
-		printf("\telse if (ufid_log)\n") >> CFILE;
-		printf("\t\trectype = (DB_%s + 1000);\n", funcname) >> CFILE;
-		printf("\telse\n") >> CFILE
-		printf("\t\trectype = DB_%s;\n", funcname) >> CFILE;
+		printf("\t\trectype += 2000;\n") >> CFILE;
+		printf("\tif (ufid_log)\n") >> CFILE;
+		printf("\t\trectype += 1000;\n") >> CFILE;
 	} else {
 		printf("\tif (utxnid_log)\n") >> CFILE;
-		# If utxnid logging is enabled, then ufid logging is enabled as well.
-		printf("\t\trectype = (DB_%s + 2000);\n", funcname) >> CFILE;
-		printf("\telse\n") >> CFILE
-		printf("\trectype = DB_%s;\n", funcname) >> CFILE;
+		printf("\t\trectype += 2000;\n") >> CFILE;
 	}
 	printf("\tnpad = 0;\n\n") >> CFILE;
 
@@ -952,10 +947,10 @@ function read_function_int() {
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
 
 	# Only read utxnid if it was logged (indicated by +2000 in the rectype)
-	printf("\tif (argp->type == (DB_%s + 2000)) {\n", funcname) >> CFILE;
+	printf("\tif ((argp->type == (DB_%s + 2000)) || (argp->type == (DB_%s + 3000))) {\n", funcname, funcname) >> CFILE;
 	printf("\t\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
-	printf("\t\tbp += sizeof(argp->txnid->utxnid); \n\t}\n") >> CFILE;
-	printf("\telse {\n") >> CFILE;
+	printf("\t\tbp += sizeof(argp->txnid->utxnid);\n") >> CFILE;
+	printf("\t} else {\n") >> CFILE;
 	printf("\t\targp->txnid->utxnid=0;\n\t}\n") >> CFILE;
 
 	# Now get rest of data.
@@ -992,7 +987,7 @@ function read_function_int() {
 				printf("\tbp += sizeof(uinttmp);\n") >> CFILE;
 			}
 		} else if (modes[i] == "DB") {
-			printf("\tif (argp->type == (DB_%s + 1000)) {\n", funcname) >> CFILE;
+			printf("\tif ((argp->type == (DB_%s + 1000)) || (argp->type == (DB_%s + 3000))) {\n", funcname, funcname) >> CFILE;
 			printf("\t\tmemcpy(argp->ufid_%s, bp, DB_FILE_ID_LEN);\n", vars[i]) >> CFILE;
 			printf("\t\targp->%s = -1;\n", vars[i]) >> CFILE;
 			printf("\t\tbp += DB_FILE_ID_LEN;\n") >> CFILE;

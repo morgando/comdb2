@@ -79,6 +79,7 @@ static int __db_txnlist_find_internal __P((DB_ENV *, void *, db_txnlist_type,
 	u_int32_t, u_int8_t[DB_FILE_ID_LEN], DB_TXNLIST **, int));
 static int __db_txnlist_pgnoadd __P((DB_ENV *, DB_TXNHEAD *,
 	int32_t, u_int8_t[DB_FILE_ID_LEN], char *, db_pgno_t));
+int normalize_rectype(u_int32_t * rectype);
 
 
 /* TODO: dispatch table for these? */
@@ -278,18 +279,24 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	int is_utxnid = 0;
 
 	if (rectype > 1000) {
-		if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
+		if (rectype < 10000 && rectype > 3000) {
 			is_fuid = 1;
 			is_utxnid = 1;
-			rectype -= 2000;
+			rectype -= 3000;
 			log_event_counts[rectype]++;
-		} else if ((rectype < 10000) && (rectype > 1000)) {
-			/* Skip custom log recs */
-			is_fuid = 1;
-			rectype -= 1000;
-			log_event_counts[rectype]++;
+		} else {
+			if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
+			   is_utxnid = 1;
+			   rectype -= 2000;
+			   log_event_counts[rectype]++;
+			}	   
+			if ((rectype < 10000) && (rectype > 1000)) {
+				/* Skip custom log recs */
+				is_fuid = 1;
+				rectype -= 1000;
+				log_event_counts[rectype]++;
+			}
 		}
-		
 	}
 
 	/*
@@ -465,7 +472,8 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 	int make_call, ret;
 
 	LOGCOPY_32(&rectype, db->data);
-	if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
+	
+	if (normalize_rectype(&rectype)) {
 		rectype -= 2000;
 		if (redo == DB_TXN_OPENFILES) {
 			LOGCOPY_64(&utxnid, &((char*)db->data)[4 + 4 + 8]);
@@ -734,7 +742,9 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 			 * the standard table, use the standard table's size
 			 * as our sanity check.
 			 */
-			if (rectype > 2000) {
+			if (rectype > 3000) {
+				rectype -= 3000;
+			} else if (rectype > 2000) {
 				rectype -= 2000;
 			} else if (rectype > 1000) {
 				rectype -= 1000;

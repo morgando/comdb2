@@ -100,6 +100,8 @@ static int undo_upd_ix_lk(bdb_state_type *bdb_state, tran_type *tran,
                           llog_undo_upd_ix_lk_args *upd_ix_lk, DB_LSN *undolsn,
                           DB_LSN *prev, int just_load_lsn);
 
+int normalize_rectype(u_int32_t * rectype);
+
 static int print_log_records(bdb_state_type *bdb_state, DB_LSN *lsn)
 {
     DB_LOGC *cur = NULL;
@@ -264,9 +266,8 @@ static int get_next_addrem_buffer(bdb_state_type *bdb_state, DB_LSN *lsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
         *nextlsn = prevlsn;
 
-		if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
-			rectype -= 2000;
-		} else if ((rectype < 10000) && (rectype > 1000)) {
+		normalize_rectype(&rectype);
+		if ((rectype < 10000) && (rectype > 1000)) {
 			rectype -= 1000;
 		}
 
@@ -754,9 +755,8 @@ int bdb_reconstruct_key_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
         LOGCOPY_TOLSN(&prevlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
 
-		if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
-			rectype -= 2000;
-		} else if ((rectype < 10000) && (rectype > 1000)) {
+		normalize_rectype(&rectype);
+		if ((rectype < 10000) && (rectype > 1000)) {
 			rectype -= 1000;
 		}
 
@@ -855,9 +855,8 @@ int bdb_reconstruct_inplace_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
         LOGCOPY_TOLSN(&prevlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
 
-		if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
-			rectype -= 2000;
-		} else if ((rectype < 10000) && (rectype > 1000)) {
+		normalize_rectype(&rectype);
+		if ((rectype < 10000) && (rectype > 1000)) {
 			rectype -= 1000;
 		}
 
@@ -1296,12 +1295,12 @@ int undo_commit(bdb_state_type *bdb_state, tran_type *tran,
 
 char *rectypestr(int rectype)
 {
-	if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
-		rectype -= 2000;
-	} else if ((rectype < 10000) && (rectype > 1000)) {
+	u_int32_t rectype32 = (u_int32_t) rectype;
+	normalize_rectype(& rectype32);
+	if ((rectype < 10000) && (rectype > 1000)) {
 		rectype -= 1000;
 	}
-    switch (rectype) {
+    switch (rectype32) {
     case DB_llog_savegenid:
         return "savegenid";
     case DB_llog_scdone:

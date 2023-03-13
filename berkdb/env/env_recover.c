@@ -125,7 +125,7 @@ __checkpoint_get_recovery_lsn(DB_ENV *dbenv, DB_LSN *lsnout)
 	}
 
 	LOGCOPY_32(&type, dbt.data);
-	if (type != DB___txn_ckp && type != (DB___txn_ckp + 2000)) {
+	if (type != DB___txn_ckp || type != (DB___txn_ckp + 2000)) {
 		logmsg(LOGMSG_ERROR, "checkpoint record unexpeted type %d\n", type);
 		goto err;
 	}
@@ -1232,7 +1232,7 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 				if (gbl_utxnid_log) {
 					u_int32_t rectype;
 					LOGCOPY_32(&rectype, data.data);
-					if (rectype == (DB___txn_ckp + 2000)) {
+					if (normalize_rectype(&rectype)) {
 						Pthread_mutex_lock(&dbenv->utxnid_lock);
 						dbenv->next_utxnid = ckp_args->max_utxnid+1;
 						Pthread_mutex_unlock(&dbenv->utxnid_lock);
@@ -1956,7 +1956,8 @@ __log_earliest(dbenv, logc, lowtime, lowlsn)
 	for (ret = __log_c_get(logc, &first_lsn, &data, DB_FIRST);
 		ret == 0; ret = __log_c_get(logc, &lsn, &data, DB_NEXT)) {
 		LOGCOPY_32(&rectype, data.data);
-		if ((rectype != DB___txn_ckp) && (rectype != DB___txn_ckp + 2000))
+		normalize_rectype(&rectype);
+		if (rectype != DB___txn_ckp)
 			continue;
 		if ((ret = __txn_ckp_read(dbenv, data.data, &ckpargs)) == 0) {
 			cmp = log_compare(&ckpargs->ckp_lsn, &first_lsn);

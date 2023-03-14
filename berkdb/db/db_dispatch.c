@@ -474,7 +474,6 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 	LOGCOPY_32(&rectype, db->data);
 	
 	if (normalize_rectype(&rectype)) {
-		rectype -= 2000;
 		if (redo == DB_TXN_OPENFILES) {
 			LOGCOPY_64(&utxnid, &((char*)db->data)[4 + 4 + 8]);
 			printf("\%"PRIx64" utxnid\n", utxnid);

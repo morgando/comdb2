@@ -100,7 +100,7 @@ int __log_flush(DB_ENV *dbenv, const DB_LSN *);
 		__log_flush(dbenv, NULL); 				\
 		abort(); 						\
 	}								\
-	if (argp->type > 1000) {					\
+	if (argp->type > 1000 && argp->type < 2000) {					\
 		ret = __ufid_to_db(dbenv, argp->txnid, &file_dbp,	\
 			argp->ufid_fileid, lsnp);			\
 	}								\

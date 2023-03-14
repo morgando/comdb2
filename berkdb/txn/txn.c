@@ -88,6 +88,7 @@ void bdb_get_writelock(void *bdb_state,
 	const char *idstr, const char *funcname, int line);
 void bdb_rellock(void *bdb_state, const char *funcname, int line);
 int bdb_is_open(void *bdb_state);
+extern int normalize_rectype(u_int32_t * rectype);
 
 int comdb2_time_epoch(void);
 void ctrace(char *format, ...);
@@ -2656,8 +2657,8 @@ __txn_activekids(dbenv, rectype, txnp)
 	 * On a child commit, we know that there are children (i.e., the
 	 * commiting child at the least.  In that case, skip this check.
 	 */
-	if (F_ISSET(txnp, TXN_COMPENSATE) || rectype == DB___txn_child || (rectype - 2000) == DB___txn_child)
-		return (0);
+	if (F_ISSET(txnp, TXN_COMPENSATE) || rectype == DB___txn_child || rectype == DB___txn_child+2000)
+	return (0);
 
 	if (TAILQ_FIRST(&txnp->kids) != NULL) {
 		__db_err(dbenv, "Child transaction is active");
@@ -2890,6 +2891,7 @@ dumptxn(DB_ENV * dbenv, DB_LSN * lsnpp)
 			goto done;
 		}
 		LOGCOPY_32(&type, dbt.data);
+		normalize_rectype(&type);
 		if (type == DB___db_addrem) {
 			DB *db;
 			char *name;

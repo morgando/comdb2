@@ -36,6 +36,7 @@
 #include "locks_wrap.h"
 #include "tohex.h"
 
+extern int normalize_rectype(u_int32_t * rectype);
 extern int blkseq_get_rcode(void *data, int datalen);
 static int bdb_blkseq_update_lsn_locked(bdb_state_type *bdb_state,
                                         int timestamp, DB_LSN lsn, int stripe);
@@ -671,6 +672,7 @@ int bdb_recover_blkseq(bdb_state_type *bdb_state)
         u_int32_t rectype;
         if (logdta.size > sizeof(u_int32_t)) {
             LOGCOPY_32(&rectype, logdta.data);
+			normalize_rectype(&rectype);
             if (rectype == DB_llog_blkseq) {
                 rc = llog_blkseq_read(bdb_state->dbenv, logdta.data, &blkseq);
                 if (rc) {

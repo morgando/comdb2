@@ -28,6 +28,7 @@ static const char revid[] = "$Id: db_rec.c,v 11.48 2003/08/27 03:54:18 ubell Exp
 static int __db_pg_free_recover_int __P((DB_ENV *,
 	__db_pg_freedata_args *, DB *, DB_LSN *, DB_MPOOLFILE *, db_recops,
 	int));
+extern int normalize_rectype(u_int32_t * rectype);
 
 #include <stdlib.h>
 
@@ -42,7 +43,7 @@ __db_addrem_verify_fileid(dbenv, dbp, lsnp, prevlsn, fileid)
 	int32_t fileid;
 {
 	int ret = 0;
-	int32_t type;
+	u_int32_t type;
 	DB_LOGC *logc = NULL;
 	DBT log = { 0 };
 	__db_debug_args *debug = NULL;
@@ -72,6 +73,7 @@ __db_addrem_verify_fileid(dbenv, dbp, lsnp, prevlsn, fileid)
 	}
 
 	LOGCOPY_32(&type, log.data);
+	normalize_rectype(&type);
 	if (type != DB___db_debug) {
 #if 0
 		fprintf(stderr,

@@ -51,6 +51,8 @@ __P((DB_ENV *, DB_MPOOLFILE *, DB_MPOOL_HASH *, BH *, int));
 static int __memp_pgwrite_multi
 __P((DB_ENV *, DB_MPOOLFILE *, DB_MPOOL_HASH **, BH **, int, int));
 
+extern int normalize_rectype(u_int32_t * rectype);
+
 /*
  * __memp_bhwrite --
  *	Write the page associated with a given buffer header.
@@ -643,6 +645,7 @@ berkdb_verify_lsn_written_to_disk(DB_ENV *dbenv, DB_LSN *lsn,
 	}
 
 	LOGCOPY_32(&type, logent);
+	normalize_rectype(&type);
 	/* check that the checkpoint lsn is valid and readable */
 	if (type == DB___txn_ckp && check_checkpoint) {
 		__txn_ckp_args *ckp = NULL;

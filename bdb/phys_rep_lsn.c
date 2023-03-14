@@ -14,6 +14,7 @@
 #include <tohex.h>
 
 int matchable_log_type(int rectype);
+int normalize_rectype(u_int32_t * rectype);
 
 extern int gbl_verbose_physrep;
 int gbl_physrep_exit_on_invalid_logstream = 0;
@@ -107,6 +108,7 @@ int find_log_timestamp(bdb_state_type *bdb_state, time_t time,
             }
 
             LOGCOPY_32(&rectype, logrec.data);
+			normalize_rectype(&rectype);
 
         } while (!matchable_log_type(rectype));
 
@@ -155,6 +157,7 @@ static int get_next_matchable(DB_LOGC *logc, LOG_INFO *info, int check_current,
             return 1;
         }
         LOGCOPY_32(&rectype, logrec->data);
+		normalize_rectype(&rectype);
         if (matchable_log_type(rectype)) {
             if (gbl_verbose_physrep) {
                 logmsg(LOGMSG_USER, "%s: initial rec {%u:%u} is matchable\n",
@@ -179,6 +182,7 @@ static int get_next_matchable(DB_LOGC *logc, LOG_INFO *info, int check_current,
             return 1;
         }
         LOGCOPY_32(&rectype, logrec->data);
+		normalize_rectype(&rectype);
     } while (!matchable_log_type(rectype));
 
     info->file = match_lsn.file;

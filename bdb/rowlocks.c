@@ -1381,6 +1381,7 @@ static int undo_physical_transaction(bdb_state_type *bdb_state, tran_type *tran,
     }
 
     LOGCOPY_32(&rectype, logdta->data);
+	normalize_rectype(&rectype);
     switch (rectype) {
     case DB_llog_undo_add_dta_lk:
         rc = llog_undo_add_dta_lk_read(bdb_state->dbenv, logdta->data,
@@ -1540,6 +1541,7 @@ static int find_last_logical_lsn(bdb_state_type *bdb_state, DB_LSN *last_lsn,
         }
 
         LOGCOPY_32(&rectype, dta.data);
+		normalize_rectype(&rectype);
         assert(rectype == DB___txn_regop_rowlocks);
 
         if ((ret = __txn_regop_rowlocks_read(bdb_state->dbenv, dta.data,
@@ -1562,6 +1564,7 @@ static int find_last_logical_lsn(bdb_state_type *bdb_state, DB_LSN *last_lsn,
             }
             bp = dta.data;
             LOGCOPY_32(&rectype, bp);
+			normalize_rectype(&rectype);
 
             if (logical_rectype(rectype)) {
                 *ll_lsn = lsn;
@@ -1606,6 +1609,7 @@ static int get_ltranid_from_log(bdb_state_type *bdb_state, DBT *logdta,
     llog_undo_upd_ix_lk_args *upd_ix_lk;
 
     LOGCOPY_32(&rectype, logdta->data);
+	normalize_rectype(&rectype);
     *tranid = 0;
     *genid = 0;
 
@@ -1935,6 +1939,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
         abort();
 
     LOGCOPY_32(&rectype, logdta.data);
+	normalize_rectype(&rectype);
 
     /* Can happen during logical recovery */
     if (rectype == DB___txn_regop_rowlocks) {
@@ -1947,6 +1952,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
         rc = cur->get(cur, &txn_rl_args->prev_lsn, &logdta, DB_SET);
         free(txn_rl_args);
         LOGCOPY_32(&rectype, logdta.data);
+		normalize_rectype(&rectype);
     }
 
     while (rc == 0 && rectype != DB_llog_ltran_start) {
@@ -2002,6 +2008,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
             memcpy(&lsn, &start_phys_txn, sizeof(lsn));
             rc = cur->get(cur, &lsn, &logdta, DB_SET);
             LOGCOPY_32(&rectype, logdta.data);
+			normalize_rectype(&rectype);
             ++deadlkcnt;
             goto again;
         }
@@ -2025,6 +2032,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
 
         rc = cur->get(cur, &lsn, &logdta, DB_SET);
         LOGCOPY_32(&rectype, logdta.data);
+		normalize_rectype(&rectype);
     }
     if (rc) {
         if (logdta.data)

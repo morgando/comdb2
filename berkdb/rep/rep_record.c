@@ -2616,6 +2616,7 @@ __rep_check_applied_lsns(dbenv, lc, in_recovery_verify)
 			ERR;
 
 		LOGCOPY_32(&type, logrec.data);
+		int utxnid_logged = normalize_rectype(&type);
 
 		t.npages = 0;
 
@@ -2727,7 +2728,7 @@ __rep_check_applied_lsns(dbenv, lc, in_recovery_verify)
 					(u_int8_t *)logrec.data +
 					sizeof(u_int32_t) /*type */ +
 					sizeof(u_int32_t) /*txn */ +sizeof(DB_LSN)
-					/*prevlsn */ );
+					/*prevlsn */ + (utxnid_logged ? sizeof(u_int64_t) : 0) /*utxnid*/);
 				if (opcode == DB_REM_BIG &&
 					strcmp(t.array[i].comment,
 					"prev_pgno") == 0) {
@@ -3589,7 +3590,7 @@ gap_check:		max_lsn_dbtp = NULL;
 		 */
 		LOGCOPY_32(&txnid, (u_int8_t *) rec->data +
 			((u_int8_t *) & dbreg_args.txnid -
-			(u_int8_t *) & dbreg_args));
+			(u_int8_t *) & dbreg_args)); // TODO
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
 			if (dbenv->num_recovery_processor_threads &&

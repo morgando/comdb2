@@ -326,6 +326,7 @@ __db_find_earliest_recover_point_after_file(dbenv, outlsn, file)
 	for (ret = __log_c_get(logc, &lsn, &rec, flags);
 			ret == 0; ret = __log_c_get(logc, &lsn, &rec, DB_NEXT)) {
 		LOGCOPY_32(&type, rec.data);
+		normalize_rectype(&type);
 		if (type == DB___db_debug && lsn.file >= file) {
 			int optype = 0;
 			if((ret = __db_debug_read(dbenv, rec.data, &debug_args)) != 0)
@@ -729,6 +730,7 @@ int __dbenv_build_mintruncate_list(dbenv)
 			ret = __log_c_get(logc, &lsn, &rec, DB_NEXT)) {
 
 		LOGCOPY_32(&type, rec.data);
+		normalize_rectype(&type);
 		if (type == DB___db_debug) {
 			if ((ret = __db_debug_read(dbenv, rec.data, &debug_args))!=0)
 				abort();
@@ -854,6 +856,7 @@ full_recovery_check(DB_ENV *dbenv, DB_LSN *max_lsn)
 		ret = __log_c_get(logc, &lsn, &logrec, DB_NEXT)) {
 		last = lsn;
 		LOGCOPY_32(&type, logrec.data);
+		normalize_rectype(&type);
 		if (IS_ZERO_LSN(first))
 			first = lsn;
 		if (type == DB___txn_regop || type == DB___txn_regop_gen ||
@@ -1834,6 +1837,7 @@ __log_find_latest_checkpoint_before_lsn_try_harder(DB_ENV * dbenv,
 	do {
 		if (data.size >= sizeof(u_int32_t)) {
 			LOGCOPY_32(&type, data.data);
+			normalize_rectype(&type);
 			if (type == DB___txn_ckp) {
 				if (log_compare(&lsn, max_lsn) < 0) {
 					*foundlsn = lsn;

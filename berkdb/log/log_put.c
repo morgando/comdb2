@@ -242,11 +242,9 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
         }
 	}
 	unsigned long long ltranid = 0;
-	if (10006 == rectype && !utxnid_logged) {
-		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8]);
-	} else if (10006 == rectype && utxnid_logged) {
+	if (10006 == rectype) {
 		/* Find the logical tranid.  Offset should be (rectype + txn_num + last_lsn + txn_unum) */
-		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8 + 8]);
+		ltranid = *(unsigned long long *)(&pp[4 + 4 + 8 + (utxnid_logged ? 8 : 0)]);
 	}
 
     /* try to do this before grabbing the region lock */

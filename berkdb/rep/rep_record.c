@@ -546,13 +546,11 @@ static void *apply_thread(void *arg)
 		while (!IN_ELECTION_TALLY_WAITSTART(rep) && !bdb_the_lock_desired() && 
 				(max_dequeue-- > 0) && (q = listc_rtl(&log_queue))) {
 			Pthread_cond_broadcast(&release_cond);
-			u_int32_t rectype = q->rp->rectype;
-			normalize_rectype(&rectype);
-			if (rectype == REP_LOG_MORE) {
+			if (q->rp->rectype == REP_LOG_MORE) {
 				queue_log_more_count--;
 				log_more_count = queue_log_more_count;
 			}
-			if (rectype == REP_LOG_FILL) {
+			if (q->rp->rectype == REP_LOG_FILL) {
 				queue_log_fill_count--;
 				log_fill_count = queue_log_fill_count;
 			}
@@ -620,7 +618,7 @@ static void *apply_thread(void *arg)
 				}
 
 				/* Continue LOG_MORE */
-				if (rectype == REP_LOG_MORE && log_more_count == 0) {
+				if (q->rp->rectype == REP_LOG_MORE && log_more_count == 0) {
 					DB_LSN lsn;
 					MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 					master_eid = rep->master_id;
@@ -901,12 +899,10 @@ __rep_enqueue_log(dbenv, rp, rec, gen)
 		max_queued_lsn = q->rp->lsn;
 	}
 
-	u_int32_t rectype = q->rp->rectype;
-	normalize_rectype(&rectype);
-	if (rectype == REP_LOG_MORE) {
+	if (q->rp->rectype == REP_LOG_MORE) {
 		queue_log_more_count++;
 	}
-	if (rectype == REP_LOG_FILL) {
+	if (q->rp->rectype == REP_LOG_FILL) {
 		queue_log_fill_count++;
 	}
 	listc_abl(&log_queue, q);
@@ -1094,7 +1090,6 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 
 	if (gbl_verbose_master_req) {
 		rectype = rp->rectype;
-		normalize_rectype(&rectype);
 		switch (rectype) {
 			case REP_MASTER_REQ:
 				logmsg(LOGMSG_USER, "%s processing REP_MASTER_REQ\n", __func__);
@@ -1181,7 +1176,6 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 	 * to get in sync.
 	 */
 	rectype = rp->rectype;
-	normalize_rectype(&rectype);
 	if (rp->gen < gen && rectype != REP_ALIVE_REQ &&
 		rectype != REP_NEWCLIENT && rectype != REP_MASTER_REQ) {
 		/*
@@ -2958,6 +2952,7 @@ __rep_apply_int(dbenv, rp, rec, ret_lsnp, commit_gen, decoupled)
 	u_int32_t rectype = 0, txnid;
 	int cmp, do_req, gap, ret, t_ret, rc;
 	int num_retries;
+	int utxnid_logged = 0;
 	int disabled_minwrite_noread = 0;
 	char *eid;
 
@@ -3073,9 +3068,7 @@ __rep_apply_int(dbenv, rp, rec, ret_lsnp, commit_gen, decoupled)
 	
 	if (cmp == 0) {
 		/* We got the log record that we are expecting. */
-		u_int32_t rp_rectype = rp->rectype;
-		normalize_rectype(&rp_rectype);
-		if (rp_rectype == REP_NEWFILE) {
+		if (rp->rectype == REP_NEWFILE) {
 
 			/* this will flush in-memory buffer, but we don't have the region lock for it;
 			 * get it here */
@@ -3174,13 +3167,11 @@ gap_check:		max_lsn_dbtp = NULL;
 			}
 
 			rp = (REP_CONTROL *)control_dbt.data;
-			u_int32_t rp_rectype = rp->rectype;
-			normalize_rectype(&rp_rectype);
 			rec = &rec_dbt;
 			LOGCOPY_32(&rectype, rec->data);
-			normalize_rectype(&rectype);
+			utxnid_logged = normalize_rectype(&rectype);
 
-			if (rp_rectype != REP_NEWFILE) {
+			if (rp->rectype != REP_NEWFILE) {
 
 				/* 
 				 * If the rectype is DB___txn_ckp and out-of-band checkpoints are
@@ -3588,9 +3579,9 @@ gap_check:		max_lsn_dbtp = NULL;
 		 * of a file that was opened in an active transaction, so we
 		 * should be guaranteed to get the ordering right.
 		 */
-		LOGCOPY_32(&txnid, (u_int8_t *) rec->data +
-			((u_int8_t *) & dbreg_args.txnid -
-			(u_int8_t *) & dbreg_args)); // TODO
+		LOGCOPY_32(&txnid, (u_int8_t *) rec->data 
+				+ sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) 
+				+ (utxnid_logged ? sizeof(u_int64_t) : 0));
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
 			if (dbenv->num_recovery_processor_threads &&

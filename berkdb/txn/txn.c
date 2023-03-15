@@ -2700,7 +2700,11 @@ __txn_force_abort(dbenv, buffer)
 	memcpy(&hdrlen, buffer + SSZ(HDR, len), sizeof(hdr->len));
 	rec_len = hdrlen - hdrsize;
 
-	offset = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN);
+	u_int32_t rectype = 0;
+	LOGCOPY_32(&rectype, buffer + hdrsize);
+	int utxnid_logged = normalize_rectype(&rectype);
+
+	offset = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + (utxnid_logged ? sizeof(u_int64_t) : 0);
 	if (CRYPTO_ON(dbenv)) {
 		key = db_cipher->mac_key;
 		sum_len = DB_MAC_KEY;
@@ -2917,7 +2921,7 @@ dumptxn(DB_ENV * dbenv, DB_LSN * lsnpp)
 					PARM_LSN(lc.array[i].lsn), name);
 				fsnapf(stdout, a->dbt.data, a->dbt.size);
 			}
-		} else if (type == 10019) {
+		} else if (type == 10019 || type == 10019+2000) {
 			logmsg(LOGMSG_USER, "blkseq: " PR_LSN "\n",
 				PARM_LSN(lc.array[i].lsn));
 		}

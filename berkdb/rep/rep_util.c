@@ -1205,9 +1205,7 @@ __rep_print_message(dbenv, eid, rp, str)
 	char *str;
 {
 	char *type;
-	u_int32_t rectype = rp->rectype;
-	normalize_rectype(&rectype);
-	switch (rectype) {
+	switch (rp->rectype) {
 	case REP_ALIVE:
 		type = "alive";
 		break;

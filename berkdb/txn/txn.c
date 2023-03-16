@@ -2657,8 +2657,9 @@ __txn_activekids(dbenv, rectype, txnp)
 	 * On a child commit, we know that there are children (i.e., the
 	 * commiting child at the least.  In that case, skip this check.
 	 */
-	if (F_ISSET(txnp, TXN_COMPENSATE) || rectype == DB___txn_child || rectype == DB___txn_child+2000)
-	return (0);
+	if (F_ISSET(txnp, TXN_COMPENSATE) || rectype == DB___txn_child || rectype == DB___txn_child+2000) {
+		return (0);
+	}
 
 	if (TAILQ_FIRST(&txnp->kids) != NULL) {
 		__db_err(dbenv, "Child transaction is active");

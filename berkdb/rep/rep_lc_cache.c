@@ -32,6 +32,8 @@
    [ ] 3.  Use mspace (also gets us #2 for free)?
 */
 
+int normalize_rectype(u_int32_t * rectype);
+
 // PUBLIC: int __lc_cache_init __P((DB_ENV *, int));
 int
 __lc_cache_init(DB_ENV *dbenv, int reinit)
@@ -226,7 +228,7 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 
 	u_int32_t type;
 	u_int32_t txnid;
-	u_int64_t utxnid;
+	u_int64_t utxnid = 0;
 	DB_LSN prevlsn;
 	uint8_t *logrec;
 
@@ -252,8 +254,12 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 	logrec += sizeof(u_int32_t);
 	LOGCOPY_TOLSN(&prevlsn, logrec);
 	logrec += sizeof(DB_LSN);
-	LOGCOPY_64(&utxnid, logrec);
-	logrec += sizeof(u_int64_t);
+
+	u_int32_t typeCopy = type;
+	if (normalize_rectype(&typeCopy)) {
+		LOGCOPY_64(&utxnid, logrec);
+		logrec += sizeof(u_int64_t);
+	}
 
 	/* dump our current state */
 	if (dbenv->attr.cache_lc_debug) {

@@ -284,18 +284,15 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 			is_utxnid = 1;
 			rectype -= 3000;
 			log_event_counts[rectype]++;
-		} else {
-			if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
+		} else if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
 			   is_utxnid = 1;
 			   rectype -= 2000;
 			   log_event_counts[rectype]++;
-			}	   
-			if ((rectype < 10000) && (rectype > 1000)) {
+		} else if ((rectype < 10000) && (rectype > 1000)) {
 				/* Skip custom log recs */
 				is_fuid = 1;
 				rectype -= 1000;
 				log_event_counts[rectype]++;
-			}
 		}
 	}
 

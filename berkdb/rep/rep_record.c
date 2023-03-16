@@ -1089,8 +1089,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 		__rep_control_swap(rp);
 
 	if (gbl_verbose_master_req) {
-		rectype = rp->rectype;
-		switch (rectype) {
+		switch (rp->rectype) {
 			case REP_MASTER_REQ:
 				logmsg(LOGMSG_USER, "%s processing REP_MASTER_REQ\n", __func__);
 				break;
@@ -1175,9 +1174,8 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 	 * except requests that are indicative of a new client that needs
 	 * to get in sync.
 	 */
-	rectype = rp->rectype;
-	if (rp->gen < gen && rectype != REP_ALIVE_REQ &&
-		rectype != REP_NEWCLIENT && rectype != REP_MASTER_REQ) {
+	if (rp->gen < gen && rp->rectype != REP_ALIVE_REQ &&
+		rp->rectype != REP_NEWCLIENT && rp->rectype != REP_MASTER_REQ) {
 		/*
 		 * We don't hold the rep mutex, and could miscount if we race.
 		 */
@@ -1187,7 +1185,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 		u_int32_t now;
 		if (gbl_rep_badgen_trace && ((now = time(NULL)) - lastpr)) {
 			logmsg(LOGMSG_USER, "Ignoring rp->gen %u from %s mygen is %u, "
-				"rectype=%u cnt %u\n", rp->gen, *eidp, gen, rectype, 
+				"rectype=%u cnt %u\n", rp->gen, *eidp, gen, rp->rectype, 
 				rep->stat.st_msgs_badgen);
 			lastpr = now;
 		}
@@ -1205,7 +1203,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 			u_int32_t now;
 			if (gbl_rep_badgen_trace && ((now = time(NULL)) - lastpr)) {
 				logmsg(LOGMSG_USER, "rp->gen %u from %s is larger than "
-					"mygen %u, rectype=%u\n", rp->gen, *eidp, gen, rectype);
+					"mygen %u, rectype=%u\n", rp->gen, *eidp, gen, rp->rectype);
 				lastpr = now;
 			}
 
@@ -1223,9 +1221,9 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 		 * elections and communication. Otherwise, I need to hear about
 		 * a new master and sync up.
 		 */
-		if (rectype == REP_VOTE1 || rectype == REP_VOTE2 ||
-			rectype == REP_GEN_VOTE1 ||
-			rectype == REP_GEN_VOTE2) {
+		if (rp->rectype == REP_VOTE1 || rp->rectype == REP_VOTE2 ||
+			rp->rectype == REP_GEN_VOTE1 ||
+			rp->rectype == REP_GEN_VOTE2) {
 			MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 #ifdef DIAGNOSTIC
 			if (FLD_ISSET(dbenv->verbose, DB_VERB_REPLICATION))
@@ -1233,7 +1231,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 					(u_long)gen, (u_long)rp->gen);
 #endif
 			logmsg(LOGMSG_DEBUG, "%s line %d setting rep->gen to %d for rectype "
-					"%d\n", __func__, __LINE__, rp->gen, rectype);
+					"%d\n", __func__, __LINE__, rp->gen, rp->rectype);
 			__rep_set_gen(dbenv, __func__, __LINE__, rp->gen);
 			gen = rp->gen;
 			if (rep->egen <= gen)
@@ -1244,7 +1242,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 					(u_long)rep->egen);
 #endif
 			MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
-		} else if (rectype != REP_NEWMASTER) {
+		} else if (rp->rectype != REP_NEWMASTER) {
 			send_master_req(dbenv, __func__, __LINE__);
 			fromline = __LINE__;
 			goto errlock;
@@ -1264,7 +1262,7 @@ __rep_process_message(dbenv, control, rec, eidp, ret_lsnp, commit_gen, online)
 	 * NEW* and ALIVE_REQ.
 	 */
 	if (recovering) {
-		switch (rectype) {
+		switch (rp->rectype) {
 		case REP_VERIFY:
 			MUTEX_LOCK(dbenv, db_rep->db_mutexp);
 			cmp = log_compare(&lp->verify_lsn, &rp->lsn);
@@ -1319,7 +1317,7 @@ skip:				/*
 				 * a MASTER_REQ.
 				 */
 				if (rep->master_id == db_eid_invalid &&
-					rectype != REP_MASTER_REQ) {
+					rp->rectype != REP_MASTER_REQ) {
 					static time_t master_req_print = 0;
 					static unsigned long long master_req_count = 0;
 
@@ -1355,7 +1353,7 @@ skip:				/*
 		}
 	}
 
-	switch (rectype) {
+	switch (rp->rectype) {
 	case REP_ALIVE:
 		ANYSITE(rep);
 		egen = *(u_int32_t *)rec->data;
@@ -1578,7 +1576,7 @@ more:
 			goto errlock;
 		}
 
-		if ((ret == 0 || ret == DB_REP_ISPERM) && rectype == REP_LOG_MORE && !gbl_decoupled_logputs) {
+		if ((ret == 0 || ret == DB_REP_ISPERM) && rp->rectype == REP_LOG_MORE && !gbl_decoupled_logputs) {
 			MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 			master = rep->master_id;
 			MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
@@ -2191,7 +2189,7 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 			goto errlock;
 		}
 
-		if (rectype == REP_VOTE1) {
+		if (rp->rectype == REP_VOTE1) {
 			vi = (REP_VOTE_INFO *) rec->data;
 			if (LOG_SWAPPED())
 				__rep_vote_info_swap(vi);
@@ -2227,13 +2225,13 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 		 */
 		if (vi_egen < rep->egen) {
 			logmsg(LOGMSG_DEBUG, "%s line %d ignoring %s from %s: it's egen is %d my-egen is %d\n",
-					__func__, __LINE__, rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
+					__func__, __LINE__, rp->rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
 					*eidp, vi_egen, rep->egen);
 			goto errunlock;
 		}
 		if (vi_egen > rep->egen) {
 			logmsg(LOGMSG_DEBUG, "%s line %d reseting election for %s from %s: it's egen is %d my-egen is %d\n",
-					__func__, __LINE__, rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
+					__func__, __LINE__, rp->rectype == REP_VOTE1 ? "REP_VOTE1" : "REP_GEN_VOTE1",
 					*eidp, vi_egen, rep->egen);
 			__rep_elect_done(dbenv, rep, vi_egen, __func__, __LINE__);
 			//rep->egen = vi_egen;
@@ -2390,7 +2388,7 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 		 * election thread catches up we'll have the votes we
 		 * already received.
 		 */
-		if (rectype == REP_VOTE2) {
+		if (rp->rectype == REP_VOTE2) {
 			vi = (REP_VOTE_INFO *) rec->data;
 			if (LOG_SWAPPED())
 				__rep_vote_info_swap(vi);
@@ -2478,7 +2476,7 @@ rep_verify_err:if ((t_ret = __log_c_close(logc)) != 0 &&
 	default:
 		__db_err(dbenv,
 			"DB_ENV->rep_process_message: unknown replication message: type %lu",
-			(u_long)rectype);
+			(u_long)rp->rectype);
 		ret = EINVAL;
 		fromline = __LINE__;
 		goto errlock;
@@ -3579,9 +3577,7 @@ gap_check:		max_lsn_dbtp = NULL;
 		 * of a file that was opened in an active transaction, so we
 		 * should be guaranteed to get the ordering right.
 		 */
-		LOGCOPY_32(&txnid, (u_int8_t *) rec->data 
-				+ sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) 
-				+ (utxnid_logged ? sizeof(u_int64_t) : 0));
+		LOGCOPY_32(&txnid, (u_int8_t *) rec->data + sizeof(u_int32_t));
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
 			if (dbenv->num_recovery_processor_threads &&
@@ -4586,7 +4582,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 	normalize_rectype(&rectype);
 	memset(&lc, 0, sizeof(lc));
 
-	if (rectype == DB___txn_regop_rowlocks || rectype == DB___txn_regop_rowlocks) {
+	if (rectype == DB___txn_regop_rowlocks) {
 
 		int dontlock = 0;
 

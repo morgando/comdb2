@@ -2199,7 +2199,7 @@ static int reconstruct_blob_records(struct convert_record_data *data,
         }
         LOGCOPY_32(&rectype, logdta->data);
 		normalize_rectype(&rectype);
-        assert(rectype == rec->type || (rectype-2000 == rec->type));
+        assert(rectype == rec->type || (rectype+2000 == rec->type));
 
         assert(rec->dtafile >= 1);
         blbix = rec->dtafile - 1;
@@ -2870,7 +2870,7 @@ static int live_sc_redo_update(struct convert_record_data *data, DB_LOGC *logc,
     }
     LOGCOPY_32(&rectype, logdta->data);
 	normalize_rectype(&rectype);
-    assert(rectype == rec->type || (rectype-2000 == rec->type));
+    assert(rectype == rec->type || (rectype+2000 == rec->type));
     if (rectype == DB_llog_undo_upd_dta_lk) {
         if ((rc = llog_undo_upd_dta_lk_read(bdb_state->dbenv, logdta->data,
                                             &upd_dta_lk)) != 0) {

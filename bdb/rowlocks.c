@@ -1293,14 +1293,13 @@ int undo_commit(bdb_state_type *bdb_state, tran_type *tran,
     return EINVAL;
 }
 
-char *rectypestr(int rectype)
+char *rectypestr(u_int32_t rectype)
 {
-	u_int32_t rectype32 = (u_int32_t) rectype;
-	normalize_rectype(& rectype32);
+	normalize_rectype(& rectype);
 	if ((rectype < 10000) && (rectype > 1000)) {
 		rectype -= 1000;
 	}
-    switch (rectype32) {
+    switch (rectype) {
     case DB_llog_savegenid:
         return "savegenid";
     case DB_llog_scdone:

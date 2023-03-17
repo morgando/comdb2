@@ -98,7 +98,7 @@ __checkpoint_get_recovery_lsn(DB_ENV *dbenv, DB_LSN *lsnout)
 	DB_LSN lsn;
 	DB_LOGC *dbc = NULL;
 	DBT dbt = { 0 };
-	int32_t type;
+	u_int32_t type;
 	__txn_ckp_args *ckp = NULL;
 
 	ZERO_LSN(*lsnout);
@@ -125,7 +125,8 @@ __checkpoint_get_recovery_lsn(DB_ENV *dbenv, DB_LSN *lsnout)
 	}
 
 	LOGCOPY_32(&type, dbt.data);
-	if (type != DB___txn_ckp || type != (DB___txn_ckp + 2000)) {
+	normalize_rectype(&type);
+	if (type != DB___txn_ckp) {
 		logmsg(LOGMSG_ERROR, "checkpoint record unexpeted type %d\n", type);
 		goto err;
 	}

@@ -2922,7 +2922,7 @@ static int bdb_osql_log_try_run_optimized(bdb_cursor_impl_t *cur,
         }
 
         /* Another sanity check. */
-        assert(rectype == rec->type);
+        assert(rectype == rec->type || (rectype+2000 == rec->type));
 
         /* Read this record to retrieve the old and new genids. */
         rc = llog_undo_upd_dta_read(cur->state->dbenv, logdta.data, &upd_dta);
@@ -3469,7 +3469,7 @@ static int bdb_osql_log_run_unoptimized(bdb_cursor_impl_t *cur, DB_LOGC *curlog,
             *bdberr = BDBERR_BUG_KILLME;
             return -1;
         }
-        assert(rectype == rec->type);
+        assert(rectype == rec->type || (rectype+2000 == rec->type));
     } else {
         memcpy(&logdta, inlogdta, sizeof(DBT));
     }

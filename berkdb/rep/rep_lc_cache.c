@@ -255,8 +255,7 @@ __lc_cache_feed(DB_ENV *dbenv, DB_LSN lsn, DBT dbt)
 	LOGCOPY_TOLSN(&prevlsn, logrec);
 	logrec += sizeof(DB_LSN);
 
-	u_int32_t typeCopy = type;
-	if (normalize_rectype(&typeCopy)) {
+	if (normalize_rectype(&type)) {
 		LOGCOPY_64(&utxnid, logrec);
 		logrec += sizeof(u_int64_t);
 	}

@@ -266,10 +266,10 @@ static int get_next_addrem_buffer(bdb_state_type *bdb_state, DB_LSN *lsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
         *nextlsn = prevlsn;
 
-		normalize_rectype(&rectype);
-		if ((rectype < 10000) && (rectype > 1000)) {
-			rectype -= 1000;
-		}
+        normalize_rectype(&rectype);
+        if ((rectype < 10000) && (rectype > 1000)) {
+            rectype -= 1000;
+        }
 
         if (rectype == DB___db_pg_free || rectype == DB___db_pg_freedata)
             /* pg_free is generating an extra addrem that I don't understand.
@@ -755,10 +755,10 @@ int bdb_reconstruct_key_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
         LOGCOPY_TOLSN(&prevlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
 
-		normalize_rectype(&rectype);
-		if ((rectype < 10000) && (rectype > 1000)) {
-			rectype -= 1000;
-		}
+        normalize_rectype(&rectype);
+        if ((rectype < 10000) && (rectype > 1000)) {
+            rectype -= 1000;
+        }
 
         if (rectype == DB___bam_repl) {
             rc = __bam_repl_read_int(bdb_state->dbenv, logent.data, 0, &repl);
@@ -855,10 +855,10 @@ int bdb_reconstruct_inplace_update(bdb_state_type *bdb_state, DB_LSN *startlsn,
         LOGCOPY_TOLSN(&prevlsn,
                       (u_int8_t *)logent.data + 2 * sizeof(u_int32_t));
 
-		normalize_rectype(&rectype);
-		if ((rectype < 10000) && (rectype > 1000)) {
-			rectype -= 1000;
-		}
+        normalize_rectype(&rectype);
+        if ((rectype < 10000) && (rectype > 1000)) {
+            rectype -= 1000;
+        }
 
         /* Find a btree-replace log record. */
         if (rectype == DB___bam_repl) {
@@ -1295,10 +1295,10 @@ int undo_commit(bdb_state_type *bdb_state, tran_type *tran,
 
 char *rectypestr(u_int32_t rectype)
 {
-	normalize_rectype(& rectype);
-	if ((rectype < 10000) && (rectype > 1000)) {
-		rectype -= 1000;
-	}
+    normalize_rectype(& rectype);
+    if ((rectype < 10000) && (rectype > 1000)) {
+        rectype -= 1000;
+    }
     switch (rectype) {
     case DB_llog_savegenid:
         return "savegenid";
@@ -1380,7 +1380,7 @@ static int undo_physical_transaction(bdb_state_type *bdb_state, tran_type *tran,
     }
 
     LOGCOPY_32(&rectype, logdta->data);
-	normalize_rectype(&rectype);
+    normalize_rectype(&rectype);
     switch (rectype) {
     case DB_llog_undo_add_dta_lk:
         rc = llog_undo_add_dta_lk_read(bdb_state->dbenv, logdta->data,
@@ -1540,7 +1540,7 @@ static int find_last_logical_lsn(bdb_state_type *bdb_state, DB_LSN *last_lsn,
         }
 
         LOGCOPY_32(&rectype, dta.data);
-		normalize_rectype(&rectype);
+        normalize_rectype(&rectype);
         assert(rectype == DB___txn_regop_rowlocks);
 
         if ((ret = __txn_regop_rowlocks_read(bdb_state->dbenv, dta.data,
@@ -1563,7 +1563,7 @@ static int find_last_logical_lsn(bdb_state_type *bdb_state, DB_LSN *last_lsn,
             }
             bp = dta.data;
             LOGCOPY_32(&rectype, bp);
-			normalize_rectype(&rectype);
+            normalize_rectype(&rectype);
 
             if (logical_rectype(rectype)) {
                 *ll_lsn = lsn;
@@ -1608,7 +1608,7 @@ static int get_ltranid_from_log(bdb_state_type *bdb_state, DBT *logdta,
     llog_undo_upd_ix_lk_args *upd_ix_lk;
 
     LOGCOPY_32(&rectype, logdta->data);
-	normalize_rectype(&rectype);
+    normalize_rectype(&rectype);
     *tranid = 0;
     *genid = 0;
 
@@ -1938,7 +1938,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
         abort();
 
     LOGCOPY_32(&rectype, logdta.data);
-	normalize_rectype(&rectype);
+    normalize_rectype(&rectype);
 
     /* Can happen during logical recovery */
     if (rectype == DB___txn_regop_rowlocks) {
@@ -1951,7 +1951,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
         rc = cur->get(cur, &txn_rl_args->prev_lsn, &logdta, DB_SET);
         free(txn_rl_args);
         LOGCOPY_32(&rectype, logdta.data);
-		normalize_rectype(&rectype);
+        normalize_rectype(&rectype);
     }
 
     while (rc == 0 && rectype != DB_llog_ltran_start) {
@@ -2007,7 +2007,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
             memcpy(&lsn, &start_phys_txn, sizeof(lsn));
             rc = cur->get(cur, &lsn, &logdta, DB_SET);
             LOGCOPY_32(&rectype, logdta.data);
-			normalize_rectype(&rectype);
+            normalize_rectype(&rectype);
             ++deadlkcnt;
             goto again;
         }
@@ -2031,7 +2031,7 @@ int abort_logical_transaction(bdb_state_type *bdb_state, tran_type *tran,
 
         rc = cur->get(cur, &lsn, &logdta, DB_SET);
         LOGCOPY_32(&rectype, logdta.data);
-		normalize_rectype(&rectype);
+        normalize_rectype(&rectype);
     }
     if (rc) {
         if (logdta.data)

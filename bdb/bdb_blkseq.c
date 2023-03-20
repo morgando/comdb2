@@ -672,7 +672,7 @@ int bdb_recover_blkseq(bdb_state_type *bdb_state)
         u_int32_t rectype;
         if (logdta.size > sizeof(u_int32_t)) {
             LOGCOPY_32(&rectype, logdta.data);
-			normalize_rectype(&rectype);
+            normalize_rectype(&rectype);
             if (rectype == DB_llog_blkseq) {
                 rc = llog_blkseq_read(bdb_state->dbenv, logdta.data, &blkseq);
                 if (rc) {

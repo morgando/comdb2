@@ -471,7 +471,7 @@ static int tranlogColumn(
         }
         break;
 	case TRANLOG_COLUMN_TXNID:
-		LOGCOPY_32(&txnid, &((char *) pCur->data.data)[4 + 4]); 
+		LOGCOPY_32(&txnid, &((char *) pCur->data.data)[4]); 
 		sqlite3_result_int64(ctx, txnid);
 		break;
 	case TRANLOG_COLUMN_UTXNID:

@@ -868,7 +868,7 @@ __db_pg_alloc_recover(dbenv, dbtp, lsnp, op, info)
 	if (IS_ZERO_LSN(LSN(pagep)) &&
 	    IS_ZERO_LSN(argp->page_lsn) && DB_UNDO(op)) {
 		/* Put the page in limbo.*/
-		if (argp->type > 1000) {
+		if ((argp->type > 1000 && argp->type < 2000) || (argp->type > 3000)) {
 			ret = __db_add_limbo_fid(dbenv, info, argp->ufid_fileid,
 					argp->pgno, 1);
 		} else {
@@ -1110,7 +1110,7 @@ __db_pg_new_recover(dbenv, dbtp, lsnp, op, info)
 	REC_INTRO(__db_pg_free_read, 1);
 	COMPQUIET(op, 0);
 
-	if (argp->type > 1000) {
+	if ((argp->type > 1000 && argp->type < 2000) || (argp->type > 3000)) {
 		if ((ret = __db_add_limbo_fid(dbenv, info, argp->ufid_fileid,
 						argp->pgno, 1)) == 0)
 			*lsnp = argp->prev_lsn;
@@ -1252,7 +1252,7 @@ __db_pg_prepare_recover(dbenv, dbtp, lsnp, op, info)
 		P_INIT(pagep, file_dbp->pgsize,
 		    argp->pgno, PGNO_INVALID, PGNO_INVALID, 0, P_INVALID);
 		ZERO_LSN(pagep->lsn);
-		if (argp->type > 1000) {
+		if ((argp->type > 1000 && argp->type < 2000) || (argp->type > 3000)) {
 			ret = __db_add_limbo_fid(dbenv, info, argp->ufid_fileid, argp->pgno, 1);
 		} else {
 			ret = __db_add_limbo(dbenv, info, argp->fileid, argp->pgno, 1);

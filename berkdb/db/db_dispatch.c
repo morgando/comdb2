@@ -737,11 +737,7 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 			 * the standard table, use the standard table's size
 			 * as our sanity check.
 			 */
-			if (rectype > 3000) {
-				rectype -= 3000;
-			} else if (rectype > 2000) {
-				rectype -= 2000;
-			} else if (rectype > 1000) {
+			if (rectype > 1000) {
 				rectype -= 1000;
 			}
 			if (rectype > dtabsize || dtab[rectype] == NULL) {

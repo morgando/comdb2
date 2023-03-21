@@ -545,7 +545,6 @@ __txn_begin_int_int(txn, prop, we_start_at_this_lsn, flags)
 
 	Pthread_mutex_lock(&dbenv->utxnid_lock);
 	utxnid = ++dbenv->next_utxnid;
-	printf("\%"PRIx64" incremented utxnid\n", utxnid);
 	Pthread_mutex_unlock(&dbenv->utxnid_lock);
 
 	/*
@@ -2558,7 +2557,6 @@ do_ckp:
 		u_int64_t max_utxnid;
 		Pthread_mutex_lock(&dbenv->utxnid_lock);
 		max_utxnid = dbenv->next_utxnid;
-		printf("\%"PRIx64" logging utxnid\n", max_utxnid);
 		Pthread_mutex_unlock(&dbenv->utxnid_lock);
 
 		if ((ret = __dbreg_open_files_checkpoint(dbenv)) != 0 ||

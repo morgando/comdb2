@@ -278,7 +278,6 @@ static inline int parse_lsn(const unsigned char *lsnstr, DB_LSN *lsn)
 
 static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 {
-	printf("%d utxnid log\n", gbl_utxnid_log);
     u_int64_t timestamp;
 	if (gbl_utxnid_log) {
 		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
@@ -424,15 +423,15 @@ static int tranlogColumn(
         sqlite3_result_text(ctx, pCur->maxLsnStr, -1, NULL);
         break;
 	case TRANLOG_COLUMN_MAXUTXNID: 
-        if (pCur->data.data)
+        if (pCur->data.data) {
             LOGCOPY_32(&rectype, pCur->data.data); 
-
-		if (gbl_utxnid_log && (rectype == DB___txn_ckp)) {
-			LOGCOPY_64(&maxutxnid, &((char*)pCur->data.data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
-			sqlite3_result_int64(ctx, maxutxnid);
-		} else {
-			sqlite3_result_null(ctx);
+			if (gbl_utxnid_log && (rectype == DB___txn_ckp+2000)) {
+				LOGCOPY_64(&maxutxnid, &((char*)pCur->data.data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
+				sqlite3_result_int64(ctx, maxutxnid);
+				break;
+			} 
 		}
+		sqlite3_result_null(ctx);
 		break;
     case TRANLOG_COLUMN_FLAGS:
         sqlite3_result_int64(ctx, pCur->flags);
@@ -476,12 +475,15 @@ static int tranlogColumn(
 		sqlite3_result_int64(ctx, txnid);
 		break;
 	case TRANLOG_COLUMN_UTXNID:
-		if (gbl_utxnid_log) {
-			LOGCOPY_64(&utxnid, &((char *) pCur->data.data)[4 + 4 + 8]); 
-			sqlite3_result_int64(ctx, utxnid);
-		} else {
-			sqlite3_result_null(ctx);
+        if (pCur->data.data) {
+            LOGCOPY_32(&rectype, pCur->data.data); 
+			if (gbl_utxnid_log && (rectype > 2000 || rectype > 12000)) {
+				LOGCOPY_64(&utxnid, &((char *) pCur->data.data)[4 + 4 + 8]); 
+				sqlite3_result_int64(ctx, utxnid);
+				break;
+			}
 		}
+		sqlite3_result_null(ctx);
 		break;
     case TRANLOG_COLUMN_TIMESTAMP:
         if (pCur->data.data)

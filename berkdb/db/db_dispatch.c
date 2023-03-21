@@ -473,7 +473,6 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 	if (normalize_rectype(&rectype)) {
 		if (redo == DB_TXN_OPENFILES) {
 			LOGCOPY_64(&utxnid, &((char*)db->data)[4 + 4 + 8]);
-			printf("\%"PRIx64" utxnid\n", utxnid);
 			Pthread_mutex_lock(&dbenv->utxnid_lock);
 			if (utxnid > dbenv->next_utxnid) {
 				dbenv->next_utxnid = utxnid + 1;

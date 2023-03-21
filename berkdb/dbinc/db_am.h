@@ -52,7 +52,7 @@
 		CHECK_ABORT \
 		goto out;						\
 	}								   \
-	if (argp->type > 1000) { \
+	if (argp->type > 3000 || (argp->type > 1000 && argp->type < 2000)) { \
 		if ((ret = __ufid_to_db(dbenv, argp->txnid, &file_dbp, \
 						argp->ufid_fileid, lsnp)) != 0) { \
 			if (ret	== DB_DELETED || ret == DB_IGNORED) { \
@@ -97,8 +97,8 @@ int __log_flush(DB_ENV *dbenv, const DB_LSN *);
 	file_dbp = NULL;						\
 	mpf = NULL;							\
 	if ((ret = func(dbenv, dbtp->data, &argp)) != 0) {		\
+		printf("FAILED TO READ\n");	\
 		__log_flush(dbenv, NULL); 				\
-		abort(); 						\
 	}								\
 	if ((argp->type > 1000 && argp->type < 2000) || (argp->type > 3000)) {					\
 		ret = __ufid_to_db(dbenv, argp->txnid, &file_dbp,	\
@@ -115,11 +115,13 @@ int __log_flush(DB_ENV *dbenv, const DB_LSN *);
 		}							\
 		__bb_dbreg_print_dblist_stdout(dbenv);			\
 		__ufid_dump(dbenv);					\
+		printf("BAD\n");	\
 		__log_flush(dbenv, NULL);				\
 		__db_panic(dbenv, DB_RUNRECOVERY);			\
 		abort();						\
 	}								\
 	if ((ret = __db_cursor(file_dbp, NULL, &dbc, 0)) != 0) {	\
+		printf("FAILED TO GET DB CURSOR\n");	\
 		__log_flush(dbenv, NULL);				\
 		abort();						\
 	}								\

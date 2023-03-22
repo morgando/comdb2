@@ -271,28 +271,17 @@ optostr(int op)
 
 int
 ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
-		u_int8_t *fuid, DBT *dbt)
+		u_int8_t *fuid, DBT *dbt, int utxnid_logged)
 {
 	int off = -1;
 	u_int32_t fileid = UINT32_MAX;
 	int is_fuid = 0;
-	int is_utxnid = 0;
 
-	if (rectype > 1000) {
-		if (rectype < 10000 && rectype > 3000) {
+	if (rectype < 10000) {
+		log_event_counts[rectype]++;
+		if (rectype > 1000) {
 			is_fuid = 1;
-			is_utxnid = 1;
-			rectype -= 3000;
-			log_event_counts[rectype]++;
-		} else if ((rectype > 12000) || (rectype < 10000 && rectype > 2000)) {
-			   is_utxnid = 1;
-			   rectype -= 2000;
-			   log_event_counts[rectype]++;
-		} else if ((rectype < 10000) && (rectype > 1000)) {
-				/* Skip custom log recs */
-				is_fuid = 1;
-				rectype -= 1000;
-				log_event_counts[rectype]++;
+			rectype -= 1000;
 		}
 	}
 
@@ -333,7 +322,7 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	case DB___qam_del:
 	case DB___qam_add:
 	case DB___qam_delext:
-		if (is_utxnid)
+		if (utxnid_logged)
 			off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t);
 		else
 			off = sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN);
@@ -349,7 +338,7 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 		 * These records take an additional 'opcode' parameter
 		 * before the fileid
 		 */
-		if (is_utxnid)
+		if (utxnid_logged)
 			off =
 				sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN) + sizeof(u_int64_t) +
 				sizeof(u_int32_t);

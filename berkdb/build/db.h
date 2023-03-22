@@ -3065,7 +3065,7 @@ int berkdb_verify_lsn_written_to_disk(DB_ENV *dbenv, DB_LSN *lsn,
 	int check_checkpoint);
 
 int ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn,
-	int rectype, u_int8_t *ufid, DBT *dbt);
+	int rectype, u_int8_t *ufid, DBT *dbt, int utxnid_logged);
 
 int __rep_get_master(DB_ENV *dbenv, char **master, u_int32_t *gen, u_int32_t *egen);
 int __rep_get_eid(DB_ENV *dbenv,char **eid);

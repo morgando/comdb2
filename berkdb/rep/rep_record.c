@@ -4188,16 +4188,16 @@ processor_thd(struct thdpool *pool, void *work, void *thddata, int op)
 				goto err;
 			}
 			LOGCOPY_32(&rectype, data_dbt.data);
-			normalize_rectype(&rectype);
+			int utxnid_logged = normalize_rectype(&rectype);
 			found_ufid =
 				(int)ufid_for_recovery_record(dbenv, NULL,
-				rectype, fuid, &data_dbt);
+				rectype, fuid, &data_dbt, utxnid_logged);
 		} else {
 			LOGCOPY_32(&rectype, rp->lc.array[i].rec.data);
-			normalize_rectype(&rectype);
+			int utxnid_logged = normalize_rectype(&rectype);
 			found_ufid =
 				(int)ufid_for_recovery_record(dbenv, NULL,
-				rectype, fuid, &rp->lc.array[i].rec);
+				rectype, fuid, &rp->lc.array[i].rec, utxnid_logged);
 		}
 		if (found_ufid) {
 			if (!fuid_hash)
@@ -5929,7 +5929,7 @@ __rep_collect_txn_from_log(dbenv, lsnp, lc, had_serializable_records, rp)
 			goto err;
 		}
 		LOGCOPY_32(&rectype, data.data);
-		normalize_rectype(&rectype);
+		int utxnid_logged = normalize_rectype(&rectype);
 		if (rectype == DB___txn_child) {
 			if ((ret = __txn_child_read(dbenv,
 					data.data, &argp)) != 0)
@@ -5946,7 +5946,7 @@ __rep_collect_txn_from_log(dbenv, lsnp, lc, had_serializable_records, rp)
 			if (gbl_ufid_add_on_collect && rectype < 10000 && rectype > 1000) {
 				DB *file_dbp;
 				u_int8_t ufid[DB_FILE_ID_LEN] = {0};
-				if ((int)ufid_for_recovery_record(dbenv, NULL, rectype, ufid, &data)) {
+				if ((int)ufid_for_recovery_record(dbenv, NULL, rectype, ufid, &data, utxnid_logged)) {
 					__ufid_to_db(dbenv, NULL, &file_dbp, ufid, NULL);
 				}
 			}

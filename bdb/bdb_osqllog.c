@@ -749,7 +749,7 @@ int bdb_osql_log_updix_lk(bdb_osql_log_t *log, DB_LSN *lsn,
                           llog_undo_upd_ix_lk_args *upd_ix_lk, int *bdberr)
 {
     bdb_osql_log_rec_t *rec = bdb_osql_updix_lk_rec(upd_ix_lk, lsn, bdberr);
-    long long genid = upd_ix_lk->oldgenid;
+    unsigned long long genid = upd_ix_lk->oldgenid;
 
     if (!rec) {
         return -1;

@@ -749,7 +749,7 @@ int bdb_osql_log_updix_lk(bdb_osql_log_t *log, DB_LSN *lsn,
                           llog_undo_upd_ix_lk_args *upd_ix_lk, int *bdberr)
 {
     bdb_osql_log_rec_t *rec = bdb_osql_updix_lk_rec(upd_ix_lk, lsn, bdberr);
-    unsigned long long genid = upd_ix_lk->oldgenid;
+    long long genid = upd_ix_lk->oldgenid;
 
     if (!rec) {
         return -1;
@@ -2922,7 +2922,7 @@ static int bdb_osql_log_try_run_optimized(bdb_cursor_impl_t *cur,
         }
 
         /* Another sanity check. */
-        assert(rectype == rec->type || (rectype+2000 == rec->type));
+        assert(rectype == rec->type);
 
         /* Read this record to retrieve the old and new genids. */
         rc = llog_undo_upd_dta_read(cur->state->dbenv, logdta.data, &upd_dta);
@@ -3469,7 +3469,7 @@ static int bdb_osql_log_run_unoptimized(bdb_cursor_impl_t *cur, DB_LOGC *curlog,
             *bdberr = BDBERR_BUG_KILLME;
             return -1;
         }
-        assert(rectype == rec->type || (rectype+2000 == rec->type));
+        assert(rectype == rec->type);
     } else {
         memcpy(&logdta, inlogdta, sizeof(DBT));
     }

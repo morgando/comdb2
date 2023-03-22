@@ -2199,7 +2199,7 @@ static int reconstruct_blob_records(struct convert_record_data *data,
         }
         LOGCOPY_32(&rectype, logdta->data);
         normalize_rectype(&rectype);
-        assert(rectype == rec->type || (rectype+2000 == rec->type));
+        assert(rectype == rec->type);
 
         assert(rec->dtafile >= 1);
         blbix = rec->dtafile - 1;
@@ -2212,10 +2212,10 @@ static int reconstruct_blob_records(struct convert_record_data *data,
                rec->type, rec->dtafile, rec->dtastripe, rec->genid);
 #endif
 
-        switch (rectype) {
+        switch (rec->type) {
         case DB_llog_undo_add_dta:
         case DB_llog_undo_add_dta_lk:
-            if (rectype == DB_llog_undo_add_dta_lk) {
+            if (rec->type == DB_llog_undo_add_dta_lk) {
                 if ((rc = llog_undo_add_dta_lk_read(
                          bdb_state->dbenv, logdta->data, &add_dta_lk)) != 0) {
                     logmsg(LOGMSG_ERROR, "%s:%d error unpacking rc=%d\n",
@@ -2253,7 +2253,7 @@ static int reconstruct_blob_records(struct convert_record_data *data,
             break;
         case DB_llog_undo_del_dta:
         case DB_llog_undo_del_dta_lk:
-            if (rectype == DB_llog_undo_del_dta_lk) {
+            if (rec->type == DB_llog_undo_del_dta_lk) {
                 if ((rc = llog_undo_del_dta_lk_read(
                          bdb_state->dbenv, logdta->data, &del_dta_lk)) != 0) {
                     logmsg(LOGMSG_ERROR, "%s:%d error unpacking rc=%d\n",
@@ -2303,7 +2303,7 @@ static int reconstruct_blob_records(struct convert_record_data *data,
                 }
             }
 
-            if (rectype == DB_llog_undo_upd_dta_lk) {
+            if (rec->type == DB_llog_undo_upd_dta_lk) {
                 if ((rc = llog_undo_upd_dta_lk_read(
                          bdb_state->dbenv, logdta->data, &upd_dta_lk)) != 0) {
                     logmsg(LOGMSG_ERROR, "%s:%d error unpacking rc=%d\n",
@@ -2535,9 +2535,9 @@ static int live_sc_redo_add(struct convert_record_data *data, DB_LOGC *logc,
     }
     LOGCOPY_32(&rectype, logdta->data);
     normalize_rectype(&rectype);
-    assert(rectype == rec->type || (rectype+2000 == rec->type));
+    assert(rectype == rec->type);
 
-    if (rectype == DB_llog_undo_add_dta_lk) {
+    if (rec->type == DB_llog_undo_add_dta_lk) {
         if ((rc = llog_undo_add_dta_lk_read(bdb_state->dbenv, logdta->data,
                                             &add_dta_lk)) != 0) {
             logmsg(LOGMSG_ERROR, "%s:%d error unpacking rc=%d\n", __func__,
@@ -2746,8 +2746,8 @@ static int live_sc_redo_delete(struct convert_record_data *data, DB_LOGC *logc,
     }
     LOGCOPY_32(&rectype, logdta->data);
     normalize_rectype(&rectype);
-    assert(rectype == rec->type || (rectype+2000 == rec->type));
-    if (rectype == DB_llog_undo_del_dta_lk) {
+    assert(rectype == rec->type);
+    if (rec->type == DB_llog_undo_del_dta_lk) {
         if ((rc = llog_undo_del_dta_lk_read(bdb_state->dbenv, logdta->data,
                                             &del_dta_lk)) != 0) {
             logmsg(LOGMSG_ERROR, "%s:%d error unpacking rc=%d\n", __func__,
@@ -2870,8 +2870,8 @@ static int live_sc_redo_update(struct convert_record_data *data, DB_LOGC *logc,
     }
     LOGCOPY_32(&rectype, logdta->data);
     normalize_rectype(&rectype);
-    assert(rectype == rec->type || (rectype+2000 == rec->type));
-    if (rectype == DB_llog_undo_upd_dta_lk) {
+    assert(rectype == rec->type);
+    if (rec->type == DB_llog_undo_upd_dta_lk) {
         if ((rc = llog_undo_upd_dta_lk_read(bdb_state->dbenv, logdta->data,
                                             &upd_dta_lk)) != 0) {
             logmsg(LOGMSG_ERROR, "%s:%d error unpacking rc=%d\n", __func__,
@@ -3121,9 +3121,8 @@ done:
 
 static inline int is_logical_data_op(bdb_osql_log_rec_t *rec)
 {
-	u_int32_t rectype = rec->type;
-	normalize_rectype(&rectype);
-    switch (rectype) {
+	assert (rec->type < 12000);
+    switch (rec->type) {
     case DB_llog_undo_add_dta:
     case DB_llog_undo_add_dta_lk:
     case DB_llog_undo_del_dta:
@@ -3170,10 +3169,9 @@ static int live_sc_redo_logical_rec(struct convert_record_data *data,
         return ERR_INDEX_CONFLICT;
     }
 
-    u_int32_t normalized_rectype = rec->type;
-    normalize_rectype(&normalized_rectype);
+	assert(rec->type < 12000);
 
-    switch (normalized_rectype) {
+    switch (rec->type) {
     case DB_llog_undo_add_dta:
     case DB_llog_undo_add_dta_lk:
         if (bdb_inplace_cmp_genids(data->to->handle, rec->genid,

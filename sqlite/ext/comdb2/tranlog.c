@@ -121,7 +121,6 @@ extern int gbl_num_logput_listeners;
 extern pthread_mutex_t gbl_durable_lsn_lk;
 extern pthread_cond_t gbl_durable_lsn_cond;
 extern int comdb2_sql_tick();
-extern int gbl_utxnid_log;
 
 /*
 ** Advance a tranlog cursor to the next log entry
@@ -279,7 +278,9 @@ static inline int parse_lsn(const unsigned char *lsnstr, DB_LSN *lsn)
 static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 {
     u_int64_t timestamp;
-	if (gbl_utxnid_log) {
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
 	} else {
 		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 4 + 4 + 8] );
@@ -290,7 +291,9 @@ static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 static u_int32_t get_generation_from_regop_gen_record(char *data)
 {
     u_int32_t generation;
-	if (gbl_utxnid_log) {
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 8 + 4] );
 	} else {
 		LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 4] );
@@ -301,7 +304,9 @@ static u_int32_t get_generation_from_regop_gen_record(char *data)
 static u_int64_t get_timestamp_from_regop_rowlocks_record(char *data)
 {
     u_int64_t timestamp;
-	if (gbl_utxnid_log) {
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8] );
 	} else {
 		LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4 + 8 + 8 + 8 + 8] );
@@ -312,7 +317,9 @@ static u_int64_t get_timestamp_from_regop_rowlocks_record(char *data)
 static u_int32_t get_generation_from_regop_rowlocks_record(char *data)
 {
     u_int32_t generation;
-	if (gbl_utxnid_log) {
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
 	} else {
 		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 4] );
@@ -323,7 +330,9 @@ static u_int32_t get_generation_from_regop_rowlocks_record(char *data)
 static u_int32_t get_timestamp_from_regop_record(char *data)
 {
     u_int32_t timestamp;
-	if (gbl_utxnid_log) {
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 4] );
 	} else {
 		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 4] );
@@ -334,7 +343,9 @@ static u_int32_t get_timestamp_from_regop_record(char *data)
 static u_int32_t get_timestamp_from_ckp_record(char *data)
 {
     u_int32_t timestamp;
-	if (gbl_utxnid_log) { 
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8 + 8] );
 	} else {
 		LOGCOPY_32( &timestamp, &data[4 + 4 + 8 + 8 + 8] );
@@ -345,7 +356,9 @@ static u_int32_t get_timestamp_from_ckp_record(char *data)
 static u_int32_t get_generation_from_ckp_record(char *data)
 {
     u_int32_t generation;
-	if (gbl_utxnid_log) {
+	u_int32_t rectype;
+	LOGCOPY_32(&rectype, data); 
+	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 8 + 4] );
 	} else {
 		LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8 + 8 + 4] );
@@ -369,19 +382,19 @@ u_int64_t get_timestamp_from_matchable_record(char *data)
         logmsg(LOGMSG_DEBUG, "No data, so can't get rectype!\n");
     }
 
-    if (rectype == DB___txn_regop_gen){
+    if (rectype == DB___txn_regop_gen || (rectype == DB___txn_regop_gen+2000)) {
         return get_timestamp_from_regop_gen_record(data);
     }
 
-    if (rectype == DB___txn_regop_rowlocks) {
+    if (rectype == DB___txn_regop_rowlocks || (rectype == DB___txn_regop_rowlocks+2000)) {
         return get_timestamp_from_regop_rowlocks_record(data);
     }
 
-    if (rectype == DB___txn_regop) {
+    if (rectype == DB___txn_regop || (rectype == DB___txn_regop+2000)) {
         return get_timestamp_from_regop_record(data);
     }
 
-    if (rectype == DB___txn_ckp) {
+    if (rectype == DB___txn_ckp || (rectype == DB___txn_ckp+2000)) {
         return get_timestamp_from_ckp_record(data);
     }
 
@@ -425,7 +438,7 @@ static int tranlogColumn(
 	case TRANLOG_COLUMN_MAXUTXNID: 
         if (pCur->data.data) {
             LOGCOPY_32(&rectype, pCur->data.data); 
-			if (gbl_utxnid_log && (rectype == DB___txn_ckp+2000)) {
+			if (rectype == DB___txn_ckp+2000) {
 				LOGCOPY_64(&maxutxnid, &((char*)pCur->data.data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
 				sqlite3_result_int64(ctx, maxutxnid);
 				break;
@@ -477,7 +490,7 @@ static int tranlogColumn(
 	case TRANLOG_COLUMN_UTXNID:
         if (pCur->data.data) {
             LOGCOPY_32(&rectype, pCur->data.data); 
-			if (gbl_utxnid_log && (rectype > 2000 || rectype > 12000)) {
+			if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
 				LOGCOPY_64(&utxnid, &((char *) pCur->data.data)[4 + 4 + 8]); 
 				sqlite3_result_int64(ctx, utxnid);
 				break;
@@ -489,19 +502,19 @@ static int tranlogColumn(
         if (pCur->data.data)
             LOGCOPY_32(&rectype, pCur->data.data); 
 
-        if (rectype == DB___txn_regop_gen){
+        if (rectype == DB___txn_regop_gen || (rectype == DB___txn_regop_gen+2000)) {
             timestamp = get_timestamp_from_regop_gen_record(pCur->data.data);
         }
 
-        if (rectype == DB___txn_regop_rowlocks) {
+        if (rectype == DB___txn_regop_rowlocks || (rectype == DB___txn_regop_rowlocks+2000)) {
             timestamp = get_timestamp_from_regop_rowlocks_record(pCur->data.data);
         }
 
-        if (rectype == DB___txn_regop) {
+        if (rectype == DB___txn_regop || (rectype == DB___txn_regop+2000)) {
             timestamp = get_timestamp_from_regop_record(pCur->data.data);
         }
 
-        if (rectype == DB___txn_ckp) {
+        if (rectype == DB___txn_ckp || (rectype == DB___txn_ckp+2000)) {
             timestamp = get_timestamp_from_ckp_record(pCur->data.data);
         }
 

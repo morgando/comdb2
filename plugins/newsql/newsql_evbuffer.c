@@ -39,6 +39,7 @@
 #include <pb_alloc.h>
 
 #include <newsql.h>
+#include <fsnapf.h>
 
 extern int gbl_nid_dbname;
 extern SSL_CTX *gbl_ssl_ctx;
@@ -313,14 +314,17 @@ static void wr_dbinfo_plaintext(struct newsql_appdata_evbuffer *appdata)
 
 static void process_dbinfo_int(struct newsql_appdata_evbuffer *appdata, struct evbuffer *buf)
 {
-    CDB2DBINFORESPONSE__Nodeinfo *master = NULL;
     CDB2DBINFORESPONSE__Nodeinfo *nodes[REPMAX];
     CDB2DBINFORESPONSE__Nodeinfo same_dc[REPMAX], diff_dc[REPMAX];
+    CDB2DBINFORESPONSE__Nodeinfo no_master = CDB2__DBINFORESPONSE__NODEINFO__INIT, *master = &no_master;
+    no_master.name = db_eid_invalid;
+    no_master.number = -1;
     int num_same_dc = 0, num_diff_dc = 0;
     host_node_type *hosts[REPMAX];
     int num_hosts = get_hosts_evbuffer(REPMAX, hosts);
     int my_dc = machine_dc(gbl_myhostname);
     int process_incoherent = bdb_amimaster(thedb->bdb_env);
+    const char *who = bdb_whoismaster(thedb->bdb_env);
     for (int i = 0; i < num_hosts; ++i) {
         CDB2DBINFORESPONSE__Nodeinfo *node;
         int dc = machine_dc(hosts[i]->host);
@@ -332,7 +336,6 @@ static void process_dbinfo_int(struct newsql_appdata_evbuffer *appdata, struct e
         node->port = hosts[i]->port;
         node->name = hosts[i]->host;
         node->incoherent = process_incoherent ? is_incoherent(thedb->bdb_env, node->name) : 0;
-        const char *who = bdb_whoismaster(thedb->bdb_env);
         if (who && strcmp(who, node->name) == 0) {
             master = node;
         }
@@ -351,6 +354,8 @@ static void process_dbinfo_int(struct newsql_appdata_evbuffer *appdata, struct e
     response.n_nodes = num_hosts;
     response.master = master;
     response.nodes = nodes;
+    response.has_sync_mode = 1;
+    response.sync_mode = sync_state_to_protobuf(thedb->rep_sync);
 
     int len = cdb2__dbinforesponse__get_packed_size(&response);
     struct newsqlheader hdr = {0};
@@ -360,6 +365,14 @@ static void process_dbinfo_int(struct newsql_appdata_evbuffer *appdata, struct e
     cdb2__dbinforesponse__pack(&response, out);
     evbuffer_add(buf, &hdr, sizeof(hdr));
     evbuffer_add(buf, out, len);
+    /* Keep this check temporarily */
+    CDB2DBINFORESPONSE *decode = cdb2__dbinforesponse__unpack(NULL, len, out);
+    if (!decode) {
+        logmsg(LOGMSG_FATAL, "%s:%d failed to decode dbinfo len:%d\n", __func__, __LINE__, len);
+        fsnapf(stderr, out, len);
+        abort();
+    }
+    cdb2__dbinforesponse__free_unpacked(decode, NULL);
 }
 
 static void process_dbinfo(struct newsql_appdata_evbuffer *appdata)

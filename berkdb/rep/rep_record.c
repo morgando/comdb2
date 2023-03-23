@@ -2029,7 +2029,7 @@ more:
 notfound:
 			if (gbl_berkdb_verify_skip_skipables) {
 				__db_err(dbenv,
-					"Log contains only skippable records, chance of diverging logs\n");
+					"Log contains only skippable records, chance of diverging logs");
 				ret = __log_c_get(logc, &lsn, &mylog, DB_FIRST);
 
 				if (ret == 0) {

@@ -97,6 +97,7 @@ extern int gbl_watchdog_disable_at_start;
 extern int gbl_osql_verify_retries_max;
 extern int gbl_dump_history_on_too_many_verify_errors;
 extern int gbl_page_latches;
+extern int gbl_pb_connectmsg;
 extern int gbl_prefault_udp;
 extern int gbl_print_syntax_err;
 extern int gbl_lclpooled_buffers;
@@ -373,6 +374,8 @@ extern int gbl_debug_omit_dta_write;
 extern int gbl_debug_omit_idx_write;
 extern int gbl_debug_omit_blob_write;
 extern int gbl_debug_skip_constraintscheck_on_insert;
+extern int gbl_debug_pb_connectmsg_dbname_check;
+extern int gbl_debug_pb_connectmsg_gibberish;
 extern int gbl_debug_omit_zap_on_rebuild;
 extern int gbl_debug_txn_sleep;
 extern int gbl_instrument_consumer_lock;
@@ -386,6 +389,7 @@ extern int gbl_permit_small_sequences;
 extern int gbl_debug_sleep_in_sql_tick;
 extern int gbl_debug_sleep_in_analyze;
 extern int gbl_debug_sleep_in_summarize;
+extern int gbl_debug_sleep_in_trigger_info;
 extern int gbl_protobuf_prealloc_buffer_size;
 extern int gbl_replicant_retry_on_not_durable;
 extern int gbl_enable_internal_sql_stmt_caching;
@@ -413,6 +417,7 @@ extern int gbl_net_maxconn;
 extern int gbl_force_direct_io;
 extern int gbl_seekscan_maxsteps;
 extern int gbl_wal_osync;
+extern uint64_t gbl_sc_headroom;
 
 /*
   =========================================================

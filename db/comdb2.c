@@ -345,6 +345,8 @@ int gbl_debug_omit_blob_write;
 int gbl_debug_omit_zap_on_rebuild = 0;
 int gbl_debug_txn_sleep = 0;
 int gbl_debug_skip_constraintscheck_on_insert;
+int gbl_debug_pb_connectmsg_dbname_check = 0;
+int gbl_debug_pb_connectmsg_gibberish = 0;
 double gbl_query_plan_percentage = 50;
 int gbl_readonly = 0;
 int gbl_init_single_meta = 1;
@@ -489,7 +491,7 @@ int gbl_parallel_recovery_threads = 0;
 
 int gbl_fdb_resolve_local = 0;
 int gbl_fdb_allow_cross_classes = 0;
-
+uint64_t gbl_sc_headroom = 10;
 /*---COUNTS---*/
 long n_qtrap;
 long n_fstrap;
@@ -662,7 +664,7 @@ int gbl_check_wrong_db = 1;
 int gbl_broken_max_rec_sz = 0;
 int gbl_private_blkseq = 1;
 int gbl_use_blkseq = 1;
-int gbl_reorder_socksql_no_deadlock = 1;
+int gbl_reorder_socksql_no_deadlock = 0;
 int gbl_reorder_idx_writes = 1;
 
 char *gbl_recovery_options = NULL;

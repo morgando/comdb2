@@ -58,6 +58,8 @@
 #include <plhash.h>
 #include <portmuxapi.h>
 
+#include <connectmsg.pb-c.h>
+
 #define NEED_LSN_DEF
 #include <rep_qstat.h>
 
@@ -73,7 +75,7 @@
 
 #define TCP_BUFSZ MB(8)
 #define SBUF2UNGETC_BUF_MAX 8 /* See also, util/sbuf2.c */
-#define MAX_DISTRESS_COUNT 10
+#define MAX_DISTRESS_COUNT 3
 
 #define hprintf_lvl LOGMSG_USER
 #define hprintf_format(a) "[%.3s %-8s fd:%-3d %20s] " a, e->service, e->host, e->fd, __func__
@@ -99,15 +101,20 @@
 #define hputs_nd(a) no_distress_logmsg(hprintf_format(a))
 
 extern int count_newsqls;
+int gbl_pb_connectmsg = 0;
 int gbl_libevent = 1;
 int gbl_libevent_appsock = 1;
 int gbl_libevent_rte_only = 0;
 
+extern char gbl_dbname[MAX_DBNAME_LENGTH];
 extern char *gbl_myhostname;
 extern int gbl_create_mode;
 extern int gbl_exit;
 extern int gbl_fullrecovery;
 extern int gbl_pmux_route_enabled;
+extern int gbl_debug_pb_connectmsg_dbname_check;
+extern int gbl_debug_pb_connectmsg_gibberish;
+extern int gbl_accept_on_child_nets;
 
 static double resume_lvl = 0.7;
 static struct timeval one_sec = {1, 0};
@@ -214,6 +221,7 @@ static void pmux_connect(int, short, void *);
 static void pmux_reconnect(struct connect_info *c);
 static void resume_read(int, short, void *);
 static void unix_connect(int, short, void *);
+static int write_connect_message_proto(netinfo_type *, host_node_type *);
 
 static struct timeval reconnect_time(int retry)
 {
@@ -732,6 +740,8 @@ struct accept_info {
     connect_message_type c;
     netinfo_type *netinfo_ptr;
     struct event *ev;
+    int uses_proto;
+    char *dbname;
     TAILQ_ENTRY(accept_info) entry;
 };
 
@@ -785,6 +795,7 @@ static void accept_info_free(struct accept_info *a)
     }
     free(a->from_host);
     free(a->to_host);
+    free(a->dbname);
     free(a);
 }
 
@@ -1370,21 +1381,23 @@ static void add_host_from_hello_msg(void *data)
 
 static int hello_msg_common(struct event_info *e)
 {
+    int rc = -1;
     uint32_t hello_recv = e->need;
     uint32_t start_sz = evbuffer_get_length(e->rd_buf);
-    uint32_t n;
-    evbuffer_remove(e->rd_buf, &n, sizeof(uint32_t));
-    n = htonl(n);
+    uint32_t nn;
+    evbuffer_remove(e->rd_buf, &nn, sizeof(uint32_t));
+    const uint32_t n = htonl(nn);
     if (n > REPMAX) {
         hprintf("RECV'd BAD COUNT OF HOSTS:%u (max:%d)\n", n, REPMAX);
         return -1;
     }
-    char hosts[n][HOSTNAME_LEN + 1];
+    char **hosts = malloc(sizeof(char *) * n);
     for (uint32_t i = 0; i < n; ++i) {
+        hosts[i] = malloc(HOSTNAME_LEN + 1);
         evbuffer_remove(e->rd_buf, hosts[i], HOSTNAME_LEN);
         hosts[i][HOSTNAME_LEN] = 0;
     }
-    uint32_t ports[n];
+    uint32_t *ports = malloc(sizeof(uint32_t) * n);
     for (uint32_t i = 0; i < n; ++i) {
         evbuffer_remove(e->rd_buf, &ports[i], sizeof(uint32_t));
         ports[i] = htonl(ports[i]);
@@ -1392,26 +1405,31 @@ static int hello_msg_common(struct event_info *e)
     /* We have no use for node numbers */
     evbuffer_drain(e->rd_buf, n * sizeof(uint32_t));
     for (uint32_t i = 0; i < n; ++i) {
+        int need_free = 0;
         char *host = hosts[i];
         if (*host == '.') {
             ++host;
             uint32_t s = atoi(host);
             if (s > HOST_NAME_MAX) {
                 hprintf("RECV'd BAD HOSTNAME len:%u (max:%d)\n", s, HOST_NAME_MAX);
-                return -1;
+                goto out;
             }
-            host = alloca(s + 1);
+            need_free = 1;
+            host = malloc(s + 1);
             evbuffer_remove(e->rd_buf, host, s);
             host[s] = 0;
         }
         if (strcmp(host, gbl_myhostname) == 0) {
+            if (need_free) free(host);
             continue;
         }
         struct host_info *hi = host_info_find(host);
         if (hi && event_info_find(e->net_info, hi)) {
+            if (need_free) free(host);
             continue;
         }
         char *ihost = intern(host);
+        if (need_free) free(host);
         netinfo_type *netinfo_ptr = e->net_info->netinfo_ptr;
         if (netinfo_ptr->allow_rtn && !netinfo_ptr->allow_rtn(netinfo_ptr, ihost)) { /* net_allow_node */
             logmsg(LOGMSG_ERROR, "connection to host:%s not allowed\n", ihost);
@@ -1428,7 +1446,13 @@ static int hello_msg_common(struct event_info *e)
         evbuffer_drain(e->rd_buf, fluff);
     }
     set_hello_message(e);
-    return 0;
+    rc = 0;
+out:free(ports);
+    for (uint32_t i = 0; i < n; ++i) {
+        free(hosts[i]);
+    }
+    free(hosts);
+    return rc;
 }
 
 static void check_distress(struct event_info *e)
@@ -1819,7 +1843,11 @@ static void finish_host_setup(int dummyfd, short what, void *data)
     } else if (connect_msg) {
         hputs("WRITING HELLO\n");
         netinfo_type *netinfo_ptr = e->net_info->netinfo_ptr;
-        write_connect_message(netinfo_ptr, e->host_node_ptr, NULL);
+        if (gbl_pb_connectmsg && gbl_libevent) {
+            write_connect_message_proto(netinfo_ptr, e->host_node_ptr);
+        } else {
+            write_connect_message(netinfo_ptr, e->host_node_ptr, NULL);
+        }
         write_hello(netinfo_ptr, e->host_node_ptr);
     } else {
         hputs("CONNECTED\n");
@@ -2230,6 +2258,16 @@ static int validate_host(struct accept_info *a)
                a->from_host);
         return -1;
     }
+
+    char *dbname = gbl_dbname;
+    if (gbl_debug_pb_connectmsg_dbname_check) {
+        dbname = "icthxdb";
+    }
+
+    if (a->dbname && strcmp(a->dbname, dbname) != 0) {
+        logmsg(LOGMSG_WARN, "%s fd:%d invalid dbname:%s (exp:%s)\n", __func__, a->fd, a->dbname, dbname);
+        return -1;
+    }
 #   if 0
     socklen_t slen = sizeof(a->ss);
     char from[HOST_NAME_MAX];
@@ -2250,7 +2288,7 @@ static int validate_host(struct accept_info *a)
     }
 #   endif
     int check_port = 1;
-    int port = a->c.my_portnum;
+    int port = a->c.from_portnum;
     int netnum = port >> 16;
     a->from_port = port &= 0xffff;
     if (netnum > 0 && netnum < a->netinfo_ptr->num_child_nets) {
@@ -2261,7 +2299,7 @@ static int validate_host(struct accept_info *a)
     if (netinfo_ptr == NULL) {
         logmsg(LOGMSG_ERROR,
                "%s failed node:%d host:%s netnum:%d (%d) failed\n", __func__,
-               a->c.my_nodenum, a->from_host, netnum, a->netinfo_ptr->netnum);
+               a->c.from_nodenum, a->from_host, netnum, a->netinfo_ptr->netnum);
         return -1;
     }
     if (check_port && a->c.to_portnum != netinfo_ptr->myport) {
@@ -2274,7 +2312,7 @@ static int validate_host(struct accept_info *a)
     char *host = a->from_host_interned = intern(a->from_host);
     if (netinfo_ptr->allow_rtn && !netinfo_ptr->allow_rtn(netinfo_ptr, host)) { /* net_allow_node */
         logmsg(LOGMSG_ERROR, "connection from node:%d host:%s not allowed\n",
-               a->c.my_nodenum, host);
+               a->c.from_nodenum, host);
         return -1;
     }
     if (a->c.flags & CONNECT_MSG_SSL) {
@@ -2344,7 +2382,7 @@ static int process_connect_message(struct accept_info *a)
     }
     net_connect_message_get(&a->c, buf, buf + NET_CONNECT_MESSAGE_TYPE_LEN);
     evbuffer_drain(input, NET_CONNECT_MESSAGE_TYPE_LEN);
-    if (read_hostname(&a->from_host, &a->from_len, a->c.my_hostname) != 0) {
+    if (read_hostname(&a->from_host, &a->from_len, a->c.from_hostname) != 0) {
         return -1;
     }
     if (read_hostname(&a->to_host, &a->to_len, a->c.to_hostname) != 0) {
@@ -2358,24 +2396,130 @@ static int process_connect_message(struct accept_info *a)
     return event_base_once(base, a->fd, EV_READ, read_long_hostname, a, NULL);
 }
 
+static int process_connect_message_proto(struct accept_info *a)
+{
+    struct evbuffer *input = a->buf;
+    uint8_t *buf = evbuffer_pullup(input, a->need);
+    if (buf == NULL) {
+        return -1;
+    }
+
+    NetConnectmsg *c = net_connectmsg__unpack(NULL, a->need, buf);
+    evbuffer_drain(input, a->need);
+    int bad = 0;
+    char *missing = "Connect message missing field";
+    if (c->to_hostname)
+        a->to_host = strdup(c->to_hostname);
+    else {
+        logmsg(LOGMSG_ERROR, "%s to_hostname\n", missing);
+        bad = 1;
+    }
+    if (c->has_to_portnum)
+        a->c.to_portnum = c->to_portnum;
+    else {
+        logmsg(LOGMSG_ERROR, "%s to_portnum\n", missing);
+        bad = 1;
+    }
+    if (c->from_hostname)
+        a->from_host = strdup(c->from_hostname);
+    else {
+        logmsg(LOGMSG_ERROR, "%s from_hostname\n", missing);
+        bad = 1;
+    }
+    if (c->has_from_portnum)
+        a->c.from_portnum = c->from_portnum;
+    else {
+        logmsg(LOGMSG_ERROR, "%s from_portnum\n", missing);
+        bad = 1;
+    }
+    if (c->dbname)
+        a->dbname = strdup(c->dbname);
+    else {
+        logmsg(LOGMSG_ERROR, "%s dbname\n", missing);
+        bad = 1;
+    }
+
+    net_connectmsg__free_unpacked(c, NULL);
+    return bad ? -1 : validate_host(a);
+}
+
 static void read_connect(int fd, short what, void *data)
 {
     struct accept_info *a = data;
     int need = a->need - evbuffer_get_length(a->buf);
     int n = evbuffer_read(a->buf, fd, need);
-    if (n <= 0) {
+    if (n <= 0 && (what & EV_READ)) {
         accept_info_free(a);
         return;
     }
     int rc;
     if (n == need) {
-        rc = process_connect_message(a);
+        if (a->uses_proto) {
+            rc = process_connect_message_proto(a);
+        } else {
+            rc = process_connect_message(a);
+        }
     } else {
         rc = event_base_once(base, fd, EV_READ, read_connect, a, NULL);
     }
     if (rc) {
         accept_info_free(a);
     }
+}
+
+static int write_connect_message_proto(netinfo_type *netinfo_ptr, host_node_type *host_node_ptr)
+{
+    char type = 0;
+    char star = '*';
+    NetConnectmsg connect_message = NET_CONNECTMSG__INIT;
+
+    // fill in message
+    connect_message.to_hostname = host_node_ptr->host;
+    connect_message.has_to_portnum = 1;
+    connect_message.to_portnum = host_node_ptr->port;
+    connect_message.from_hostname = netinfo_ptr->myhostname;
+    connect_message.has_from_portnum = 1;
+    if (gbl_accept_on_child_nets || !netinfo_ptr->ischild) {
+        connect_message.from_portnum = netinfo_ptr->myport;
+    } else {
+        connect_message.from_portnum = netinfo_ptr->parent->myport | (netinfo_ptr->netnum << 16);
+    }
+    connect_message.dbname = gbl_dbname;
+    if (gbl_debug_pb_connectmsg_dbname_check) {
+        connect_message.dbname = "icthxdb";
+    }
+
+    // send message
+    int len = net_connectmsg__get_packed_size(&connect_message);
+    int net_len = htonl(len);
+
+    uint8_t *buf = malloc(len);
+    net_connectmsg__pack(&connect_message, buf);
+
+    int i = 0;
+    int n = 4;
+    struct iovec iov[n];
+    int rc;
+
+    iov[i].iov_base = &type;
+    iov[i].iov_len = sizeof(type);
+    ++i;
+
+    iov[i].iov_base = &star;
+    iov[i].iov_len = sizeof(star);
+    ++i;
+
+    iov[i].iov_base = &net_len;
+    iov[i].iov_len = sizeof(net_len);
+    ++i;
+
+    iov[i].iov_base = buf;
+    iov[i].iov_len = len;
+    ++i;
+
+    rc = write_connect_message_evbuffer(host_node_ptr, iov, n);
+    free(buf);
+    return rc;
 }
 
 static void handle_appsock(netinfo_type *netinfo_ptr, struct sockaddr_in *ss, int first_byte, struct evbuffer *buf, int fd)
@@ -2393,6 +2537,42 @@ static void handle_appsock(netinfo_type *netinfo_ptr, struct sockaddr_in *ss, in
     do_appsock(netinfo_ptr, ss, sb, first_byte);
 }
 
+/* retrive next 5 bytes to search for '*' and len */
+static void read_len(int fd, short what, void *data)
+{
+    char first;
+    int len, n;
+    struct accept_info *a = data;
+    int need = sizeof(first) + sizeof(len) - evbuffer_get_length(a->buf);
+
+    if (need > 0) {
+        n = evbuffer_read(a->buf, fd, need);
+        if (n <= 0 && (what & EV_READ)) {
+            accept_info_free(a);
+            return;
+        }
+    } else {
+        n = need; // we are done reading
+    }
+
+    if (n == need) {
+        evbuffer_copyout(a->buf, &first, 1);
+        if (first == '*' && !gbl_debug_pb_connectmsg_gibberish) { // protobuf connect message
+            evbuffer_drain(a->buf, 1);
+            evbuffer_remove(a->buf, &len, sizeof(len));
+            len = ntohl(len);
+            a->need = len;
+            a->uses_proto = 1;
+        } else {
+            a->need = NET_CONNECT_MESSAGE_TYPE_LEN;
+            a->uses_proto = 0;
+        }
+        read_connect(fd, 0, a);
+    } else if (event_base_once(base, fd, EV_READ, read_len, a, NULL)) {
+        accept_info_free(a);
+    }
+}
+
 static void do_read(int fd, short what, void *data)
 {
     check_base_thd();
@@ -2408,10 +2588,7 @@ static void do_read(int fd, short what, void *data)
     if (first_byte == 0) {
         evbuffer_drain(buf, 1);
         a->buf = buf;
-        a->need = NET_CONNECT_MESSAGE_TYPE_LEN;
-        if (event_base_once(base, fd, EV_READ, read_connect, a, NULL)) {
-            accept_info_free(a);
-        }
+        read_len(fd, 0, a);
         return;
     }
     netinfo_type *netinfo_ptr = a->netinfo_ptr;
@@ -3032,6 +3209,7 @@ static void get_hosts_evbuffer_impl(void *arg)
     int i = 1;
     struct event_info *e;
     LIST_FOREACH(e, &n->event_list, net_list_entry) {
+        if (e->decomissioned) continue;
         info->hosts[i] = e->host_node_ptr;
         ++i;
         if (i == info->max_hosts) {

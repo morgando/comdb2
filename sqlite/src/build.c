@@ -538,8 +538,9 @@ retry_after_fdb_creation:
       logmsg(LOGMSG_USER, "Trying to locate \"%s:%s\"\n", fqDbname, zName);
     }
 
+    int lvl, local, lvl_override;
     rc = sqlite3AddAndLockTable(db, fqDbname, zName, &version,
-          in_analysis_load);
+          in_analysis_load, &lvl, &local, &lvl_override);
     if( rc ){
         if( gbl_fdb_track )
             logmsg(LOGMSG_USER, "No foreign table \"%s:%s\"\n", fqDbname, zName);
@@ -559,7 +560,7 @@ retry_after_fdb_creation:
     ** attached from two different databases
     */
     rc = comdb2_dynamic_attach(db, NULL, 0, NULL, uri, dbName,
-        &zErrDyn, version);
+        &zErrDyn, version, lvl, local, lvl_override);
 
     if( sqlite3UnlockTable(dbName, zName) ){
       logmsg(LOGMSG_ERROR, "%s: failed to unlock %s.%s\n", __func__,
@@ -2751,6 +2752,10 @@ void sqlite3CreateView(
   int iDb;
   sqlite3 *db = pParse->db;
 
+  if(comdb2IsDryrun(pParse)){
+    sqlite3ErrorMsg(pParse, "DRYRUN not supported for this operation");
+    goto create_view_fail;
+  }
   if( pParse->nVar>0 ){
     sqlite3ErrorMsg(pParse, "parameters are not allowed in views");
     goto create_view_fail;
@@ -3198,6 +3203,11 @@ void sqlite3DropTable(Parse *pParse, SrcList *pName, int isView, int noErr){
   int bDropTable = 0;
 
   comdb2WriteTransaction(pParse);
+  if(isView && comdb2IsDryrun(pParse)){
+      sqlite3ErrorMsg(pParse, "DRYRUN not supported for this operation");
+      pParse->rc = SQLITE_MISUSE;
+      goto exit_drop_table;
+  }
 #endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
   if( db->mallocFailed ){
     goto exit_drop_table;

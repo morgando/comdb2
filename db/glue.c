@@ -3531,13 +3531,8 @@ int open_auxdbs(struct dbtable *db, int force_create)
     /* meta information dbs.  we need to make sure that lite meta tables
      * are named differently to heavy meta tables otherwise we can't tell
      * them apart at startup.. */
-    if (gbl_nonames) {
-        snprintf(name, sizeof(name), "comdb2_meta");
-        snprintf(litename, sizeof(litename), "comdb2_metalite");
-    } else {
-        snprintf(name, sizeof(name), "%s.meta", db->tablename);
-        snprintf(litename, sizeof(litename), "%s.metalite", db->tablename);
-    }
+    snprintf(name, sizeof(name), "%s.meta", db->tablename);
+    snprintf(litename, sizeof(litename), "%s.metalite", db->tablename);
 
     ctrace("bdb_open_more: opening <%s>\n", name);
     numdtafiles = 1;
@@ -6218,7 +6213,7 @@ int comdb2_iam_master() {
     return (thedb->master == gbl_myhostname) ? 1 : 0;
 }
 
-static int sync_state_to_protobuf(int sync) {
+int sync_state_to_protobuf(int sync) {
     switch (sync) {
         case REP_SYNC_FULL:
             return CDB2_SYNC_MODE__SYNC;

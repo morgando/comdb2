@@ -1321,6 +1321,14 @@ REGISTER_TUNABLE(
     "Deliberately allow insertion without constraint check to debug db_verify",
     TUNABLE_BOOLEAN, &gbl_debug_skip_constraintscheck_on_insert, INTERNAL, NULL,
     NULL, NULL, NULL);
+REGISTER_TUNABLE("debug.protobuf_connectmsg_dbname_check",
+                 "Send the wrong dbname in the connect message to test that a node in the same cluster should not "
+                 "connect in this case (Default: 0)",
+                 TUNABLE_BOOLEAN, &gbl_debug_pb_connectmsg_dbname_check, INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug.protobuf_connectmsg_gibberish",
+                 "Don't understand the new protobuf connnect message to test connecting with older versions of comdb2"
+                 " (Default: 0)",
+                 TUNABLE_BOOLEAN, &gbl_debug_pb_connectmsg_gibberish, INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug.omit_zap_on_rebuild",
                  "Omit zeroing out record on rebuild to test whether array types are already zeroed out after end of field"
                  " (Default: 0)", TUNABLE_BOOLEAN,
@@ -1885,6 +1893,9 @@ REGISTER_TUNABLE("skip_catchup_logic",
                  &gbl_skip_catchup_logic, EXPERIMENTAL | INTERNAL, NULL, NULL,
                  NULL, NULL);
 
+REGISTER_TUNABLE("protobuf_connectmsg", "Use protobuf in net library for the connect message. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_pb_connectmsg, 0, NULL, NULL, NULL, NULL);
+
 REGISTER_TUNABLE("libevent", "Use libevent in net library. (Default: on)",
                  TUNABLE_BOOLEAN, &gbl_libevent, READONLY, 0, 0, 0, 0);
 
@@ -2213,6 +2224,9 @@ REGISTER_TUNABLE("debug_sleep_in_analyze", "Sleep analyze sql tick.  (Default: o
 REGISTER_TUNABLE("debug_sleep_in_summarize", "Sleep analyze summarize.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_debug_sleep_in_summarize, INTERNAL | EXPERIMENTAL, NULL, NULL, NULL, NULL);
 
+REGISTER_TUNABLE("debug_sleep_in_trigger_info", "Sleep trigger info.  (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_sleep_in_trigger_info, INTERNAL | EXPERIMENTAL, NULL, NULL, NULL, NULL);
+
 REGISTER_TUNABLE("debug_consumer_lock",
                  "Enable debug-trace for consumer lock.  "
                  "(Default: off)",
@@ -2329,4 +2343,7 @@ REGISTER_TUNABLE("seekscan_maxsteps",
                  NULL);
 REGISTER_TUNABLE("wal_osync", "Open WAL files using the O_SYNC flag (Default: off)", TUNABLE_BOOLEAN, &gbl_wal_osync, 0,
                  NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("sc_headroom", 
+                 "Percentage threshold for low headroom calculation. (Default: 10)",
+                 TUNABLE_DOUBLE, &gbl_sc_headroom, INTERNAL | SIGNED, NULL, NULL, NULL, NULL);
 #endif /* _DB_TUNABLES_H */

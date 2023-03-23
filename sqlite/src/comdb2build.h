@@ -35,6 +35,7 @@
 #define REBUILD_ALL   0x00400000
 #define REBUILD_DATA  0x00800000
 #define REBUILD_BLOB  0x01000000
+#define FORCE_SC      0x02000000
 
 #define OPT_ON(opt, val) (val & opt)
 
@@ -47,9 +48,9 @@
 int  readIntFromToken(Token* t, int *rst);
 int  comdb2SqlSchemaChange_tran(OpFunc *arg);
 void comdb2CreateTableCSC2(Parse *, Token *, Token *, int, Token *, int, int);
-void comdb2AlterTableCSC2(Parse *, Token *, Token *, int, Token *, int dryrun);
-void comdb2DropTable(Parse *pParse, SrcList *pName);
-void comdb2AlterTableStart(Parse *, Token *, Token *, int);
+void comdb2AlterTableCSC2(Parse *, Token *, Token *, int, Token *);
+void comdb2DropTable(Parse *, SrcList *);
+void comdb2AlterTableStart(Parse *, Token *, Token *);
 void comdb2AlterTableEnd(Parse *);
 void comdb2AlterColumnStart(Parse *, Token *);
 void comdb2AlterColumnEnd(Parse *);
@@ -59,6 +60,7 @@ void comdb2AlterColumnDropDefault(Parse *);
 void comdb2AlterColumnDropAutoIncrement(Parse *);
 void comdb2AlterColumnSetNotNull(Parse *);
 void comdb2AlterColumnDropNotNull(Parse *);
+void comdb2AlterTableOptions(Parse *pParse, uint32_t);
 void comdb2CreateTableStart(Parse *, Token *, Token *, int, int, int, int);
 void comdb2CreateTableEnd(Parse *, Token *, Token *, u8, int);
 void comdb2CreateTableLikeEnd(Parse *, Token *, Token *);
@@ -118,6 +120,7 @@ void comdb2CreatePartition(Parse* p, Token* table, Token* name,
 void comdb2DropPartition(Parse* p, Token* name);
 void comdb2CreateTimePartition(Parse* p, Token* period, Token* retention,
                                Token* start);
+void comdb2CreateManualPartition(Parse* p, Token* retention, Token* start);
 void comdb2SaveMergeTable(Parse* p, Token* name, Token* database, int alter);
 
 void comdb2analyze(Parse*, int opt, Token*, Token*, int);

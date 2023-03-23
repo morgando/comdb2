@@ -1267,6 +1267,11 @@ struct Db {
   u8 safety_level;     /* How aggressive at syncing data to disk */
   u8 bSyncSet;         /* True if "PRAGMA synchronous=N" has been run */
   Schema *pSchema;     /* Pointer to database schema (possibly shared) */
+#if defined(SQLITE_BUILDING_FOR_COMDB2)
+  int class;           /* what class for this cluster */
+  int class_override;  /* was class explicit at the discovery time */
+  int local;           /* is this a local db */
+#endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
 };
 
 /*
@@ -3373,6 +3378,7 @@ struct Parse {
   char **azSrcListOnly;     /* When the SQLITE_PREPARE_SRCLIST_ONLY flag is
                              * enabled, this will contain the table names
                              * which were discovered in the SELECT query. */
+  u8 isDryrun;              /* Is a dryrun command */
 #endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
 };
 
@@ -4577,7 +4583,7 @@ extern sqlite3_uint64 sqlite3NProfileCnt;
 void sqlite3RootPageMoved(sqlite3*, int, int, int);
 void sqlite3Reindex(Parse*, Token*, Token*);
 #if defined(SQLITE_BUILDING_FOR_COMDB2)
-void sqlite3AlterRenameTable(Parse*, Token*, Token*, int);
+void sqlite3AlterRenameTable(Parse*, Token*, Token*);
 #else /* defined(SQLITE_BUILDING_FOR_COMDB2) */
 void sqlite3AlterFunctions(void);
 void sqlite3AlterRenameTable(Parse*, SrcList*, Token*);
@@ -5009,11 +5015,12 @@ void sqlite3_dump_tunables(void);
 void sqlite3_set_tunable_by_name(char *tname, char *val);
 
 extern int sqlite3AddAndLockTable(sqlite3 *db, const char *dbname,
-      const char *table,
-      int *version, int in_analysis_load);
+      const char *table, int *version, int in_analysis_load,
+      int *out_class, int *out_local, int *out_class_override);
 extern int sqlite3UnlockTable(const char *dbname, const char *table);
 extern int comdb2_dynamic_attach(sqlite3 *db, sqlite3_context *context, int argc, sqlite3_value **argv,
-      const char *zName, const char *zFile, char **pzErrDyn, int version);
+      const char *zName, const char *zFile, char **pzErrDyn, int version,
+      int class, int local, int class_override);
 extern void comdb2_dynamic_detach(sqlite3 *db, int idx);  
 extern int comdb2_fdb_check_class(const char *dbname);
 int sqlite3InitTable(sqlite3 *db, char **pzErrMsg, const char *zName);
@@ -5054,6 +5061,7 @@ struct Cdb2TrigTables {
   Cdb2TrigEvents *events;
   Cdb2TrigTables *next;
 };
+struct schema_change_type;
 Cdb2TrigEvents *comdb2AddTriggerEvent(Parse*,Cdb2TrigEvents*,Cdb2TrigEvent*);
 void comdb2DropTrigger(Parse*,int,Token*);
 Cdb2TrigTables *comdb2AddTriggerTable(Parse*,Cdb2TrigTables*,SrcList*,Cdb2TrigEvents*);
@@ -5063,6 +5071,8 @@ void comdb2CreateScalarFunc(Parse *, Token *, int flags);
 void comdb2DropScalarFunc(Parse *, Token *);
 void comdb2CreateAggFunc(Parse *, Token *);
 void comdb2DropAggFunc(Parse *, Token *);
+int comdb2IsDryrun(Parse *);
+int comdb2SCIsDryRunnable(struct schema_change_type *);
 
 void comdb2WriteTransaction(Parse*);
 

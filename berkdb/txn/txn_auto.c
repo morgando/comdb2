@@ -749,7 +749,7 @@ __txn_ckp_getallpgnos(dbenv, rec, lsnp, notused1, summary)
 	db_recops notused1;
 	void *summary;
 {
-	TXN_RECS *t
+	TXN_RECS *t;
     __txn_ckp_args *argp;
     int ret = 0;
 

@@ -3,8 +3,29 @@ bash -n "$0" | exit 1
 source ${TESTSROOTDIR}/tools/cluster_utils.sh
 a_dbn=$1
 ckp_rectype=2011
+sleeptime=10
 
 #####################################################
+
+kill_restart_cluster()
+{
+    delay=$1
+    for node in $CLUSTER ; do
+        echo "killrestart nodes $node"
+        kill_restart_node $node $delay &
+    done
+    sleep $delay
+    # select 1 all nodes
+    for node in $CLUSTER ; do
+        out=$(cdb2sql ${CDB2_OPTIONS} --tabs --host $node $DBNAME  'select 1' 2>/dev/null)
+        # wait until we can query it
+        echo "$DBNAME: waiting until ready"
+        while [[ "$out" != "1" ]]; do
+            sleep 2
+            out=$(cdb2sql ${CDB2_OPTIONS} --tabs --host $node $DBNAME  'select 1' 2>/dev/null)
+        done
+    done
+}
 
 function failif
 {
@@ -21,48 +42,63 @@ function insert_values
 	done
 }
 
-# Setup
+function verify_unique_utxnid_per_txnid
+{
+        NUM_DUPLICATE_UTXNIDS=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default 'select COUNT(*) from comdb2_transaction_logs AS a, comdb2_transaction_logs AS b WHERE (a.txnid>0) and (a.utxnid!=b.utxnid and a.txnid=b.txnid) or (a.utxnid=b.utxnid and a.txnid!=b.txnid)')
+        failif $?
+        NUM_DUPLICATE_UTXNIDS=$(echo $NUM_DUPLICATE_UTXNIDS | grep -oP "[0-9]+\)$")
+        NUM_DUPLICATE_UTXNIDS=${NUM_DUPLICATE_UTXNIDS:0:-1}
 
-cdb2sql ${CDB2_OPTIONS} $a_dbn default 'create table t(i int)'
-insert_values 100 t
+        NUM_TXNS_WITHOUT_UTXNID=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default 'select COUNT(*) from comdb2_transaction_logs WHERE txnid>0 and utxnid=0')
+        failif $?
+        NUM_TXNS_WITHOUT_UTXNID=$(echo $NUM_TXNS_WITHOUT_UTXNID | grep -oP "[0-9]+\)$")
+        NUM_TXNS_WITHOUT_UTXNID=${NUM_TXNS_WITHOUT_UTXNID:0:-1}
+        failif $NUM_DUPLICATE_UTXNIDS
+        failif $NUM_TXNS_WITHOUT_UTXNID
+}
 
-# Validate transaction IDs
+function verify_utxnid_under_limit_after_timestamp
+{
+        NUM_INVALID_IDS=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default "select COUNT(*) from comdb2_transaction_logs where timestamp>"$1" and utxnid!=0 and utxnid<"$2"")
+        failif $?
+        NUM_INVALID_IDS=$(echo $NUM_INVALID_IDS | grep -oP "[0-9]+\)$")
+        NUM_INVALID_IDS=${NUM_INVALID_IDS:0:-1}
+        failif $NUM_INVALID_IDS
+}
 
-NUM_DUPLICATE_UTXNIDS=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default 'select COUNT(*) from comdb2_transaction_logs AS a, comdb2_transaction_logs AS b WHERE (a.txnid>0) and (a.utxnid!=b.utxnid and a.txnid=b.txnid) or (a.utxnid=b.utxnid and a.txnid!=b.txnid)')
-failif $?
-NUM_DUPLICATE_UTXNIDS=$(echo $NUM_DUPLICATE_UTXNIDS | grep -oP "[0-9]+\)$")
-NUM_DUPLICATE_UTXNIDS=${NUM_DUPLICATE_UTXNIDS:0:-1}
+function runtest
+{
+	# Setup
+	cdb2sql ${CDB2_OPTIONS} $a_dbn default 'create table t(i int)'
+	insert_values 100 t
 
-NUM_TXNS_WITHOUT_UTXNID=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default 'select COUNT(*) from comdb2_transaction_logs WHERE txnid>0 and utxnid=0')
-failif $?
-NUM_TXNS_WITHOUT_UTXNID=$(echo $NUM_TXNS_WITHOUT_UTXNID | grep -oP "[0-9]+\)$")
-NUM_TXNS_WITHOUT_UTXNID=${NUM_TXNS_WITHOUT_UTXNID:0:-1}
-failif $NUM_DUPLICATE_UTXNIDS
-failif $NUM_TXNS_WITHOUT_UTXNID
+	# Validate transaction IDs
+	verify_unique_utxnid_per_txnid
 
-# Send checkpoint, get max utxnid at time of checkpoint, and then bounce cluster.
+	# Send checkpoint, get max utxnid at time of checkpoint, and then bounce cluster.
+	cdb2sql ${CDB2_OPTIONS} $a_dbn default 'exec procedure sys.cmd.send("bdb checkpoint")'
+	sleep 3
+	res=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default "select timestamp, MAX(maxutxnid) from comdb2_transaction_logs where rectype=="$ckp_rectype"")
+	failif $?
+	CKP_TIME=$(echo $res | grep -oP "\=(.*?)\,")
+	CKP_TIME=${CKP_TIME:1:-1}
+	CKP_MAX_UTXNID=$(echo $res | grep -oP "[0-9]+\)$")
+	CKP_MAX_UTXNID=${CKP_MAX_UTXNID:0:-1}
 
-cdb2sql ${CDB2_OPTIONS} $a_dbn default 'exec procedure sys.cmd.send("bdb checkpoint")'
-sleep 1
+	if [[ -n "$CLUSTER" ]] ; then
+		kill_restart_cluster 3
+	else
+		kill_restart_node $(hostname) 3
+	fi
 
-res=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default "select timestamp, MAX(maxutxnid) from comdb2_transaction_logs where rectype=="$ckp_rectype"")
-failif $?
-CKP_TIME=$(echo $res | grep -oP "\=(.*?)\,")
-CKP_TIME=${CKP_TIME:1:-1}
-CKP_MAX_UTXNID=$(echo $res | grep -oP "[0-9]+\)$")
-CKP_MAX_UTXNID=${CKP_MAX_UTXNID:0:-1}
+	# Run transactions
+	insert_values 100 t
 
-bounce_cluster
-sleep 1
+	# Validate transaction IDs: Make sure that transactions after checkpoint have utxnids greater than the max utxnid at checkpoint.
+	verify_unique_utxnid_per_txnid
+	verify_utxnid_under_limit_after_timestamp $CKP_TIME $CKP_MAX_UTXNID
 
-# Run transactions
+}
 
-insert_values 100 t
-
-# Validate transaction IDs: Make sure that transactions after checkpoint have utxnids greater than the max utxnid at checkpoint.
-
-NUM_INVALID_IDS=$(cdb2sql ${CDB2_OPTIONS} $a_dbn default "select COUNT(*) from comdb2_transaction_logs where timestamp>"$CKP_TIME" and utxnid<"$CKP_MAX_UTXNID"")
-failif $?
-NUM_INVALID_IDS=$(echo $NUM_INVALID_IDS | grep -oP "[0-9]+\)$")
-NUM_INVALID_IDS=${NUM_INVALID_IDS:0:-1}
-failif $NUM_INVALID_IDS
+runtest
+exit 0

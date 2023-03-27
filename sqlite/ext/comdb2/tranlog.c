@@ -34,8 +34,8 @@
 #define TRANLOG_COLUMN_LSN          4
 #define TRANLOG_COLUMN_RECTYPE      5
 #define TRANLOG_COLUMN_GENERATION   6
-#define TRANLOG_COLUMN_TXNID		7
-#define TRANLOG_COLUMN_UTXNID		8
+#define TRANLOG_COLUMN_TXNID        7
+#define TRANLOG_COLUMN_UTXNID       8
 #define TRANLOG_COLUMN_TIMESTAMP    9
 #define TRANLOG_COLUMN_LOG          10
 
@@ -278,13 +278,13 @@ static inline int parse_lsn(const unsigned char *lsnstr, DB_LSN *lsn)
 static u_int64_t get_timestamp_from_regop_gen_record(char *data)
 {
     u_int64_t timestamp;
-	u_int32_t rectype;
-	LOGCOPY_32(&rectype, data); 
-	if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
-		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
-	} else {
-		LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 4 + 4 + 8] );
-	}
+    u_int32_t rectype;
+    LOGCOPY_32(&rectype, data); 
+    if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
+        LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 8 + 4 + 4 + 8] );
+    } else {
+        LOGCOPY_64( &timestamp, &data[ 4 + 4 + 8 + 4 + 4 + 8] );
+    }
     return timestamp;
 }
 

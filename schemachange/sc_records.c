@@ -3121,7 +3121,7 @@ done:
 
 static inline int is_logical_data_op(bdb_osql_log_rec_t *rec)
 {
-	assert (rec->type < 12000);
+    assert (rec->type < 12000);
     switch (rec->type) {
     case DB_llog_undo_add_dta:
     case DB_llog_undo_add_dta_lk:
@@ -3169,7 +3169,7 @@ static int live_sc_redo_logical_rec(struct convert_record_data *data,
         return ERR_INDEX_CONFLICT;
     }
 
-	assert(rec->type < 12000);
+    assert(rec->type < 12000);
 
     switch (rec->type) {
     case DB_llog_undo_add_dta:

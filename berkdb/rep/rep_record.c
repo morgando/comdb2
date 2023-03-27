@@ -142,10 +142,8 @@ int64_t gbl_rep_trans_parallel = 0, gbl_rep_trans_serial =
 
 static inline int wait_for_running_transactions(DB_ENV *dbenv);
 
-#define	IS_SIMPLE(R)	((R) != DB___txn_regop && \
-	(R) != DB___txn_xa_regop && \
-	(R) != DB___txn_regop_rowlocks && \
-	(R) != DB___txn_regop_gen && (R) != \
+#define	IS_SIMPLE(R)	((R) != DB___txn_regop && (R) != DB___txn_xa_regop && \
+	(R) != DB___txn_regop_rowlocks && (R) != DB___txn_regop_gen && (R) != \
 	DB___txn_ckp && (R) != DB___dbreg_register)
 
 int gbl_rep_process_msg_print_rc;
@@ -1954,7 +1952,7 @@ more:
 
 		LOGCOPY_32(&rectype, mylog.data);
 
-		int utxnid_logged =	normalize_rectype(&rectype);
+		int utxnid_logged = normalize_rectype(&rectype);
 		if (rectype == DB___txn_regop) {
 			/* If it's a commit, copy the timestamp - if we're about to unroll too
 			 * far, we want to notice and not do it. */
@@ -3577,7 +3575,9 @@ gap_check:		max_lsn_dbtp = NULL;
 		 * of a file that was opened in an active transaction, so we
 		 * should be guaranteed to get the ordering right.
 		 */
-		LOGCOPY_32(&txnid, (u_int8_t *) rec->data + sizeof(u_int32_t));
+		LOGCOPY_32(&txnid, (u_int8_t *) rec->data +
+			((u_int8_t *) & dbreg_args.txnid -
+			(u_int8_t *) & dbreg_args));
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
 			if (dbenv->num_recovery_processor_threads &&
@@ -3761,7 +3761,6 @@ err:	if (dbc != NULL && (t_ret = __db_c_close(dbc)) != 0 && ret == 0) {
 	 * have to report it to the bdb caller so that lsn is updated
 	 * correctly 
 	 * if (ret == 0 && cmp == 0 && !IS_SIMPLE(rectype)) {
-	 *  recovery start record found prior to checkpoint
 	 * if (ret_lsnp != NULL)
 	 * {
 	 * *ret_lsnp = rp->lsn;

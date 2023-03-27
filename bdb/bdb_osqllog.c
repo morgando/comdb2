@@ -2323,9 +2323,8 @@ void bdb_update_ltran_lsns(bdb_state_type *bdb_state, DB_LSN regop_lsn,
     tran_type *ltrans = NULL;
     int rc = 0;
 
-    if (!gbl_new_snapisol) {
+    if (!gbl_new_snapisol)
         return;
-    }
 
     if (rectype != DB___txn_regop && rectype != DB___txn_regop_rowlocks &&
         rectype != DB___txn_regop_gen)

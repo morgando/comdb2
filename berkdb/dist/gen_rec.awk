@@ -946,7 +946,7 @@ function read_function_int() {
 	printf("\tLOGCOPY_TOLSN(&argp->prev_lsn, bp);\n") >> CFILE;
 	printf("\tbp += sizeof(DB_LSN);\n\n") >> CFILE;
 
-	# Only read utxnid if it was logged (indicated by +2000 in the rectype)
+	# Only read utxnid if it was logged (indicated by +2000 or +3000 in the rectype)
 	printf("\tif ((argp->type == (DB_%s + 2000)) || (argp->type == (DB_%s + 3000))) {\n", funcname, funcname) >> CFILE;
 	printf("\t\tLOGCOPY_64(&argp->txnid->utxnid,  bp);\n") >> CFILE;
 	printf("\t\tbp += sizeof(argp->txnid->utxnid);\n") >> CFILE;

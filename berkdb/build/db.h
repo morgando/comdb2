@@ -173,6 +173,9 @@ struct __recovery_processor;
 struct __recovery_list;
 struct __db_trigger_subscription;
 
+struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
+struct __mpro; typedef struct __mpro DB_MPRO;
+
 struct txn_properties;
 
 #include "db_dbt.h"
@@ -2734,6 +2737,19 @@ struct __db_env {
 
 	pthread_mutex_t utxnid_lock;
 	u_int64_t next_utxnid;
+
+	DB_MPRO *mpro;
+};
+
+struct __utxnid_track {
+	u_int64_t utxnid;
+	DB_LSN commit_lsn;
+	LINKC_T(struct __utxnid_track) lnk;
+};
+
+struct __mpro {
+	pthread_mutex_t mpro_mutexp;
+	hash_t *transactions;
 };
 
 #ifndef DB_DBM_HSEARCH

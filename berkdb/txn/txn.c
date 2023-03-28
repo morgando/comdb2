@@ -93,6 +93,8 @@ extern int normalize_rectype(u_int32_t * rectype);
 int comdb2_time_epoch(void);
 void ctrace(char *format, ...);
 
+int __mempro_add_txn(DB_ENV *dbenv, u_int64_t txnid, DB_LSN commit_lsn);
+
 extern int gbl_is_physical_replicant;
 
 #define BDB_WRITELOCK(idstr)	bdb_get_writelock(bdb_state, (idstr), __func__, __LINE__)
@@ -1354,6 +1356,8 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 			F_SET(txnp->parent, TXN_CHILDCOMMIT);
 		}
 	}
+
+	ret = __mempro_add_txn(dbenv, txnp->utxnid, txnp->last_lsn);
 
 	/*
 	 * Process any aborted pages from our children.

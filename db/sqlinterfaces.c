@@ -3263,21 +3263,12 @@ static int bind_parameters(struct reqlogger *logger, sqlite3_stmt *stmt,
             case CLIENT_INT:
             if (p.len == sizeof(int32_t)) {
                 flag = CARRAY_INT32;
-<<<<<<< HEAD
                 break;
             }
             if (p.len == sizeof(int64_t)) {
                 flag = CARRAY_INT64;
                 break;
             }
-=======
-                break;
-            }
-            if (p.len == sizeof(int64_t)) {
-                flag = CARRAY_INT64;
-                break;
-            }
->>>>>>> cf34957624c460574672c7fa6b512278d58e3655
             /* fall-through */
             default:
                 logmsg(LOGMSG_ERROR, "carray_bind: invalid type:%d size:%d\n", p.type, p.len);

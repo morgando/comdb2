@@ -126,6 +126,8 @@ typedef struct table_descriptor {
     int override_llmeta;
     index_descriptor_t index[MAXINDEX];
     struct user current_user;
+    void *appdata;
+    void *get_authdata;
 } table_descriptor_t;
 
 /* loadStat4 (analyze.c) will ignore all stat entries
@@ -736,7 +738,11 @@ static int analyze_table_int(table_descriptor_t *td,
     clnt.osql_max_trans = 0; // allow large transactions
     int sampled_table = 0;
 
-    clnt.current_user = td->current_user;
+    clnt.current_user        = td->current_user;
+    if (td->appdata != NULL)
+        clnt.appdata = td->appdata;
+    if (td->get_authdata != NULL)
+        clnt.plugin.get_authdata = td->get_authdata;
 
     logmsg(LOGMSG_INFO, "Analyze thread starting, table %s (%d%%)\n", td->table, td->scale);
 
@@ -1099,6 +1105,8 @@ int analyze_table(char *table, SBUF2 *sb, int scale, int override_llmeta,
 
     if (clnt) {
         td.current_user = clnt->current_user;
+        td.appdata      = clnt->appdata;
+        td.get_authdata = clnt->plugin.get_authdata;
     }
     td.current_user.bypass_auth = bypass_auth;
 
@@ -1182,6 +1190,7 @@ int analyze_database(SBUF2 *sb, int scale, int override_llmeta)
     /* tell comdb2sc the results */
     if (failed) {
         sbuf2printf(sb, "FAILED\n");
+        rc = -1;
     } else {
         sbuf2printf(sb, "SUCCESS\n");
         cleanup_stats(sb);

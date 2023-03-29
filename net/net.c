@@ -197,11 +197,11 @@ static uint8_t *net_connect_message_put(const connect_message_type *msg_ptr,
                     p_buf_end);
     p_buf =
         buf_put(&(msg_ptr->flags), sizeof(msg_ptr->flags), p_buf, p_buf_end);
-    p_buf = buf_no_net_put(&(msg_ptr->my_hostname),
-                           sizeof(msg_ptr->my_hostname), p_buf, p_buf_end);
-    p_buf = buf_put(&(msg_ptr->my_portnum), sizeof(msg_ptr->my_portnum), p_buf,
+    p_buf = buf_no_net_put(&(msg_ptr->from_hostname),
+                           sizeof(msg_ptr->from_hostname), p_buf, p_buf_end);
+    p_buf = buf_put(&(msg_ptr->from_portnum), sizeof(msg_ptr->from_portnum), p_buf,
                     p_buf_end);
-    p_buf = buf_put(&node, sizeof(msg_ptr->my_nodenum), p_buf, p_buf_end);
+    p_buf = buf_put(&node, sizeof(msg_ptr->from_nodenum), p_buf, p_buf_end);
 
     return p_buf;
 }
@@ -220,11 +220,11 @@ const uint8_t *net_connect_message_get(connect_message_type *msg_ptr,
                     p_buf_end);
     p_buf =
         buf_get(&(msg_ptr->flags), sizeof(msg_ptr->flags), p_buf, p_buf_end);
-    p_buf = buf_no_net_get(&(msg_ptr->my_hostname),
-                           sizeof(msg_ptr->my_hostname), p_buf, p_buf_end);
-    p_buf = buf_get(&(msg_ptr->my_portnum), sizeof(msg_ptr->my_portnum), p_buf,
+    p_buf = buf_no_net_get(&(msg_ptr->from_hostname),
+                           sizeof(msg_ptr->from_hostname), p_buf, p_buf_end);
+    p_buf = buf_get(&(msg_ptr->from_portnum), sizeof(msg_ptr->from_portnum), p_buf,
                     p_buf_end);
-    p_buf = buf_get(&node, sizeof(msg_ptr->my_nodenum), p_buf, p_buf_end);
+    p_buf = buf_get(&node, sizeof(msg_ptr->from_nodenum), p_buf, p_buf_end);
 
     return p_buf;
 }
@@ -497,6 +497,19 @@ static void check_list_sizes(host_node_type *host_node_ptr)
 }
 #endif
 
+void update_host_net_queue_stats(host_node_type *host_node_ptr, size_t count, size_t bytes) {
+    host_node_ptr->enque_count += count;
+    if (host_node_ptr->enque_count > host_node_ptr->peak_enque_count) {
+        host_node_ptr->peak_enque_count = host_node_ptr->enque_count;
+        host_node_ptr->peak_enque_count_time = comdb2_time_epoch();
+    }
+    host_node_ptr->enque_bytes += bytes;
+    if (host_node_ptr->enque_bytes > host_node_ptr->peak_enque_bytes) {
+        host_node_ptr->peak_enque_bytes = host_node_ptr->enque_bytes;
+        host_node_ptr->peak_enque_bytes_time = comdb2_time_epoch();
+    }
+}
+
 int gbl_print_net_queue_size = 0;
 
 /* Enque a net message consisting of a header and some optional data.
@@ -658,16 +671,8 @@ static int write_list(netinfo_type *netinfo_ptr, host_node_type *host_node_ptr,
 
     if (host_node_ptr->netinfo_ptr->trace && debug_switch_net_verbose())
         logmsg(LOGMSG_USER, "Queing %zu bytes %llu\n", insert->len, gettmms());
-    host_node_ptr->enque_count++;
-    if (host_node_ptr->enque_count > host_node_ptr->peak_enque_count) {
-        host_node_ptr->peak_enque_count = host_node_ptr->enque_count;
-        host_node_ptr->peak_enque_count_time = comdb2_time_epoch();
-    }
-    host_node_ptr->enque_bytes += insert->len;
-    if (host_node_ptr->enque_bytes > host_node_ptr->peak_enque_bytes) {
-        host_node_ptr->peak_enque_bytes = host_node_ptr->enque_bytes;
-        host_node_ptr->peak_enque_bytes_time = comdb2_time_epoch();
-    }
+
+    update_host_net_queue_stats(host_node_ptr, 1, insert->len);
 
     rc = 0;
 
@@ -860,7 +865,7 @@ static int read_connect_message(SBUF2 *sb, char hostname[], int hostnamel,
     uint8_t conndata[NET_CONNECT_MESSAGE_TYPE_LEN], *p_buf, *p_buf_end;
     int rc;
     int hosteq = 0;
-    char my_hostname[256];
+    char from_hostname[256];
     char to_hostname[256];
     int namelen;
 
@@ -879,18 +884,18 @@ static int read_connect_message(SBUF2 *sb, char hostname[], int hostnamel,
     /* If the hostname doesn't fit in HOSTNAME_LEN (16) characters,
      * the first byte of host will be '.' followed by the name length,
      * and the real hostname follows. */
-    if (connect_message.my_hostname[0] == '.') {
-        connect_message.my_hostname[HOSTNAME_LEN - 1] = 0;
-        namelen = atoi(&connect_message.my_hostname[1]);
-        if (namelen < 0 || namelen > sizeof(my_hostname)) {
+    if (connect_message.from_hostname[0] == '.') {
+        connect_message.from_hostname[HOSTNAME_LEN - 1] = 0;
+        namelen = atoi(&connect_message.from_hostname[1]);
+        if (namelen < 0 || namelen > sizeof(from_hostname)) {
             logmsg(LOGMSG_WARN, "Invalid hostname length %d\n", namelen);
             return 1;
         }
-        rc = read_stream(netinfo_ptr, NULL, sb, my_hostname, namelen);
+        rc = read_stream(netinfo_ptr, NULL, sb, from_hostname, namelen);
         if (rc != namelen)
             return -1;
     } else {
-        strncpy0(my_hostname, connect_message.my_hostname, HOSTNAME_LEN);
+        strncpy0(from_hostname, connect_message.from_hostname, HOSTNAME_LEN);
     }
 
     if (connect_message.to_hostname[0] == '.') {
@@ -919,27 +924,27 @@ static int read_connect_message(SBUF2 *sb, char hostname[], int hostnamel,
                 "netinfo_ptr->myport != connect_message.to_portnum %d %d\n",
                 netinfo_ptr->myport, connect_message.to_portnum);
         logmsg(LOGMSG_ERROR, "origin: from=hostname=%s node=%d port=%d\n",
-               my_hostname, connect_message.my_nodenum,
-               connect_message.my_portnum);
+               from_hostname, connect_message.from_nodenum,
+               connect_message.from_portnum);
         logmsg(LOGMSG_ERROR, "service: %s\n", netinfo_ptr->service);
 
         return -1;
     }
 
     if (netinfo_ptr->allow_rtn &&
-        !netinfo_ptr->allow_rtn(netinfo_ptr, intern(my_hostname))) {
+        !netinfo_ptr->allow_rtn(netinfo_ptr, intern(from_hostname))) {
         logmsg(LOGMSG_ERROR,
                "received connection from node %d, hostname %s which is not "
                "allowed\n",
-               connect_message.my_nodenum, my_hostname);
+               connect_message.from_nodenum, from_hostname);
         return -2;
     }
 
-    strncpy(hostname, my_hostname, hostnamel);
-    *portnum = connect_message.my_portnum;
+    strncpy(hostname, from_hostname, hostnamel);
+    *portnum = connect_message.from_portnum;
 
     if (connect_message.flags & CONNECT_MSG_SSL) {
-        if (gbl_rep_ssl_mode < SSL_ALLOW) {
+        if (!SSL_IS_ABLE(gbl_rep_ssl_mode)) {
             /* Reject if mis-configured. */
             logmsg(LOGMSG_ERROR,
                    "Misconfiguration: Peer requested SSL, "
@@ -955,7 +960,7 @@ static int read_connect_message(SBUF2 *sb, char hostname[], int hostnamel,
             logmsg(LOGMSG_ERROR, "%s\n", err);
             return -1;
         }
-    } else if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
+    } else if (SSL_IS_REQUIRED(gbl_rep_ssl_mode)) {
         /* Reject if I require SSL. */
         logmsg(LOGMSG_WARN,
                "Replicant SSL connections are required.\n");
@@ -1018,27 +1023,27 @@ int write_connect_message(netinfo_type *netinfo_ptr,
     connect_message.to_portnum = host_node_ptr->port;
     /* It was `to_nodenum`. */
     connect_message.flags = 0;
-    if (gbl_rep_ssl_mode >= SSL_REQUIRE)
+    if (SSL_IS_REQUIRED(gbl_rep_ssl_mode))
         connect_message.flags |= CONNECT_MSG_SSL;
 
     if (netinfo_ptr->myhostname_len > HOSTNAME_LEN) {
-        snprintf(connect_message.my_hostname,
-                 sizeof(connect_message.my_hostname), ".%d",
+        snprintf(connect_message.from_hostname,
+                 sizeof(connect_message.from_hostname), ".%d",
                  netinfo_ptr->myhostname_len);
         append_from = 1;
     } else {
-        strncpy0(connect_message.my_hostname, netinfo_ptr->myhostname,
-                 sizeof(connect_message.my_hostname));
+        strncpy0(connect_message.from_hostname, netinfo_ptr->myhostname,
+                 sizeof(connect_message.from_hostname));
     }
 
     if (gbl_accept_on_child_nets || !netinfo_ptr->ischild) {
-        connect_message.my_portnum = netinfo_ptr->myport;
+        connect_message.from_portnum = netinfo_ptr->myport;
     } else {
-        connect_message.my_portnum =
+        connect_message.from_portnum =
             netinfo_ptr->parent->myport | (netinfo_ptr->netnum << 16);
     }
 
-    connect_message.my_nodenum = 0;
+    connect_message.from_nodenum = 0;
 
     p_buf = conndata;
     p_buf_end = (conndata + sizeof(conndata));
@@ -1100,7 +1105,7 @@ int write_connect_message(netinfo_type *netinfo_ptr,
         }
     }
 
-    if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
+    if (SSL_IS_REQUIRED(gbl_rep_ssl_mode)) {
         net_flush(host_node_ptr);
         if (sslio_connect(sb, gbl_ssl_ctx, gbl_rep_ssl_mode, gbl_dbname,
                           gbl_nid_dbname, 1) != 1) {
@@ -1693,22 +1698,19 @@ int net_send_message_payload_ack(netinfo_type *netinfo_ptr, const char *to_host,
             goto end;
         }
 
-        /*
-        fprintf(stderr, "waiting for ack from %s\n", host_node_ptr->host);
-        */
-
-        rc = pthread_cond_timedwait(&(host_node_ptr->ack_wakeup),
-                                    &(host_node_ptr->wait_mutex), &waittime);
-
-        if (rc == EINVAL)
-            goto end;
-
-        /*fprintf(stderr, "got ack\n");*/
+        if (gbl_libevent)  {
+            Pthread_rwlock_unlock(&(netinfo_ptr->lock));
+            rc = pthread_cond_timedwait(&(host_node_ptr->ack_wakeup), &(host_node_ptr->wait_mutex), &waittime);
+            if (rc == EINVAL) return rc;
+            Pthread_rwlock_rdlock(&(netinfo_ptr->lock));
+        } else {
+            rc = pthread_cond_timedwait(&(host_node_ptr->ack_wakeup), &(host_node_ptr->wait_mutex), &waittime);
+            if (rc == EINVAL) goto end;
+        }
     }
 
 end:
     Pthread_rwlock_unlock(&(netinfo_ptr->lock));
-
     return rc;
 }
 
@@ -2427,8 +2429,7 @@ ssize_t net_udp_send(int udp_fd, netinfo_type *netinfo_ptr, const char *host,
     return nsent;
 }
 
-static host_node_type *add_to_netinfo_ll(netinfo_type *netinfo_ptr,
-                                         const char hostname[], int portnum)
+host_node_type *add_to_netinfo_ll(netinfo_type *netinfo_ptr, const char hostname[], int portnum)
 {
     host_node_type *ptr;
     /* check to see if the node already exists */
@@ -2565,6 +2566,9 @@ void netinfo_lock(netinfo_type *netinfo_ptr, int seconds)
 static void rem_from_netinfo_ll(netinfo_type *netinfo_ptr,
                                 host_node_type *host_node_ptr)
 {
+    if (host_node_ptr) {
+        logmsg(LOGMSG_USER, "%s svc:%s host:%s\n", __func__, netinfo_ptr->service, host_node_ptr->host);
+    }
     host_node_type *tmp = netinfo_ptr->head;
     if (host_node_ptr == tmp) {
         netinfo_ptr->head = host_node_ptr->next;
@@ -5652,6 +5656,9 @@ static void *accept_thread(void *arg)
             continue;
         }
 
+        sbuf2settimeout(sb, 0, 0);
+        sbuf2setbufsize(sb, netinfo_ptr->bufsz);
+
         /* grab pool memory for connect_and_accept_t */
         Pthread_mutex_lock(&(netinfo_ptr->connlk));
         ca = (connect_and_accept_t *)pool_getablk(netinfo_ptr->connpool);
@@ -6239,6 +6246,12 @@ int net_register_appsock(netinfo_type *netinfo_ptr, APPSOCKFP func)
     return 0;
 }
 
+int net_register_throttle(netinfo_type *netinfo_ptr, NETTHROTTLEFP func)
+{
+    netinfo_ptr->throttle_rtn = func;
+    return 0;
+}
+
 int net_register_allow(netinfo_type *netinfo_ptr, NETALLOWFP func)
 {
     netinfo_ptr->allow_rtn = func;
@@ -6640,7 +6653,7 @@ int net_get_stats(netinfo_type *netinfo_ptr, struct net_stats *stat) {
 
     Pthread_rwlock_rdlock(&(netinfo_ptr->lock));
     for (ptr = netinfo_ptr->head; ptr != NULL; ptr = ptr->next)
-        stat->num_drops = ptr->num_queue_full;
+        stat->num_drops += ptr->num_queue_full;
 
     Pthread_rwlock_unlock(&(netinfo_ptr->lock));
 
@@ -6675,6 +6688,10 @@ int net_send_all(netinfo_type *netinfo_ptr, int num, void **data, int *sz,
     for (int i = 0; i < count; i++) {
         const char *h = hostlist[i];
         for (int j = 0; j < num; ++j) {
+            if ((flag[j] & NET_SEND_LOGPUT) && netinfo_ptr->throttle_rtn &&
+                (netinfo_ptr->throttle_rtn)(netinfo_ptr, h)) {
+                continue;
+            }
             if (net_send_flags(netinfo_ptr, h, type[j], data[j], sz[j], flag[j])) {
                 rc = 1;
             }

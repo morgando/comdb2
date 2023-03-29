@@ -33,6 +33,7 @@ add_library(sqlite
   ext/comdb2/permissions.c
   ext/comdb2/plugins.c
   ext/comdb2/procedures.c
+  ext/comdb2/query_plans.c
   ext/comdb2/queues.c
   ext/comdb2/repl_stats.c
   ext/comdb2/repnetqueue.c
@@ -40,6 +41,7 @@ add_library(sqlite
   ext/comdb2/scstatus.c
   ext/comdb2/sqlclientstats.c
   ext/comdb2/sqlpoolqueue.c
+  ext/comdb2/stacks.c
   ext/comdb2/systables.c
   ext/comdb2/table_properties.c
   ext/comdb2/tables.c
@@ -49,6 +51,7 @@ add_library(sqlite
   ext/comdb2/timepartitions.c
   ext/comdb2/timeseries.c
   ext/comdb2/tranlog.c
+  ext/comdb2/transactionstate.c
   ext/comdb2/triggers.c
   ext/comdb2/tunables.c
   ext/comdb2/typesamples.c

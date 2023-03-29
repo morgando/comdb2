@@ -104,6 +104,7 @@
 #include <bdb_queuedb.h>
 #include <schema_lk.h>
 #include <tohex.h>
+#include <phys_rep_lsn.h>
 #include <timer_util.h>
 
 extern int gbl_bdblock_debug;
@@ -246,6 +247,11 @@ void set_repinfo_master_host(bdb_state_type *bdb_state, char *master,
                master, func, line);
     }
     bdb_state->repinfo->master_host = master;
+
+    if (master == db_eid_invalid) {
+        /* whoismaster_rtn (new_master_callback) will be called when master is available */
+        thedb_set_master(db_eid_invalid);
+    }
 }
 
 static void bdb_checkpoint_list_delete_log(int filenum)
@@ -675,10 +681,6 @@ static int should_stop_looking_for_queuedb_files(bdb_state_type *bdb_state,
                 "%s: queuedb %s file %d version not found, stopping...\n",
                 __func__, bdb_state->name, file_num);
             return 1;
-        } else if (USE_GENID_IN_QUEUEDB_FILE_NAME()) {
-            logmsg(LOGMSG_ERROR,
-                "%s: queuedb %s file %d version not found, error %d\n",
-                __func__, bdb_state->name, file_num, bdberr);
         }
     }
     if (file_version != NULL) *file_version = local_file_version;
@@ -1087,6 +1089,7 @@ int bdb_rename_table(bdb_state_type *bdb_state, tran_type *tran, char *newname,
     rc = close_dbs_flush(bdb_state);
     if (rc != 0) {
         logmsg(LOGMSG_ERROR, "upgrade: open_dbs as master failed\n");
+        __dbreg_unlock_lazy_id(bdb_state->dbenv);
         return -1;
     }
 
@@ -1096,6 +1099,7 @@ int bdb_rename_table(bdb_state_type *bdb_state, tran_type *tran, char *newname,
     if (rc != 0) {
         logmsg(LOGMSG_ERROR, "upgrade: open_dbs as master failed\n");
         bdb_state->origname = saved_origname;
+        __dbreg_unlock_lazy_id(bdb_state->dbenv);
         return -1;
     }
 
@@ -1106,6 +1110,7 @@ int bdb_rename_table(bdb_state_type *bdb_state, tran_type *tran, char *newname,
         bdb_state->name = saved_name;
         bdb_state->origname = saved_origname;
         logmsg(LOGMSG_ERROR, "upgrade: open_dbs as master failed\n");
+        __dbreg_unlock_lazy_id(bdb_state->dbenv);
         return -1;
     }
     bdb_state->name = saved_name;
@@ -2371,6 +2376,11 @@ static DB_ENV *dbenv_open(bdb_state_type *bdb_state)
 
     rc = dbenv->set_paniccall(dbenv, panic_func);
 
+    extern int gbl_is_physical_replicant;
+    if (gbl_is_physical_replicant && physrep_ignore_table_count() > 0) {
+        rc = dbenv->set_rep_ignore(dbenv, physrep_ignore_btree);
+    }
+
 #ifdef BDB_VERB_REPLICATION_DEFAULT
     /* turn on verbose replication by default, so I can see what's happening
      * before the mtrap is enabled. */
@@ -2598,6 +2608,9 @@ static DB_ENV *dbenv_open(bdb_state_type *bdb_state)
     net_register_handler(bdb_state->repinfo->netinfo, USER_TYPE_COMMITDELAYNONE,
                          "commitdelaynone", berkdb_receive_rtn);
 
+    net_register_handler(bdb_state->repinfo->netinfo, USER_TYPE_COMMITDELAYTIMED, "commitdelaytimed",
+                         berkdb_receive_rtn);
+
     net_register_handler(bdb_state->repinfo->netinfo,
                          USER_TYPE_MASTERCMPCONTEXTLIST, "mastercmpcontextlist",
                          berkdb_receive_rtn);
@@ -2717,6 +2730,9 @@ static DB_ENV *dbenv_open(bdb_state_type *bdb_state)
     net_register_netcmp(bdb_state->repinfo->netinfo, net_cmplsn_rtn);
 
     net_register_getlsn(bdb_state->repinfo->netinfo, net_getlsn_rtn);
+
+    /* Register logput throttle function */
+    net_rep_throttle_init(bdb_state->repinfo->netinfo);
 
     /* Register qstat if its enabled */
     net_rep_qstat_init(bdb_state->repinfo->netinfo);
@@ -4246,6 +4262,15 @@ deadlock_again:
                     }
                 }
 
+                if (gbl_is_physical_replicant && physrep_ignore_table(bdb_state->name)) {
+                    char new[PATH_MAX];
+                    print(bdb_state, "truncating ignored table %s\n", bdb_trans(tmpname, new));
+                    rc = truncate(bdb_trans(tmpname, new), pagesize * 2);
+                    if (rc != 0) {
+                        logmsg(LOGMSG_ERROR, "truncate %s error %d\n", bdb_trans(tmpname, new), errno);
+                    }
+                }
+
                 rc = dbp->set_pagesize(dbp, pagesize);
                 if (rc != 0) {
                     logmsg(LOGMSG_ERROR, "unable to set pagesize on %s to %d\n",
@@ -4428,6 +4453,16 @@ deadlock_again:
             pagesize = bdb_state->pagesize_override;
         else
             pagesize = bdb_state->attr->pagesizedta;
+
+        if (gbl_is_physical_replicant && physrep_ignore_table(bdb_state->name)) {
+            char new[PATH_MAX];
+            print(bdb_state, "truncating ignored queue %s\n", bdb_trans(tmpname, new));
+            rc = truncate(bdb_trans(tmpname, new), pagesize * 2);
+            if (rc != 0) {
+                logmsg(LOGMSG_ERROR, "truncate %s error %d\n", bdb_trans(tmpname, new), errno);
+            }
+        }
+
         rc = dbp->set_pagesize(dbp, pagesize);
         if (rc != 0) {
             logmsg(LOGMSG_ERROR, "unable to set pagesize on dta to %d\n", pagesize);
@@ -4582,7 +4617,14 @@ deadlock_again:
                         pagesize);
             }
 
-            /*fprintf(stderr, "opening %s\n", tmpname);*/
+            if (gbl_is_physical_replicant && physrep_ignore_table(bdb_state->name)) {
+                char new[PATH_MAX];
+                print(bdb_state, "truncating ignored queue %s\n", bdb_trans(tmpname, new));
+                rc = truncate(bdb_trans(tmpname, new), pagesize * 2);
+                if (rc != 0) {
+                    logmsg(LOGMSG_ERROR, "truncate %s error %d\n", bdb_trans(tmpname, new), errno);
+                }
+            }
 
             print(bdb_state, "opening %s ([%d])\n", tmpname, i);
             if (bdb_state->attr->page_compact_indexes /* compact index */
@@ -4983,6 +5025,12 @@ end:
     return outrc;
 }
 
+static void whoismaster_rtn(bdb_state_type *bdb_state, int sc_clear)
+{
+    if (!bdb_state->callback->whoismaster_rtn) return;
+    bdb_state->callback->whoismaster_rtn(bdb_state, bdb_state->repinfo->master_host, sc_clear); /* new_master_callback */
+}
+
 void bdb_setmaster(bdb_state_type *bdb_state, char *host)
 {
     BDB_READLOCK("bdb_setmaster");
@@ -4994,9 +5042,7 @@ void bdb_setmaster(bdb_state_type *bdb_state, char *host)
 
     BDB_RELLOCK();
 
-    if (bdb_state->callback->whoismaster_rtn)
-        (bdb_state->callback->whoismaster_rtn)(
-            bdb_state, bdb_state->repinfo->master_host, 0);
+    whoismaster_rtn(bdb_state, 0);
 }
 
 static inline void bdb_set_read_only(bdb_state_type *bdb_state)
@@ -5174,10 +5220,7 @@ static int bdb_upgrade_int(bdb_state_type *bdb_state, uint32_t newgen,
     defer_commits_for_upgrade(bdb_state, 0, __func__);
 
     /* notify the user that we are the master */
-    if (bdb_state->callback->whoismaster_rtn) {
-        (bdb_state->callback->whoismaster_rtn)(
-            bdb_state, bdb_state->repinfo->master_host, 1);
-    }
+    whoismaster_rtn(bdb_state, 1);
 
     /* master cannot be incoherent, that makes no sense.
      *
@@ -5319,11 +5362,7 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
         break;
     }
 
-    /* call the user with a NEWMASTER of -1 */
-    if (bdb_state->callback->whoismaster_rtn)
-        (bdb_state->callback->whoismaster_rtn)(
-            bdb_state, bdb_state->repinfo->master_host, 1);
-
+    whoismaster_rtn(bdb_state, 1);
     allow_sc_to_run();
     BDB_RELLOCK();
 
@@ -5472,7 +5511,6 @@ static bdb_state_type *bdb_open_int(
     int rc;
     int i;
     int largest;
-    int total;
     struct stat sb;
     int iammaster;
 
@@ -5718,9 +5756,7 @@ static bdb_state_type *bdb_open_int(
 
         /* determine the largest key size and the total key size */
         largest = 0;
-        total = 0;
         for (i = 0; i < numix; i++) {
-            total += ixlen[i];
             if (ixlen[i] > largest)
                 largest = ixlen[i];
         }
@@ -5982,9 +6018,7 @@ static bdb_state_type *bdb_open_int(
 
         bdb_state->repinfo->upgrade_allowed = 1;
 
-        if (bdb_state->callback->whoismaster_rtn)
-            (bdb_state->callback->whoismaster_rtn)(
-                bdb_state, bdb_state->repinfo->master_host, 1);
+        whoismaster_rtn(bdb_state, 1);
 
         logmsg(
             LOGMSG_INFO, "@LSN %u:%u\n",

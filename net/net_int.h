@@ -71,9 +71,9 @@ typedef struct {
     char to_hostname[HOSTNAME_LEN];
     int to_portnum;
     int flags; /* was `int to_nodenum` */
-    char my_hostname[HOSTNAME_LEN];
-    int my_portnum;
-    int my_nodenum;
+    char from_hostname[HOSTNAME_LEN];
+    int from_portnum;
+    int from_nodenum;
 } connect_message_type;
 
 /* flags for connect_message_typs */
@@ -342,6 +342,7 @@ struct netinfo_struct {
     int decom_time;
     char *name;
     stats_type stats;
+    NETTHROTTLEFP *throttle_rtn;
     NETALLOWFP *allow_rtn;
     void *callback_data;
     void (*start_thread_callback)(void *);
@@ -436,9 +437,9 @@ void do_appsock(netinfo_type *, struct sockaddr_in *, SBUF2 *, uint8_t);
 int findpeer(int, char *, int);
 int get_dedicated_conhost(host_node_type *, struct in_addr *);
 host_node_type *get_host_node_by_name_ll(netinfo_type *, const char *);
+host_node_type *add_to_netinfo_ll(netinfo_type *, const char hostname[], int portnum);
 int net_flush_evbuffer(host_node_type *);
 int net_send_all_evbuffer(netinfo_type *, int, void **, int *, int *, int *);
-void rem_from_netinfo(netinfo_type *, host_node_type *);
 int write_connect_message(netinfo_type *, host_node_type *, SBUF2 *);
 int write_connect_message_evbuffer(host_node_type *, const struct iovec *, int);
 int write_decom(netinfo_type *, host_node_type *, const char *, int, const char *);

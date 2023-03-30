@@ -79,7 +79,6 @@ extern int gbl_is_physical_replicant;
 
 #include "printformats.h"
 
-int normalize_rectype(u_int32_t* rectype);
 static int __log_earliest __P((DB_ENV *, DB_LOGC *, int32_t *, DB_LSN *));
 static double __lsn_diff __P((DB_LSN *, DB_LSN *, DB_LSN *, u_int32_t, int));
 static int __log_find_latest_checkpoint_before_lsn(DB_ENV *dbenv,
@@ -1287,7 +1286,6 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 				goto err;
 			}
 		} 
-		// TODO: next_utxnid start point in catastrophic recovery case?
 	}
 	/* Reset the start LSN so subsequent recoveries don't use it. */
 	ZERO_LSN(dbenv->recovery_start_lsn);

@@ -118,6 +118,7 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
         if (argp->generation > rep->gen)
             __rep_set_gen(dbenv, __func__, __LINE__, argp->generation);
 		MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
+		__mempro_add_txn(dbenv, argp->txnid->utxnid, *lsnp);
 	} else if ((dbenv->tx_timestamp != 0 &&
 		argp->timestamp > (int32_t) dbenv->tx_timestamp) ||
 	    (!IS_ZERO_LSN(headp->trunc_lsn) &&
@@ -137,6 +138,7 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret != TXN_OK)
 			goto err;
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
+		// TODO: __mempro_remove_txn();
 	} else {
 		/* This is a normal commit; mark it appropriately. */
 		assert(op == DB_TXN_BACKWARD_ROLL);
@@ -221,6 +223,7 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		 * that's OK.  Ignore the return code from remove.
 		 */
 		(void)__db_txnlist_remove(dbenv, info, argp->txnid->txnid);
+		__mempro_add_txn(dbenv, argp->txnid->utxnid, *lsnp);
 	} else if ((dbenv->tx_timestamp != 0 &&
 		argp->timestamp > (int32_t)dbenv->tx_timestamp) ||
 	    (!IS_ZERO_LSN(headp->trunc_lsn) &&
@@ -407,6 +410,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
         if (argp->generation > rep->gen)
             __rep_set_gen(dbenv, __func__, __LINE__, argp->generation);
 		MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
+		__mempro_add_txn(dbenv, argp->txnid->utxnid, *lsnp);
 	} 
 	else if ((dbenv->tx_timestamp != 0 &&
 		argp->timestamp > (int32_t) dbenv->tx_timestamp) ||

@@ -18,6 +18,7 @@ int __mempro_init(DB_ENV *dbenv) {
 		goto err;
 	}
 
+	Pthread_mutex_init(&mp->mpro_mutexp, NULL);
 	dbenv->mpro = mp;
 err:
 	logmsg(LOGMSG_ERROR, "Failed to initialize mempro\n");

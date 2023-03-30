@@ -460,21 +460,19 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 
 	LOGCOPY_32(&rectype, db->data);
 	
-	if (normalize_rectype(&rectype)) {
-		if (redo == DB_TXN_OPENFILES) {
-			LOGCOPY_64(&utxnid, &((char*)db->data)[4 + 4 + 8]);
-			if (rectype == DB___txn_ckp) {
-				LOGCOPY_64(&maxutxnid, &((char*)db->data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
-			}
-			Pthread_mutex_lock(&dbenv->utxnid_lock);
-			if (utxnid > dbenv->next_utxnid) {
-				dbenv->next_utxnid = utxnid + 1;
-			}
-			if (maxutxnid > dbenv->next_utxnid) {
-				dbenv->next_utxnid = maxutxnid + 1;
-			}
-			Pthread_mutex_unlock(&dbenv->utxnid_lock);
+	if (normalize_rectype(&rectype) && (redo == DB_TXN_OPENFILES)) {
+		LOGCOPY_64(&utxnid, &((char*)db->data)[4 + 4 + 8]);
+		if (rectype == DB___txn_ckp) {
+			LOGCOPY_64(&maxutxnid, &((char*)db->data)[4 + 4 + 8 + 8 + 8 + 8 + 4 + 4]);
 		}
+		Pthread_mutex_lock(&dbenv->utxnid_lock);
+		if (utxnid > dbenv->next_utxnid) {
+			dbenv->next_utxnid = utxnid + 1;
+		}
+		if (maxutxnid > dbenv->next_utxnid) {
+			dbenv->next_utxnid = maxutxnid + 1;
+		}
+		Pthread_mutex_unlock(&dbenv->utxnid_lock);
 	}
 	LOGCOPY_32(&txnid, (u_int8_t *)db->data + sizeof(rectype));
 	make_call = ret = 0;

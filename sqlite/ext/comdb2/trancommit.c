@@ -66,6 +66,7 @@ int get_tran_commits(void **data, int *npoints) {
 	ret = hash_for(bdb_state->dbenv->mpro->transactions, add_tran_commit, args);
 	Pthread_mutex_unlock(&bdb_state->dbenv->mpro->mpro_mutexp);
 
+	free(args);
 	return ret;
 }
 

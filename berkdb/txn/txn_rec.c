@@ -59,6 +59,9 @@ static const char revid[] = "$Id: txn_rec.c,v 11.54 2003/10/31 23:26:11 ubell Ex
 
 int set_commit_context(unsigned long long context, uint32_t *generation,
 		void *plsn, void *args, unsigned int rectype);
+
+int __mempro_add_txn(DB_ENV *dbenv, u_int64_t txnid, DB_LSN commit_lsn);
+
 /*
  * PUBLIC: int __txn_regop_gen_recover
  * PUBLIC:    __P((DB_ENV *, DBT *, DB_LSN *, db_recops, void *));

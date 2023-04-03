@@ -34,18 +34,19 @@ int __mempro_destroy(DB_ENV *env) {
 }
 
 int __mempro_add_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn) {
-	UTXNID_TRACK *txn;
 	int ret = 0;
 	if (IS_ZERO_LSN(commit_lsn)) {
 		return 0;
 	}
-	ret = __os_malloc(dbenv, sizeof(UTXNID_TRACK), &txn);
+	UTXNID_TRACK *txn = malloc(sizeof(UTXNID_TRACK));
+	//ret = __os_malloc(dbenv, sizeof(UTXNID_TRACK), txn);
 	if (ret) {
 		return ENOMEM;
 	}
 
 	txn->utxnid = utxnid;
 	txn->commit_lsn = commit_lsn;
+	printf("utxnid %"PRIx64" commit lsn file %d offset %d\n", utxnid, commit_lsn.file, commit_lsn.offset);
 	Pthread_mutex_lock(&dbenv->mpro->mpro_mutexp);
 	hash_add(dbenv->mpro->transactions, txn);
 	Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);

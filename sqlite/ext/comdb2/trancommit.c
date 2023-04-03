@@ -38,30 +38,35 @@ typedef struct add_tran_commit_args {
 } add_tran_commit_args;
 
 int add_tran_commit(void *obj, void *arg) {
-	UTXNID_TRACK* item = (UTXNID_TRACK*) obj;
+	UTXNID_TRACK* ritem = (UTXNID_TRACK*) obj;
 	add_tran_commit_args* info = (add_tran_commit_args *) arg;
-	info->utxnid = item->utxnid;
-	info->commit_lsn_file = item->commit_lsn.file;
-	info->commit_lsn_offset = item->commit_lsn.offset;
-	printf("utxnid %"PRIx64" lsn file %d offset %d\n", info->utxnid, item->commit_lsn.file, item->commit_lsn.offset);
-	++info;
+	txn_commit_info** data = info->data;
+	txn_commit_info* litem = (txn_commit_info *) (((txn_commit_info *) *data)+(*info->npoints));
+
+	litem->utxnid = ritem->utxnid;
+	litem->commit_lsn_file = ritem->commit_lsn.file;
+	litem->commit_lsn_offset = ritem->commit_lsn.offset;
+	(*(info->npoints))++;
+
+	printf("utxnid %"PRIx64" lsn file %"PRIx64" offset %"PRIx64"\n", litem->utxnid, litem->commit_lsn_file, litem->commit_lsn_offset);
 	return 0;
 }
 
 int get_tran_commits(void **data, int *npoints) {
 	int ret = 0;
 	bdb_state_type *bdb_state = thedb->bdb_env;
+
 	Pthread_mutex_lock(&bdb_state->dbenv->mpro->mpro_mutexp);
 	*npoints = hash_get_num_entries(bdb_state->dbenv->mpro->transactions);
-	void * info;
-	*data = info = malloc((*npoints)*sizeof(txn_commit_info));
-	printf("1 data %ld\n", (uintptr_t) data);
+	*data = malloc((*npoints)*sizeof(txn_commit_info));
+	add_tran_commit_args* args = malloc(sizeof(add_tran_commit_args));
+	args->data = (txn_commit_info**) data;
+	*npoints = 0;
+	args->npoints = npoints;
 
-	ret = hash_for(bdb_state->dbenv->mpro->transactions, add_tran_commit, data);
+	ret = hash_for(bdb_state->dbenv->mpro->transactions, add_tran_commit, args);
 	Pthread_mutex_unlock(&bdb_state->dbenv->mpro->mpro_mutexp);
-	printf("2 data %ld\n", (uintptr_t) data);
-	*data = info;
-	printf("3 data %ld\n", (uintptr_t) data);
+
 	return ret;
 }
 

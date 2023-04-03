@@ -570,10 +570,6 @@ function log_function() {
 	printf("\t\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
 	printf("\t\tbp += sizeof(txn_num_uint64);\n}\n") >> CFILE;
 
-	printf("\tif (utxnid_log) {\n") >> CFILE;
-	printf("\t\tLOGCOPY_64(bp, &txn_num_uint64);\n") >> CFILE;
-	printf("\t\tbp += sizeof(txn_num_uint64);\n}\n") >> CFILE;
-
 	for (i = 0; i < nvars; i ++) {
 		if (modes[i] == "ARG" || modes[i] == "TIME") {
 			if (types[i] == "u_int64_t") {

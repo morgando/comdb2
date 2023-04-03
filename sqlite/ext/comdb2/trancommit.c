@@ -48,7 +48,6 @@ int add_tran_commit(void *obj, void *arg) {
 	litem->commit_lsn_offset = ritem->commit_lsn.offset;
 	(*(info->npoints))++;
 
-	printf("utxnid %"PRIx64" lsn file %"PRIx64" offset %"PRIx64"\n", litem->utxnid, litem->commit_lsn_file, litem->commit_lsn_offset);
 	return 0;
 }
 
@@ -71,8 +70,8 @@ int get_tran_commits(void **data, int *npoints) {
 }
 
 void free_tran_commits(void *data, int npoints) {
-	bdb_state_type *state_info = data;
-	free(state_info);
+	txn_commit_info * info = (txn_commit_info *) data;
+	free(info);
 }
 
 int systblTranCommitInit(sqlite3 *db) {

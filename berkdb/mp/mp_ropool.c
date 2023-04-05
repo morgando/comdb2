@@ -33,14 +33,47 @@ int __mempro_destroy(DB_ENV *env) {
 	return 0;
 }
 
+int __mempro_get_commit_lsn_for_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN *commit_lsn) {
+	UTXNID_TRACK *txn;
+	DB_MPRO *mpro = dbenv->mpro;
+	int ret = 0;
+	ZERO_LSN(*commit_lsn);
+
+	txn = hash_find(dbenv->mpro->transactions, &utxnid);
+	if (txn == NULL) {
+		ret = DB_NOTFOUND;
+	} else {
+		*commit_lsn = txn->commit_lsn;
+	}
+	return ret;
+}
+
+int __mempro_remove_txn(DB_ENV *dbenv, u_int64_t utxnid) {
+	UTXNID_TRACK *txn;
+	int ret = 0;
+
+	printf("Removing txn with id %"PRIx64" from map\n", utxnid);
+
+	Pthread_mutex_lock(&dbenv->mpro->mpro_mutexp);
+	txn = hash_find(dbenv->mpro->transactions, &utxnid);
+	if (txn) {
+		hash_del(dbenv->mpro->transactions, txn);
+		Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
+		free(txn); // TODO: os_free
+	} else {
+		Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
+	}
+	return ret;
+}
+
 int __mempro_add_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn) {
 	int ret = 0;
 	if (IS_ZERO_LSN(commit_lsn)) {
-		return 0;
+		return ret;
 	}
 	UTXNID_TRACK *txn = malloc(sizeof(UTXNID_TRACK));
-	//ret = __os_malloc(dbenv, sizeof(UTXNID_TRACK), txn);
-	if (ret) {
+	// TODO: ret = __os_malloc(dbenv, sizeof(UTXNID_TRACK), txn);
+	if (!txn) {
 		return ENOMEM;
 	}
 
@@ -51,5 +84,5 @@ int __mempro_add_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn) {
 	hash_add(dbenv->mpro->transactions, txn);
 	Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
 
-	return 0;
+	return ret;
 }

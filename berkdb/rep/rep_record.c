@@ -147,7 +147,6 @@ static inline int wait_for_running_transactions(DB_ENV *dbenv);
 	DB___txn_ckp && (R) != DB___dbreg_register)
 
 int gbl_rep_process_msg_print_rc;
-extern int gbl_utxnid_log;
 
 #define PRINT_RETURN(retrc, fromline)										\
 	do {																	\
@@ -390,9 +389,15 @@ lc_free(DB_ENV *dbenv, struct __recovery_processor *rp, LSN_COLLECTION * lc)
 }
 
 int normalize_rectype(u_int32_t *rectype) {
+	// If 2000 has been added to a rectype, then this function 
+	// subtracts 2000 from a rectype and returns 1; otherwise, 
+	// it does nothing and returns 0. It does not subtract 1000 
+	// from a rectype if 1000 has been added because this is already 
+	// done by existing code where it is appropriate. If log records 
+	// are versioned further in the future, then this function may 
+	// be extended to normalize rectypes of these versions as well.
+
 	if (*rectype > 12000 || (*rectype > 2000 && *rectype < 10000)) {
-		assert (gbl_utxnid_log);
-		// Don't -1000 from +3000 records. Existing ufid code works with rectypes > 1000. 
 		*rectype -= 2000;
 		return 1;
 	} else {
@@ -4546,6 +4551,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 	u_int32_t rectype;
 	int i, ret, t_ret, line = 0;
 	u_int32_t txnid = 0;
+	u_int64_t utxnid = 0;
 	int got_txns = 0, free_lc = 0;
 	void *txninfo;
 	unsigned long long context = 0;
@@ -4598,6 +4604,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		args = txn_rl_args;
 		context = txn_rl_args->context;
 		txnid = txn_rl_args->txnid->txnid;
+		utxnid = txn_rl_args->txnid->utxnid;
 
 		MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 		(*commit_gen) = rep->committed_gen = txn_rl_args->generation;
@@ -4671,6 +4678,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		args = txn_args;
 		context = __txn_regop_read_context(txn_args);
 		txnid = txn_args->txnid->txnid;
+		utxnid = txn_args->txnid->utxnid;
 		prev_lsn = txn_args->prev_lsn;
 		lock_dbt = &txn_args->locks;
 		(*commit_gen) = 0;
@@ -4692,6 +4700,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		args = txn_gen_args;
 		context = txn_gen_args->context;
 		txnid = txn_gen_args->txnid->txnid;
+		utxnid = txn_gen_args->txnid->utxnid;
 		prev_lsn = txn_gen_args->prev_lsn;
 		lock_dbt = &txn_gen_args->locks;
 		MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
@@ -4766,6 +4775,13 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 			}
 		}
 
+		if (utxnid) {
+			Pthread_mutex_lock(&dbenv->utxnid_lock);
+			if (utxnid > dbenv->next_utxnid) {
+				dbenv->next_utxnid = utxnid + 1;
+			}
+			Pthread_mutex_unlock(&dbenv->utxnid_lock);
+		}
 		if (!context) {
 			uint32_t flags =
 				LOCK_GET_LIST_GETLOCK | (gbl_rep_printlock ?
@@ -5256,6 +5272,7 @@ __rep_process_txn_concurrent_int(dbenv, rctl, rec, ltrans, ctrllsn, maxlsn,
 	DB_LOCK lsnlock;
 	REP *rep = NULL;
 	u_int32_t txnid = 0;
+	u_int64_t utxnid = 0;
 	LTDESC *lt = NULL;
 	__txn_regop_args *txn_args = NULL;
 	__txn_regop_gen_args *txn_gen_args = NULL;
@@ -5373,6 +5390,7 @@ bad_resize:	;
 		args = txn_rl_args;
 
 		txnid = txn_rl_args->txnid->txnid;
+		utxnid = txn_rl_args->txnid->utxnid;
 		rp->context = txn_rl_args->context;
 		MUTEX_LOCK(dbenv, db_rep->rep_mutexp);
 		(*commit_gen) = rep->committed_gen = txn_rl_args->generation;
@@ -5443,6 +5461,7 @@ bad_resize:	;
 		(*commit_gen) = 0;
 
 		txnid = txn_args->txnid->txnid;
+		utxnid = txn_args->txnid->utxnid;
 		rp->ltrans = NULL;
 
 		prev_lsn = txn_args->prev_lsn;
@@ -5465,6 +5484,7 @@ bad_resize:	;
 		rp->context = txn_gen_args->context;
 
 		txnid = txn_gen_args->txnid->txnid;
+		utxnid = txn_gen_args->txnid->utxnid;
 		rp->ltrans = NULL;
 
 		prev_lsn = txn_gen_args->prev_lsn;
@@ -5535,6 +5555,13 @@ bad_resize:	;
 			__rep_lsn_cmp);
 	}
 
+	if (utxnid) {
+		Pthread_mutex_lock(&dbenv->utxnid_lock);
+		if (utxnid > dbenv->next_utxnid) {
+			dbenv->next_utxnid = utxnid + 1;
+		}
+		Pthread_mutex_unlock(&dbenv->utxnid_lock);
+	}
 	if (!rp->context) {
 		uint32_t flags =
 			LOCK_GET_LIST_GETLOCK | (gbl_rep_printlock ?

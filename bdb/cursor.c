@@ -257,6 +257,8 @@ static int bdb_cursor_move_and_skip_int(bdb_cursor_impl_t *cur,
                                         int retrieved, int update_shadows,
                                         int *bdberr);
 
+int __mempro_delete_logfile_txns(DB_ENV *env, int del_log);
+
 static inline int berkdb_get_genid_from_dtakey(bdb_cursor_impl_t *cur,
                                                void *dta, void *key,
                                                unsigned long long *genid,
@@ -2021,6 +2023,7 @@ int truncate_asof_pglogs(bdb_state_type *bdb_state, int file, int offset)
         return_pglogs_commit_list(lcommit);
         lcommit = LISTC_BOT(&pglogs_commit_list);
     }
+	__mempro_delete_logfile_txns(bdb_state->dbenv, del_log);
     while (bdb_delete_logfile_pglogs(bdb_state, del_log, 1) == 0)
         del_log++;
     Pthread_mutex_lock(&logfile_pglogs_repo_mutex);

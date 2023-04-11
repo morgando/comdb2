@@ -173,7 +173,9 @@ struct __recovery_processor;
 struct __recovery_list;
 struct __db_trigger_subscription;
 
+struct __utxnid; typedef struct __utxnid UTXNID;
 struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
+struct __logfile_txn_list; typedef struct __logfile_txn_list LOGFILE_TXN_LIST;
 struct __mpro; typedef struct __mpro DB_MPRO;
 
 struct txn_properties;
@@ -2741,6 +2743,16 @@ struct __db_env {
 	DB_MPRO *mpro;
 };
 
+struct __utxnid {
+	u_int64_t utxnid;
+	LINKC_T(struct __utxnid) lnk;
+};
+
+struct __logfile_txn_list {
+	int file_num;
+	LISTC_T(struct __utxnid) utxnids;
+};
+
 struct __utxnid_track {
 	u_int64_t utxnid;
 	DB_LSN commit_lsn;
@@ -2751,6 +2763,7 @@ struct __utxnid_track {
 struct __mpro {
 	pthread_mutex_t mpro_mutexp;
 	hash_t *transactions;
+	hash_t *logfile_lists;
 };
 
 #ifndef DB_DBM_HSEARCH

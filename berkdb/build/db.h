@@ -2744,6 +2744,7 @@ struct __db_env {
 struct __utxnid_track {
 	u_int64_t utxnid;
 	DB_LSN commit_lsn;
+	short in_progress;
 	LINKC_T(struct __utxnid_track) lnk;
 };
 

@@ -44,6 +44,7 @@ int add_tran_commit(void *obj, void *arg) {
 	txn_commit_info* litem = (txn_commit_info *) (((txn_commit_info *) *data)+(*info->npoints));
 
 	litem->utxnid = ritem->utxnid;
+	litem->in_progress = ritem->in_progress;
 	litem->commit_lsn_file = ritem->commit_lsn.file;
 	litem->commit_lsn_offset = ritem->commit_lsn.offset;
 	(*(info->npoints))++;
@@ -80,6 +81,7 @@ int systblTranCommitInit(sqlite3 *db) {
 		db, "comdb2_transaction_commit", &systblTransactionCommitModule,
 		get_tran_commits, free_tran_commits, sizeof(txn_commit_info),
 		CDB2_INTEGER, "utxnid", -1, offsetof(txn_commit_info, utxnid),
+		CDB2_INTEGER, "inprogress", -1, offsetof(txn_commit_info, in_progress),
 		CDB2_INTEGER, "commitlsnfile", -1, offsetof(txn_commit_info, commit_lsn_file),
 		CDB2_INTEGER, "commitlsnoffset", -1, offsetof(txn_commit_info, commit_lsn_offset),
 		SYSTABLE_END_OF_FIELDS

@@ -6,7 +6,6 @@ int __mempro_init(DB_ENV *dbenv) {
 	int ret = 0;
 	DB_MPRO *mp;
 	ret = __os_calloc(dbenv, 1, sizeof(DB_MPRO), &mp);
-
 	if (ret) {
 		goto err;
 	}
@@ -20,6 +19,7 @@ int __mempro_init(DB_ENV *dbenv) {
 
 	Pthread_mutex_init(&mp->mpro_mutexp, NULL);
 	dbenv->mpro = mp;
+	return 0;
 err:
 	logmsg(LOGMSG_ERROR, "Failed to initialize mempro\n");
 	return ret;
@@ -66,23 +66,36 @@ int __mempro_remove_txn(DB_ENV *dbenv, u_int64_t utxnid) {
 	return ret;
 }
 
-int __mempro_add_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn) {
-	int ret = 0;
-	if (IS_ZERO_LSN(commit_lsn)) {
-		return ret;
-	}
+int __mempro_add_txn_begin(DB_ENV *dbenv, u_int64_t utxnid) {
 	UTXNID_TRACK *txn = malloc(sizeof(UTXNID_TRACK));
 	// TODO: ret = __os_malloc(dbenv, sizeof(UTXNID_TRACK), txn);
 	if (!txn) {
-		return ENOMEM;
+		return 1;
 	}
-
 	txn->utxnid = utxnid;
-	txn->commit_lsn = commit_lsn;
-	printf("utxnid %"PRIx64" commit lsn file %d offset %d\n", utxnid, commit_lsn.file, commit_lsn.offset);
+	txn->in_progress = 1;
+	ZERO_LSN(txn->commit_lsn);
 	Pthread_mutex_lock(&dbenv->mpro->mpro_mutexp);
 	hash_add(dbenv->mpro->transactions, txn);
 	Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
+	return 0;
 
-	return ret;
+}
+
+int __mempro_add_txn_commit(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn) {
+	if (IS_ZERO_LSN(commit_lsn)) {
+		return 0;
+	}
+	UTXNID_TRACK *txn;
+	Pthread_mutex_lock(&dbenv->mpro->mpro_mutexp);
+	txn = hash_find(dbenv->mpro->transactions, &utxnid);
+	if (txn) {
+		txn->in_progress = 0;
+		txn->commit_lsn = commit_lsn;
+		Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
+		return 0;
+	} else {
+		Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
+		return 1;
+	}
 }

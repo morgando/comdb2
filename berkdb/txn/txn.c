@@ -92,7 +92,9 @@ int bdb_is_open(void *bdb_state);
 int comdb2_time_epoch(void);
 void ctrace(char *format, ...);
 
-int __mempro_add_txn(DB_ENV *dbenv, u_int64_t txnid, DB_LSN commit_lsn);
+int __mempro_add_txn_begin(DB_ENV *dbenv, u_int64_t utxnid);
+int __mempro_add_txn_commit(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn);
+int __mempro_remove_txn(DB_ENV *dbenv, u_int64_t utxnid);
 
 extern int gbl_is_physical_replicant;
 
@@ -683,6 +685,7 @@ __txn_begin_int_int(txn, prop, we_start_at_this_lsn, flags)
 		abort();
 	}
 	txn->utxnid = utxnid;
+	__mempro_add_txn_begin(dbenv, utxnid);
 
 	td_txn[txncnt++] = txn;
 
@@ -1356,7 +1359,7 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 		}
 	}
 
-	ret = __mempro_add_txn(dbenv, txnp->utxnid, txnp->last_lsn);
+	ret = __mempro_add_txn_commit(dbenv, txnp->utxnid, txnp->last_lsn);
 
 	/*
 	 * Process any aborted pages from our children.
@@ -1645,6 +1648,7 @@ __txn_abort(txnp)
 		F_CLR(txnp, TXN_RECOVER_LOCK);
 	}
 
+	__mempro_remove_txn(dbenv, txnp->utxnid);
 	remove_td_txn(txnp);
 
 	/* __txn_end always panics if it errors, so pass the return along. */

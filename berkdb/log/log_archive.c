@@ -31,6 +31,8 @@ static int __build_data __P((DB_ENV *, char *, char ***));
 static int __cmpfunc __P((const void *, const void *));
 static int __usermem __P((DB_ENV *, char ***));
 
+int __mempro_delete_logfile_txns(DB_ENV *dbenv, int del_log);
+
 /*
  * __log_archive_pp --
  *	DB_ENV->log_archive pre/post processing.
@@ -307,6 +309,8 @@ __log_archive(dbenv, listp, flags)
 			__os_free(dbenv, name);
 		} else
 			array[n] = name;
+
+		__mempro_delete_logfile_txns(dbenv, fnum);
 
 		name = NULL;
 		array[++n] = NULL;

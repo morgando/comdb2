@@ -40,6 +40,12 @@ do
     cdb2sql --tabs ${CDB2_OPTIONS} --host $master $dbnm "exec procedure sys.cmd.send('pushlogs $target')"
     sleep 3
 
+    res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile), MAX(commitlsnfile) from comdb2_transaction_commit')
+    numfilesinmap=$(echo $res | grep -oP "[0-9]+\,")
+    numfilesinmap=${numfilesinmap:0:-1}
+    maxfileinmap=$(echo $res | grep -oP "[0-9]+\)$")
+    maxfileinmap=${maxfileinmap:0:-1}
+
     seen_count="$(count_archive $dbnm)"
 
     # Didn't see anything that needed to be archived: try again
@@ -69,13 +75,6 @@ fi
 echo "$dbnm has accrued $seen_count logfiles."
 
 seencountsave=$seen_count
-res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile ), MAX(commitlsnfile) from comdb2_transaction_commit')
-numfilesinmap=$(echo $res | grep -oP "[0-9]+\,")
-numfilesinmap=${numfilesinmap:0:-1}
-maxfileinmap=$(echo $res | grep -oP "[0-9]+\)$")
-maxfileinmap=${maxfileinmap:0:-1}
-echo $numfilesinmap
-echo $maxfileinmap
 
 cluster=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb cluster")' | grep lsn | cut -f1 -d':' `
 for node in $cluster ; do 
@@ -122,9 +121,8 @@ fi
 res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile) from comdb2_transaction_commit where commitlsnfile<="$maxfileinmap"')
 numremainingfiles=$(echo $res | grep -oP "[0-9]+\)$")
 numremainingfiles=${numremainingfiles:0:-1}
-echo $numremainingfiles
 
-if [[ [$numfilesinmap - $numremainingfiles] -ne $seencountsave ]]; then
+if ((numfilesinmap - numremainingfiles < seencountsave)); then
     exit 1
 fi
 

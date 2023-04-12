@@ -2749,7 +2749,7 @@ struct __utxnid {
 };
 
 struct __logfile_txn_list {
-	int file_num;
+	u_int32_t file_num;
 	LISTC_T(struct __utxnid) utxnids;
 };
 

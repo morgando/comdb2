@@ -52,7 +52,7 @@ int __mempro_remove_txn(DB_ENV *dbenv, u_int64_t utxnid) {
 	return ret;
 }
 
-int __mempro_delete_logfile_txns(DB_ENV *dbenv, int del_log) {
+int __mempro_delete_logfile_txns(DB_ENV *dbenv, u_int32_t del_log) {
 	UTXNID* elt;
 	LOGFILE_TXN_LIST *to_delete = hash_find(dbenv->mpro->logfile_lists, &del_log);
 

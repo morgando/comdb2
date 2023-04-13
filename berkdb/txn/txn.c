@@ -1647,7 +1647,6 @@ __txn_abort(txnp)
 		F_CLR(txnp, TXN_RECOVER_LOCK);
 	}
 
-	__mempro_remove_txn(dbenv, txnp->utxnid);
 	remove_td_txn(txnp);
 
 	/* __txn_end always panics if it errors, so pass the return along. */

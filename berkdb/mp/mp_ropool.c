@@ -53,6 +53,7 @@ int __mempro_remove_txn(DB_ENV *dbenv, u_int64_t utxnid) {
 }
 
 int __mempro_delete_logfile_txns(DB_ENV *dbenv, u_int32_t del_log) {
+	int ret = 0;
 	UTXNID* elt;
 	LOGFILE_TXN_LIST *to_delete = hash_find(dbenv->mpro->logfile_lists, &del_log);
 
@@ -66,8 +67,10 @@ int __mempro_delete_logfile_txns(DB_ENV *dbenv, u_int32_t del_log) {
 
 		hash_del(dbenv->mpro->logfile_lists, &del_log);
 		free(to_delete);
+	} else {
+		ret = 1;
 	}
-	return 0;
+	return ret;
 }
 
 int __mempro_get_commit_lsn_for_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN *commit_lsn) {

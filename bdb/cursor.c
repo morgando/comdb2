@@ -2023,7 +2023,8 @@ int truncate_asof_pglogs(bdb_state_type *bdb_state, int file, int offset)
         return_pglogs_commit_list(lcommit);
         lcommit = LISTC_BOT(&pglogs_commit_list);
     }
-    while (bdb_delete_logfile_pglogs(bdb_state, del_log, 1) == 0 && __mempro_delete_logfile_txns(bdb_state->dbenv, del_log) == 0)
+	for (int log_num = del_log; __mempro_delete_logfile_txns(bdb_state->dbenv, log_num) == 0; ++log_num) {}
+    while (bdb_delete_logfile_pglogs(bdb_state, del_log, 1) == 0)
         del_log++;
     Pthread_mutex_lock(&logfile_pglogs_repo_mutex);
     if ((l_entry = retrieve_logfile_pglogs(bdb_state, file, 0)) != NULL) {

@@ -176,7 +176,7 @@ struct __db_trigger_subscription;
 struct __utxnid; typedef struct __utxnid UTXNID;
 struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
 struct __logfile_txn_list; typedef struct __logfile_txn_list LOGFILE_TXN_LIST;
-struct __mpro; typedef struct __mpro DB_MPRO;
+struct __db_txn_commit_map; typedef struct __db_txn_commit_map DB_TXN_COMMIT_MAP;
 
 struct txn_properties;
 
@@ -2740,7 +2740,7 @@ struct __db_env {
 	pthread_mutex_t utxnid_lock;
 	u_int64_t next_utxnid;
 
-	DB_MPRO *mpro;
+	DB_TXN_COMMIT_MAP txmap;
 };
 
 struct __utxnid {
@@ -2759,8 +2759,8 @@ struct __utxnid_track {
 	LINKC_T(struct __utxnid_track) lnk;
 };
 
-struct __mpro {
-	pthread_mutex_t mpro_mutexp;
+struct __txn_commit_map {
+	pthread_mutex_t txmap_mutexp;
 	hash_t *transactions;
 	hash_t *logfile_lists;
 };

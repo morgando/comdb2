@@ -91,31 +91,30 @@ int __mempro_get_commit_lsn_for_txn(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN *com
 }
 
 int __mempro_add_txn_commit(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn) {
-	int ret = 0;
 	if (IS_ZERO_LSN(commit_lsn)) {
-		return ret;
+		return 0;
 	}
-	UTXNID_TRACK *txn;
-	LOGFILE_TXN_LIST *to_delete = hash_find(dbenv->mpro->logfile_lists, &commit_lsn.file);
+	UTXNID_TRACK *txn = malloc(sizeof(UTXNID_TRACK));
+	if (!txn) {
+		return ENOMEM;
+	}
+	txn->commit_lsn = commit_lsn;
+
 	Pthread_mutex_lock(&dbenv->mpro->mpro_mutexp);
-	txn = hash_find(dbenv->mpro->transactions, &utxnid);
-	if (txn) {
-		txn->commit_lsn = commit_lsn;
-		if (to_delete) {
-			UTXNID* elt = (UTXNID*) malloc(sizeof(UTXNID));
-			elt->utxnid = utxnid;
-			listc_atl(&to_delete->commit_utxnids, elt);
-		} else {
-			to_delete = (LOGFILE_TXN_LIST*) malloc(sizeof(LOGFILE_TXN_LIST));
-			listc_init(&to_delete->commit_utxnids, offsetof(UTXNID, lnk));
-			UTXNID *elt = malloc(sizeof(UTXNID));
-			elt->utxnid = utxnid;
-			listc_atl(&to_delete->commit_utxnids, elt);
-			hash_add(dbenv->mpro->logfile_lists, to_delete);
-		}
+	LOGFILE_TXN_LIST *to_delete = hash_find(dbenv->mpro->logfile_lists, &commit_lsn.file);
+	if (to_delete) {
+		UTXNID* elt = (UTXNID*) malloc(sizeof(UTXNID));
+		elt->utxnid = utxnid;
+		listc_atl(&to_delete->commit_utxnids, elt);
 	} else {
-		ret = 1;
+		to_delete = (LOGFILE_TXN_LIST*) malloc(sizeof(LOGFILE_TXN_LIST));
+		to_delete->file_num = commit_lsn.file;
+		listc_init(&to_delete->commit_utxnids, offsetof(UTXNID, lnk));
+		UTXNID *elt = malloc(sizeof(UTXNID));
+		elt->utxnid = utxnid;
+		listc_atl(&to_delete->commit_utxnids, elt);
+		hash_add(dbenv->mpro->logfile_lists, to_delete);
 	}
 	Pthread_mutex_unlock(&dbenv->mpro->mpro_mutexp);
-	return ret;
+	return 0;
 }

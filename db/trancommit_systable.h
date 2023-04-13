@@ -5,7 +5,6 @@
 
 typedef struct txn_commit_info {
 	u_int64_t utxnid;
-	u_int64_t in_progress;
 	u_int64_t commit_lsn_file;
 	u_int64_t commit_lsn_offset;
 } txn_commit_info;

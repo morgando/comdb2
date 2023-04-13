@@ -2750,13 +2750,12 @@ struct __utxnid {
 
 struct __logfile_txn_list {
 	u_int32_t file_num;
-	LISTC_T(struct __utxnid) utxnids;
+	LISTC_T(struct __utxnid) commit_utxnids;
 };
 
 struct __utxnid_track {
 	u_int64_t utxnid;
 	DB_LSN commit_lsn;
-	short in_progress;
 	LINKC_T(struct __utxnid_track) lnk;
 };
 

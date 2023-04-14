@@ -2122,7 +2122,14 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 	DB *file_dbp;
 	DB_MPOOLFILE *mpf;
 	u_int32_t rectype;
+	hash_t *children;
+	struct child {
+		u_int64_t utxnid;
+		u_int64_t parent_utxnid;
+	};
 
+	children = hash_init_o(offsetof(struct child, utxnid), sizeof(u_int64_t));
+	__txn_child_args *child_args = NULL;
 	__txn_ckp_args *ckp_args = NULL;
 	__txn_regop_args *txn_args = NULL;
 	__txn_regop_gen_args *txn_gen_args = NULL;
@@ -2145,6 +2152,22 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 		LOGCOPY_32(&rectype, data.data);
 		normalize_rectype(&rectype);
 		switch (rectype) {
+		case DB___txn_child:
+			if ((ret =
+				__txn_child_read(dbenv, data.data,
+					&child_args)) != 0) {
+					GOTOERR;
+			}
+			struct child * c;
+			if (__os_malloc(dbenv, sizeof(struct child), &c) != 0) {
+				GOTOERR;
+			}
+
+			c->utxnid = child_args->child_utxnid;
+			c->parent_utxnid = child_args->txnid->utxnid;
+
+			hash_add(children, c);
+			break;
 		case DB___txn_ckp:
 			if ((ret =
 				__txn_ckp_read(dbenv, data.data,

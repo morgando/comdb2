@@ -1356,8 +1356,6 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 		}
 	}
 
-	ret = __txn_commit_map_add(dbenv, txnp->utxnid, txnp->last_lsn);
-
 	/*
 	 * Process any aborted pages from our children.
 	 * We delay putting pages on the free list that are newly
@@ -1381,6 +1379,21 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 	if (F_ISSET(txnp, TXN_RECOVER_LOCK)) {
         dbenv->unlock_recovery_lock(dbenv, __func__, __LINE__);
 		F_CLR(txnp, TXN_RECOVER_LOCK);
+	}
+
+	if (!txnp->parent) {
+		ret = __txn_commit_map_add(dbenv, txnp->utxnid, txnp->last_lsn);
+		if (ret != 0) {
+			goto err;
+		}
+
+		/* No grandchildren in comdb2, so this is sufficient. */
+		while ((kid = TAILQ_FIRST(&txnp->kids)) != NULL) {
+			ret = __txn_commit_map_add(dbenv, kid->utxnid, txnp->last_lsn);
+			if (ret != 0) {
+				goto err;
+			}
+		}
 	}
 
 	remove_td_txn(txnp);

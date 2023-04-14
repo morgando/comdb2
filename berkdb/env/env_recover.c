@@ -85,6 +85,7 @@ static int __log_find_latest_checkpoint_before_lsn(DB_ENV *dbenv,
 	DB_LOGC *logc, DB_LSN *max_lsn, DB_LSN *start_lsn);
 static int __log_find_latest_checkpoint_before_lsn_try_harder(DB_ENV *dbenv,
 	DB_LOGC *logc, DB_LSN *max_lsn, DB_LSN *foundlsn);
+int __txn_commit_map_add(DB_ENV *, u_int64_t, DB_LSN);
 int gbl_ufid_dbreg_test = 0;
 int gbl_ufid_log = 0;
 
@@ -2198,6 +2199,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 				}
 			}
 
+
 			break;
 		case DB___txn_regop_gen:
 			if ((ret =
@@ -2228,6 +2230,8 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			if (ret) {
 				GOTOERR;
 		 }
+
+		 __txn_commit_map_add(dbenv, txn_gen_args->txnid->utxnid, lsn);
 		 break;
 		case DB___txn_regop:
 			if ((ret =
@@ -2257,6 +2261,8 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			if (ret) {
 				GOTOERR;
 		 }
+
+		 __txn_commit_map_add(dbenv, txn_args->txnid->utxnid, lsn);
 		 break;
 		case DB___txn_regop_rowlocks:
 			if ((ret =
@@ -2300,6 +2306,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			   }
 		 }
 
+		 __txn_commit_map_add(dbenv, txn_rl_args->txnid->utxnid, lsn);
 						break;
 		case DB___bam_split:
 					if ((ret =
@@ -2401,6 +2408,9 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			keylist = NULL;
 			keycnt = 0;
 		}
+
+		// TODO: 
+		// iterate through children map and update main map.
 
 		if (not_newsi_log_format) {
 			logmsg(LOGMSG_ERROR, 

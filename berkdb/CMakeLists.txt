@@ -109,7 +109,6 @@ set(BERK_C
   mp/mp_method.c
   mp/mp_region.c
   mp/mp_register.c
-  mp/mp_ropool.c
   mp/mp_stat.c
   mp/mp_sync.c
   mp/mp_trickle.c

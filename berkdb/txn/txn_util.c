@@ -353,19 +353,19 @@ int __txn_commit_map_init(dbenv)
 	}
 
 	Pthread_mutex_init(&txmap->txmap_mutexp, NULL);
-	dbenv->txmap = mp;
+	dbenv->txmap = txmap;
 
 	return 0;
 err:
-	logmsg(LOGMSG_ERROR, "Failed to initialize transaction commit map\n");
+	logmsg(LOGMSG_ERROR, "Failed to initialize commit LSN map\n");
 	return ret;
 }
 
 /*
- * __mempro_destroy --
- * 	Destroy read-only memory pool.
+ * __commit_map_destroy --
+ * 	Destroy commit LSN map.
  *
- * PUBLIC: int __mempro_destroy
+ * PUBLIC: int __commit_map_destroy
  * PUBLIC:     __P((DB_ENV *));
  */
 int __txn_commit_map_destroy(dbenv) 
@@ -380,13 +380,13 @@ int __txn_commit_map_destroy(dbenv)
 }
 
 /*
- * __txn_commit_map_remove_txn --
+ * __txn_commit_map_remove --
  *  Remove a transaction from the commit LSN map.	
  *
- * PUBLIC: int __mempro_remove_txn
+ * PUBLIC: int __txn_commit_map_remove
  * PUBLIC:     __P((DB_ENV *, u_int64_t));
  */
-int __txn_commit_map_remove(*dbenv, utxnid) 
+int __txn_commit_map_remove(dbenv, utxnid) 
 	DB_ENV *dbenv;
 	u_int64_t utxnid;
 {
@@ -416,10 +416,10 @@ int __txn_commit_map_remove(*dbenv, utxnid)
  *  Remove all transactions that committed in a specific logfile 
  *  from the commit LSN map.	
  *
- * PUBLIC: int __mempro_delete_logfile_txns
+ * PUBLIC: int __txn_commit_map_delete_logfile_txns
  * PUBLIC:     __P((DB_ENV *, u_int32_t));
  */
-int __txn_delete_logfile_txns(DB_ENV *, u_int32_t) 
+int __txn_commit_map_delete_logfile_txns(dbenv, del_log) 
 	DB_ENV *dbenv;
 	u_int32_t del_log;
 {
@@ -428,7 +428,7 @@ int __txn_delete_logfile_txns(DB_ENV *, u_int32_t)
 	UTXNID* elt;
 	int ret;
 
-	txmap = dbenv->txmap
+	txmap = dbenv->txmap;
 	to_delete = hash_find(txmap->logfile_lists, &del_log);
 	ret = 0;
 
@@ -437,7 +437,7 @@ int __txn_delete_logfile_txns(DB_ENV *, u_int32_t)
 	if (to_delete) {
 		LISTC_FOR_EACH(&to_delete->commit_utxnids, elt, lnk)
 		{
-			__mempro_remove_txn(dbenv, elt->utxnid);
+			__txn_commit_map_remove(dbenv, elt->utxnid);
 			free(elt);
 		}
 
@@ -455,7 +455,7 @@ int __txn_delete_logfile_txns(DB_ENV *, u_int32_t)
  * __txn_commit_map_get --
  *  Get the commit LSN of a transaction.
  *
- * PUBLIC: int __mempro_get_commit_lsn_for_txn
+ * PUBLIC: int __txn_commit_map_get
  * PUBLIC:     __P((DB_ENV *, u_int64_t, DB_LSN*));
  */
 int __txn_commit_map_get(dbenv, utxnid, commit_lsn) 
@@ -487,7 +487,7 @@ int __txn_commit_map_get(dbenv, utxnid, commit_lsn)
  * __txn_commit_map_add --
  *  Store the commit LSN of a transaction.
  *
- * PUBLIC: int __mempro_add_txn_commit
+ * PUBLIC: int __txn_commit_map_add
  * PUBLIC:     __P((DB_ENV *, u_int64_t, DB_LSN));
  */
 int __txn_commit_map_add(dbenv, utxnid, commit_lsn) 
@@ -496,7 +496,7 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 	DB_LSN commit_lsn;
 {
 	DB_TXN_COMMIT_MAP *txmap;
-	LOGFILE_TXN_LIST *to_delete 
+	LOGFILE_TXN_LIST *to_delete;
 	UTXNID_TRACK *txn;
 	UTXNID* elt;
 
@@ -507,18 +507,18 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 		return 0;
 	}
 
-	if (__os_malloc(dbenv, sizeof(UTXNID_TRACK), txn) != 0) {
-		ret = ENOMEM;
-		goto err;
+	if (__os_malloc(dbenv, sizeof(UTXNID_TRACK), &txn) != 0) {
+		return ENOMEM;
 	}
 
+	txn->utxnid = utxnid;
 	txn->commit_lsn = commit_lsn;
 
 	Pthread_mutex_lock(&txmap->txmap_mutexp);
 	to_delete = hash_find(txmap->logfile_lists, &commit_lsn.file);
 
 	if (!to_delete) {
-		if (__os_malloc(dbenv, sizeof(LOGFILE_TXN_LIST), to_delete) != 0) {
+		if (__os_malloc(dbenv, sizeof(LOGFILE_TXN_LIST), &to_delete) != 0) {
 			Pthread_mutex_unlock(&txmap->txmap_mutexp);
 			return ENOMEM;
 		}
@@ -528,12 +528,14 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 		hash_add(txmap->logfile_lists, to_delete);
 	}
 
-	if (__os_malloc(dbenv, sizeof(UTXNID), elt) != 0) {
+	if (__os_malloc(dbenv, sizeof(UTXNID), &elt) != 0) {
 		Pthread_mutex_unlock(&txmap->txmap_mutexp);
 		return ENOMEM;
 	}
 
 	elt->utxnid = utxnid;
 	listc_atl(&to_delete->commit_utxnids, elt);
+	hash_add(txmap->transactions, txn);
+	Pthread_mutex_unlock(&txmap->txmap_mutexp);
 	return 0;
 }

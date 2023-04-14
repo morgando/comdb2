@@ -55,16 +55,16 @@ int get_tran_commits(void **data, int *npoints) {
 	int ret = 0;
 	bdb_state_type *bdb_state = thedb->bdb_env;
 
-	Pthread_mutex_lock(&bdb_state->dbenv->mpro->mpro_mutexp);
-	*npoints = hash_get_num_entries(bdb_state->dbenv->mpro->transactions);
+	Pthread_mutex_lock(&bdb_state->dbenv->txmap->txmap_mutexp);
+	*npoints = hash_get_num_entries(bdb_state->dbenv->txmap->transactions);
 	*data = malloc((*npoints)*sizeof(txn_commit_info));
 	add_tran_commit_args* args = malloc(sizeof(add_tran_commit_args));
 	args->data = (txn_commit_info**) data;
 	*npoints = 0;
 	args->npoints = npoints;
 
-	ret = hash_for(bdb_state->dbenv->mpro->transactions, add_tran_commit, args);
-	Pthread_mutex_unlock(&bdb_state->dbenv->mpro->mpro_mutexp);
+	ret = hash_for(bdb_state->dbenv->txmap->transactions, add_tran_commit, args);
+	Pthread_mutex_unlock(&bdb_state->dbenv->txmap->txmap_mutexp);
 
 	free(args);
 	return ret;

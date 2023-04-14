@@ -92,9 +92,7 @@ int bdb_is_open(void *bdb_state);
 int comdb2_time_epoch(void);
 void ctrace(char *format, ...);
 
-int __mempro_add_txn_begin(DB_ENV *dbenv, u_int64_t utxnid);
-int __mempro_add_txn_commit(DB_ENV *dbenv, u_int64_t utxnid, DB_LSN commit_lsn);
-int __mempro_remove_txn(DB_ENV *dbenv, u_int64_t utxnid);
+int __txn_commit_map_add(DB_ENV *, u_int64_t, DB_LSN);
 
 extern int gbl_is_physical_replicant;
 
@@ -1358,7 +1356,7 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 		}
 	}
 
-	ret = __mempro_add_txn_commit(dbenv, txnp->utxnid, txnp->last_lsn);
+	ret = __txn_commit_map_add(dbenv, txnp->utxnid, txnp->last_lsn);
 
 	/*
 	 * Process any aborted pages from our children.

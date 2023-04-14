@@ -380,13 +380,13 @@ int __txn_commit_map_destroy(dbenv)
 }
 
 /*
- * __txn_commit_map_remove --
- *  Remove a transaction from the commit LSN map.	
+ * __txn_commit_map_remove_nolock --
+ *  Remove a transaction from the commit LSN map without locking.
  *
- * PUBLIC: int __txn_commit_map_remove
+ * PUBLIC: static int __txn_commit_map_remove_nolock
  * PUBLIC:     __P((DB_ENV *, u_int64_t));
  */
-int __txn_commit_map_remove(dbenv, utxnid) 
+static int __txn_commit_map_remove_nolock(dbenv, utxnid)
 	DB_ENV *dbenv;
 	u_int64_t utxnid;
 {
@@ -397,17 +397,35 @@ int __txn_commit_map_remove(dbenv, utxnid)
 	txmap = dbenv->txmap;
 	ret = 0;
 
-	Pthread_mutex_lock(&txmap->txmap_mutexp);
 	txn = hash_find(txmap->transactions, &utxnid);
 
 	if (txn) {
 		hash_del(txmap->transactions, txn);
-		free(txn); // TODO: os_free
+		__os_free(dbenv, txn); 
 	} else {
 		ret = 1;
 	}
 
-	Pthread_mutex_unlock(&txmap->txmap_mutexp);
+	return ret;
+}
+
+/*
+ * __txn_commit_map_remove --
+ *  Remove a transaction from the commit LSN map.	
+ *
+ * PUBLIC: int __txn_commit_map_remove
+ * PUBLIC:     __P((DB_ENV *, u_int64_t));
+ */
+int __txn_commit_map_remove(dbenv, utxnid) 
+	DB_ENV *dbenv;
+	u_int64_t utxnid;
+{
+	int ret;
+
+	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
+	ret = __txn_commit_map_remove_nolock(dbenv, utxnid);
+	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
+
 	return ret;
 }
 
@@ -437,12 +455,12 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 	if (to_delete) {
 		LISTC_FOR_EACH(&to_delete->commit_utxnids, elt, lnk)
 		{
-			__txn_commit_map_remove(dbenv, elt->utxnid);
-			free(elt);
+			__txn_commit_map_remove_nolock(dbenv, elt->utxnid);
+			__os_free(dbenv, elt);
 		}
 
 		hash_del(txmap->logfile_lists, &del_log);
-		free(to_delete);
+		__os_free(dbenv, to_delete);
 	} else {
 		ret = 1;
 	}

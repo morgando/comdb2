@@ -2101,14 +2101,16 @@ struct child {
 	u_int64_t parent_utxnid;
 };
 
-int add_child_to_txn_map(void * obj, void * arg)
+int add_child_to_txn_map(obj, arg)
+	void *obj;
+	void *arg;
 {
 	DB_LSN parent_commit_lsn;
 	DB_ENV *dbenv;
 	struct child * c; 
 	
 	c = (struct child *) obj;
-	dbenv = (DB_ENV *) arg;
+	dbenv = *((DB_ENV **) arg);
 
 	if (__txn_commit_map_get(dbenv, c->parent_utxnid, &parent_commit_lsn) != 0) {
 		/* This may occur if the parent aborted after a child committed */

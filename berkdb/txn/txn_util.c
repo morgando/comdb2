@@ -443,7 +443,7 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 {
 	DB_TXN_COMMIT_MAP *txmap;
 	LOGFILE_TXN_LIST *to_delete;
-	UTXNID* elt;
+	UTXNID *elt, *tmpp;
 	int ret;
 
 	txmap = dbenv->txmap;
@@ -453,9 +453,10 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 	Pthread_mutex_lock(&txmap->txmap_mutexp);
 
 	if (to_delete) {
-		LISTC_FOR_EACH(&to_delete->commit_utxnids, elt, lnk)
+		LISTC_FOR_EACH_SAFE(&to_delete->commit_utxnids, elt, tmpp, lnk)
 		{
 			__txn_commit_map_remove_nolock(dbenv, elt->utxnid);
+			listc_rfl(&to_delete->commit_utxnids, elt);
 			__os_free(dbenv, elt);
 		}
 

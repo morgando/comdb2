@@ -60,6 +60,7 @@ static const char revid[] = "$Id: txn_rec.c,v 11.54 2003/10/31 23:26:11 ubell Ex
 int set_commit_context(unsigned long long context, uint32_t *generation,
 		void *plsn, void *args, unsigned int rectype);
 
+int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 int __txn_commit_map_add(DB_ENV *, u_int64_t, DB_LSN);
 
 /*
@@ -721,6 +722,12 @@ __txn_child_recover(dbenv, dbtp, lsnp, op, info)
 	 * we do nothing.
 	 */
 	if (op == DB_TXN_LOGICAL_BACKWARD_ROLL) {
+		DB_LSN commit_lsn;
+		if ((argp->txnid->utxnid != 0) && (ret = __txn_commit_map_get(dbenv, argp->txnid->utxnid, &commit_lsn)) == 0) {
+			if ((ret = __txn_commit_map_add(dbenv, argp->child_utxnid, commit_lsn)) != 0) {
+				printf("Error\n");
+			}
+		}
 #if 0
 		/*
 		 * we are interested only in transactions for which

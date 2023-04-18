@@ -2112,13 +2112,10 @@ int add_child_to_txn_map(obj, arg)
 	c = (struct child *) obj;
 	dbenv = *((DB_ENV **) arg);
 
-	if (__txn_commit_map_get(dbenv, c->parent_utxnid, &parent_commit_lsn) != 0) {
-		/* This may occur if the parent aborted after a child committed */
-		return 1;
+	/* Get may fail if the parent aborted after the child committed */
+	if (__txn_commit_map_get(dbenv, c->parent_utxnid, &parent_commit_lsn) == 0) {
+		__txn_commit_map_add(dbenv, c->utxnid, parent_commit_lsn);
 	}
-
-	__txn_commit_map_add(dbenv, c->utxnid, parent_commit_lsn);
-
 	return 0;
 }
 

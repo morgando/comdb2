@@ -2116,6 +2116,7 @@ int add_child_to_txn_map(obj, arg)
 	if (__txn_commit_map_get(dbenv, c->parent_utxnid, &parent_commit_lsn) == 0) {
 		__txn_commit_map_add(dbenv, c->utxnid, parent_commit_lsn);
 	}
+
 	return 0;
 }
 
@@ -2430,6 +2431,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 		}
 
 		ret = hash_for(children, add_child_to_txn_map, (void *) &dbenv);
+		hash_free(children);
 
 		if (not_newsi_log_format) {
 			logmsg(LOGMSG_ERROR, 

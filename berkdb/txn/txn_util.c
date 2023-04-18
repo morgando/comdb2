@@ -372,6 +372,8 @@ int __txn_commit_map_destroy(dbenv)
 	DB_ENV *dbenv;
 {
 	if (dbenv->txmap) {
+		hash_free(dbenv->txmap->transactions);
+		hash_free(dbenv->txmap->logfile_lists);
 		Pthread_mutex_destroy(&dbenv->txmap->txmap_mutexp);
 		__os_free(dbenv, dbenv->txmap);
 	}

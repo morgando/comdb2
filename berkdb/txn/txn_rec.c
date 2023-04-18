@@ -122,7 +122,6 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
         if (argp->generation > rep->gen)
             __rep_set_gen(dbenv, __func__, __LINE__, argp->generation);
 		MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
-		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
 	} else if ((dbenv->tx_timestamp != 0 &&
 		argp->timestamp > (int32_t) dbenv->tx_timestamp) ||
 	    (!IS_ZERO_LSN(headp->trunc_lsn) &&
@@ -161,6 +160,7 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 			goto err;
 		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
+		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
 	}
 
 	if (ret == 0) {
@@ -226,7 +226,6 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		 * that's OK.  Ignore the return code from remove.
 		 */
 		(void)__db_txnlist_remove(dbenv, info, argp->txnid->txnid);
-		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
 	} else if ((dbenv->tx_timestamp != 0 &&
 		argp->timestamp > (int32_t)dbenv->tx_timestamp) ||
 	    (!IS_ZERO_LSN(headp->trunc_lsn) &&
@@ -262,6 +261,7 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret != TXN_OK)
 			goto err;
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
+		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
 	}
 
 	if (ret == 0) {
@@ -413,7 +413,6 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
         if (argp->generation > rep->gen)
             __rep_set_gen(dbenv, __func__, __LINE__, argp->generation);
 		MUTEX_UNLOCK(dbenv, db_rep->rep_mutexp);
-		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
 	} 
 	else if ((dbenv->tx_timestamp != 0 &&
 		argp->timestamp > (int32_t) dbenv->tx_timestamp) ||
@@ -507,6 +506,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret != TXN_OK)
 			goto err;
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
+		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
 	}
 
 	if (ret == 0) {
@@ -722,12 +722,6 @@ __txn_child_recover(dbenv, dbtp, lsnp, op, info)
 	 * we do nothing.
 	 */
 	if (op == DB_TXN_LOGICAL_BACKWARD_ROLL) {
-		DB_LSN commit_lsn;
-		if ((argp->txnid->utxnid != 0) && (ret = __txn_commit_map_get(dbenv, argp->txnid->utxnid, &commit_lsn)) == 0) {
-			if ((ret = __txn_commit_map_add(dbenv, argp->child_utxnid, commit_lsn)) != 0) {
-				printf("Error\n");
-			}
-		}
 #if 0
 		/*
 		 * we are interested only in transactions for which
@@ -767,6 +761,10 @@ __txn_child_recover(dbenv, dbtp, lsnp, op, info)
 		ret = __db_txnlist_lsnadd(dbenv, info,
 			&argp->c_lsn, TXNLIST_NEW);
 	} else if (op == DB_TXN_BACKWARD_ROLL) {
+		DB_LSN commit_lsn;
+		if ((argp->txnid->utxnid != 0) && (__txn_commit_map_get(dbenv, argp->txnid->utxnid, &commit_lsn) == 0)) {
+			__txn_commit_map_add(dbenv, argp->child_utxnid, commit_lsn);
+		}
 		/* Child might exist -- look for it. */
 		c_stat = __db_txnlist_find(dbenv, info, argp->child);
 		p_stat = __db_txnlist_find(dbenv, info, argp->txnid->txnid);

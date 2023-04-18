@@ -521,19 +521,30 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 
 	txmap = dbenv->txmap;
 
-	/* Don't add transactions that commit at the zero LSN (this is not an error) */
+	/* Don't add transactions that commit at the zero LSN */
 	if (IS_ZERO_LSN(commit_lsn)) {
 		return 0;
 	}
 
+
+	Pthread_mutex_lock(&txmap->txmap_mutexp);
+
+	txn = hash_find(txmap->transactions, &utxnid);
+
+	if (txn != NULL) { 
+		/* Don't add transactions that already exist in the map */
+		Pthread_mutex_unlock(&txmap->txmap_mutexp);
+		return 0;
+	}
+
 	if (__os_malloc(dbenv, sizeof(UTXNID_TRACK), &txn) != 0) {
+		Pthread_mutex_unlock(&txmap->txmap_mutexp);
 		return ENOMEM;
 	}
 
 	txn->utxnid = utxnid;
 	txn->commit_lsn = commit_lsn;
 
-	Pthread_mutex_lock(&txmap->txmap_mutexp);
 	to_delete = hash_find(txmap->logfile_lists, &commit_lsn.file);
 
 	if (!to_delete) {

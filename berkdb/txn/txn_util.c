@@ -325,15 +325,18 @@ dofree:
 	return (ret);
 }
 
+void *gbl_txmap_base;
+
 /*
  * __txn_commit_map_init --
  * 	Initialize commit LSN map.
  *
  * PUBLIC: int __txn_commit_map_init
- * PUBLIC:     __P((DB_ENV *));
+ * PUBLIC:     __P((DB_ENV *, u_int64_t));
  */
-int __txn_commit_map_init(dbenv) 
+int __txn_commit_map_init(dbenv, size) 
 	DB_ENV *dbenv;
+	u_int64_t size;
 {
 	int ret;
 	DB_TXN_COMMIT_MAP *txmap;
@@ -344,6 +347,13 @@ int __txn_commit_map_init(dbenv)
 		goto err;
 	}
 
+	ret = __os_malloc(dbenv, size, &txmap->txmap_base);
+
+	if (ret) {
+		goto err;
+	}
+
+	txmap->msp = create_mspace_with_base(txmap->txmap_base, size, 1);
 	txmap->transactions = hash_init_o(offsetof(UTXNID_TRACK, utxnid), sizeof(u_int64_t));
 	txmap->logfile_lists = hash_init_o(offsetof(LOGFILE_TXN_LIST, file_num), sizeof(u_int32_t));
 
@@ -375,6 +385,7 @@ int __txn_commit_map_destroy(dbenv)
 		hash_free(dbenv->txmap->transactions);
 		hash_free(dbenv->txmap->logfile_lists);
 		Pthread_mutex_destroy(&dbenv->txmap->txmap_mutexp);
+		__os_free(dbenv, dbenv->txmap->txmap_base);
 		__os_free(dbenv, dbenv->txmap);
 	}
 
@@ -539,7 +550,7 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 		return 0;
 	}
 
-	if (__os_malloc(dbenv, sizeof(UTXNID_TRACK), &txn) != 0) {
+	if ((txn = mspace_malloc(txmap->msp, sizeof(UTXNID_TRACK))) == NULL) {
 		Pthread_mutex_unlock(&txmap->txmap_mutexp);
 		return ENOMEM;
 	}
@@ -550,7 +561,7 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 	to_delete = hash_find(txmap->logfile_lists, &commit_lsn.file);
 
 	if (!to_delete) {
-		if (__os_malloc(dbenv, sizeof(LOGFILE_TXN_LIST), &to_delete) != 0) {
+		if ((to_delete = mspace_malloc(txmap->msp, sizeof(LOGFILE_TXN_LIST))) == NULL) {
 			Pthread_mutex_unlock(&txmap->txmap_mutexp);
 			return ENOMEM;
 		}
@@ -560,7 +571,7 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 		hash_add(txmap->logfile_lists, to_delete);
 	}
 
-	if (__os_malloc(dbenv, sizeof(UTXNID), &elt) != 0) {
+	if ((elt = mspace_malloc(txmap->msp, sizeof(UTXNID))) == NULL) {
 		Pthread_mutex_unlock(&txmap->txmap_mutexp);
 		return ENOMEM;
 	}

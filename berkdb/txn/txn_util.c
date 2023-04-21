@@ -414,7 +414,7 @@ static int __txn_commit_map_remove_nolock(dbenv, utxnid)
 
 	if (txn) {
 		hash_del(txmap->transactions, txn);
-		__os_free(dbenv, txn); 
+		mspace_free(txmap->msp, txn); 
 	} else {
 		ret = 1;
 	}
@@ -470,11 +470,11 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 		{
 			__txn_commit_map_remove_nolock(dbenv, elt->utxnid);
 			listc_rfl(&to_delete->commit_utxnids, elt);
-			__os_free(dbenv, elt);
+			mspace_free(txmap->msp, elt);
 		}
 
 		hash_del(txmap->logfile_lists, &del_log);
-		__os_free(dbenv, to_delete);
+		mspace_free(txmap->msp, to_delete);
 	} else {
 		ret = 1;
 	}

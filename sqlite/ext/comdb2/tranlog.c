@@ -39,6 +39,8 @@
 #define TRANLOG_COLUMN_UTXNID       9
 #define TRANLOG_COLUMN_MAXUTXNID    10
 #define TRANLOG_COLUMN_CHILDUTXNID	11
+#define TRANLOG_COLUMN_LSN_FILE		12 /* Useful for sorting records by LSN */
+#define TRANLOG_COLUMN_LSN_OFFSET	13
 
 
 /* Modeled after generate_series */
@@ -72,7 +74,7 @@ static int tranlogConnect(
   int rc;
 
   rc = sqlite3_declare_vtab(db,
-     "CREATE TABLE x(minlsn hidden,maxlsn hidden,flags hidden,lsn,rectype integer,generation integer,timestamp integer,payload,txnid integer,utxnid integer,maxutxnid hidden, childutxnid hidden)");
+     "CREATE TABLE x(minlsn hidden,maxlsn hidden,flags hidden,lsn,rectype integer,generation integer,timestamp integer,payload,txnid integer,utxnid integer,maxutxnid hidden, childutxnid hidden, commitlsnfile hidden, commitlsnoffset hidden)");
   if( rc==SQLITE_OK ){
     pNew = *ppVtab = sqlite3_malloc( sizeof(*pNew) );
     if( pNew==0 ) return SQLITE_NOMEM;
@@ -544,6 +546,12 @@ static int tranlogColumn(
 			sqlite3_result_null(ctx);
 		}
 		break;
+    case TRANLOG_COLUMN_LSN_FILE:
+        sqlite3_result_int(ctx, pCur->curLsn.file);
+        break;
+    case TRANLOG_COLUMN_LSN_OFFSET:
+        sqlite3_result_int(ctx, pCur->curLsn.offset);
+        break;
   }
   return SQLITE_OK;
 }

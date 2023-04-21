@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 bash -n "$0" | exit 1
+source ${TESTSROOTDIR}/tools/cluster_utils.sh
 
 set -e
 
@@ -82,13 +83,15 @@ function verify_child_commit_lsn_is_parent_commit_lsn
 	cdb2sql ${CDB2_OPTIONS} $dbnm default 'insert into t select utxnid, childutxnid from comdb2_transaction_logs where childutxnid is not null'
 	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit parent, comdb2_transaction_commit child, t logs where logs.utxnid=parent.utxnid and logs.childutxnid=child.utxnid and (parent.commitlsnfile!=child.commitlsnfile or parent.commitlsnoffset!=child.commitlsnoffset)')
 	numinvalidchildren=$(echo $res | grep -oP "[0-9]+\)$")
-	echo "numinvalidchildren $numinvalidchildren"
+	numinvalidchildren=${numinvalidchildren:0:-1}
 	failif numinvalidchildren
 }
 
 setup
 verify_child_commit_lsn_is_parent_commit_lsn
 
+cdb2sql ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb checkpoint")'
+sleep 3
 bounce
 
 res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(timestamp) from comdb2_transaction_logs where rectype=$CKP_RECTYPE or $CKP_UTXNID_RECTYPE')

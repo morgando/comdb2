@@ -3852,8 +3852,8 @@ low_headroom:
             if (filenum <= local_lowfilenum && gbl_new_snapisol_asof)
                 bdb_snapshot_asof_delete_log(bdb_state, filenum, sb.st_mtime);
 
-			/* Delete transactions that committed in this file from the commit LSN map. */
-			__txn_commit_map_delete_logfile_txns(dbenv, filenum);
+            /* Delete transactions that committed in this file from the commit LSN map. */
+            __txn_commit_map_delete_logfile_txns(bdb_state->dbenv, filenum);
 
             if ((filenum <= lowfilenum && delete_adjacent) || is_low_headroom) {
                 /* delete this file if we got this far AND it's under the

@@ -1051,6 +1051,12 @@ struct __db_txn {
 		struct __db_txn **tqe_prev;
 	} klinks;
 
+	/* 
+	 * Stores the utxnids of committed kids so that parent can add them
+	 * to the commit LSN map when it commits.
+	 */
+	LISTC_T(UTXNID) committed_kids; 
+
 	/* API-private structure: used by C++ */
 	void	*api_internal;
 

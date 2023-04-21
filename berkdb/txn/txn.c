@@ -317,6 +317,7 @@ __txn_begin_main(dbenv, parent, txnpp, flags, prop)
 
 	txn->mgrp = dbenv->tx_handle;
 	txn->parent = parent;
+	listc_init(&txn->committed_kids, offsetof(UTXNID, lnk));	
 	TAILQ_INIT(&txn->kids);
 	TAILQ_INIT(&txn->events);
 	STAILQ_INIT(&txn->logs);
@@ -988,6 +989,7 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 	DB_TXN *kid;
 	LTDESC *lt = NULL;
 	TXN_DETAIL *td = NULL, *ptd = NULL;
+	UTXNID *utxnid_track;
 	u_int32_t lflags, ltranflags = 0;
 	int32_t timestamp;
 	uint32_t gen;
@@ -1352,6 +1354,13 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 				STAILQ_INIT(&txnp->logs);
 			}
 
+			if ((ret = __os_malloc(dbenv, sizeof(UTXNID), &utxnid_track)) != 0) {
+				goto err;
+			}
+
+			utxnid_track->utxnid = txnp->utxnid;
+			listc_atl(&txnp->parent->committed_kids, utxnid_track);
+
 			F_SET(txnp->parent, TXN_CHILDCOMMIT);
 		}
 	}
@@ -1388,8 +1397,8 @@ __txn_commit_int(txnp, flags, ltranid, llid, last_commit_lsn, rlocks, inlks,
 		}
 
 		/* No grandchildren in comdb2, so this is sufficient. */
-		while ((kid = TAILQ_FIRST(&txnp->kids)) != NULL) {
-			ret = __txn_commit_map_add(dbenv, kid->utxnid, txnp->last_lsn);
+		LISTC_FOR_EACH(&txnp->committed_kids, utxnid_track, lnk) {
+			ret = __txn_commit_map_add(dbenv, utxnid_track->utxnid, txnp->last_lsn);
 			if (ret != 0) {
 				goto err;
 			}
@@ -1981,6 +1990,7 @@ __txn_end(txnp, is_commit)
 	DB_TXNMGR *mgr;
 	DB_TXNREGION *region;
 	TXN_DETAIL *tp;
+	UTXNID *utxnid_track, *tmpp;
 	int do_closefiles, ret;
 
 	mgr = txnp->mgrp;
@@ -2043,6 +2053,10 @@ __txn_end(txnp, is_commit)
 		return (__db_panic(dbenv, ret));
 	if (txnp->parent != NULL)
 		TAILQ_REMOVE(&txnp->parent->kids, txnp, klinks);
+	
+	LISTC_FOR_EACH_SAFE(&txnp->committed_kids, utxnid_track, tmpp, lnk) {
+		__os_free(dbenv, utxnid_track);
+	}
 
 	/* Free the space. */
 	while ((lr = STAILQ_FIRST(&txnp->logs)) != NULL) {

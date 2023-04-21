@@ -73,42 +73,71 @@ function count_archive
 # TEST 1 - child txns
 ######################
 
+function insert_values
+{
+	for (( i=0; i<$1; i++))
+	do
+		cdb2sql ${CDB2_OPTIONS} $dbnm default "insert into "$2" values(1)"
+	done
+}
+
 function setup
 {
-	cdb2sql ${CDB2_OPTIONS} $dbnm default 'create table t(utxnid int, childutxnid int)'
+	cdb2sql ${CDB2_OPTIONS} $dbnm default 'create table tranlog_copy(utxnid int, childutxnid int, lsnfile int, lsnoffset int)'
+	cdb2sql ${CDB2_OPTIONS} $dbnm default 'create table data(i int)'
+	# exec procedure sys.cmd.send("bdb setattr CHECKPOINTTIME 10000")
 }
 
 function verify_child_commit_lsn_is_parent_commit_lsn
 {
-	cdb2sql ${CDB2_OPTIONS} $dbnm default 'insert into t select utxnid, childutxnid from comdb2_transaction_logs where childutxnid is not null'
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit parent, comdb2_transaction_commit child, t logs where logs.utxnid=parent.utxnid and logs.childutxnid=child.utxnid and (parent.commitlsnfile!=child.commitlsnfile or parent.commitlsnoffset!=child.commitlsnoffset)')
+	cdb2sql ${CDB2_OPTIONS} $dbnm default 'insert into tranlog_copy select utxnid, childutxnid, lsnfile, lsnoffset from comdb2_transaction_logs where childutxnid is not null on conflict do nothing'
+	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit parent, comdb2_transaction_commit child, tranlog_copy logs where logs.utxnid=parent.utxnid and logs.childutxnid=child.utxnid and (parent.commitlsnfile!=child.commitlsnfile or parent.commitlsnoffset!=child.commitlsnoffset)')
 	numinvalidchildren=$(echo $res | grep -oP "[0-9]+\)$")
 	numinvalidchildren=${numinvalidchildren:0:-1}
 	failif numinvalidchildren
 }
 
 setup
+insert_values 100 data
 verify_child_commit_lsn_is_parent_commit_lsn
 
 cdb2sql ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb checkpoint")'
 sleep 3
+
+# insert_values 100 data
+
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select lsnfile, max(lsnoffset) from comdb2_transaction_logs where (rectype='$CKP_RECTYPE' or rectype='$CKP_UTXNID_RECTYPE') and lsnfile=(select max(lsnfile) from comdb2_transaction_logs where (rectype='$CKP_RECTYPE' or rectype='$CKP_UTXNID_RECTYPE'))')
+recoverylsnfile=$(echo $res | grep -oP "[0-9]+\,")
+recoverylsnfile=${recoverylsnfile:0:-1}
+recoverylsnoffset=$(echo $res | grep -oP "[0-9]+\)$")
+recoverylsnoffset=${recoverylsnoffset:0:-1}
+
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(lsnfile) from comdb2_transaction_logs')
+maxlsnfilebeforebounce=$(echo $res | grep -oP "[0-9]+\)$")
+maxlsnfilebeforebounce=${maxlsnfilebeforebounce:0:-1}
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(lsnoffset) from comdb2_transaction_logs where lsnfile='$maxlsnfilebeforebounce'')
+maxlsnoffsetbeforebounce=$(echo $res | grep -oP "[0-9]+\)$")
+maxlsnoffsetbeforebounce=${maxlsnoffsetbeforebounce:0:-1}
+
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'insert into tranlog_copy select utxnid, childutxnid, lsnfile, lsnoffset from comdb2_transaction_logs where childutxnid is not null on conflict do nothing')
+
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, tranlog_copy logs where commits.utxnid=logs.childutxnid and (logs.lsnfile>'$recoverylsnfile' or (logs.lsnfile='$recoverylsnfile' and logs.lsnoffset>'$recoverylsnoffset')) and (logs.lsnfile<'$maxlsnfilebeforebounce' or (logs.lsnfile='$maxlsnfilebeforebounce' and logs.lsnoffset<'$maxlsnoffsetbeforebounce'))')
+childrentorecover=$(echo $res | grep -oP "[0-9]+\)$")
+childrentorecover=${childrentorecover:0:-1}
+
 bounce
-
-res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(timestamp) from comdb2_transaction_logs where rectype=$CKP_RECTYPE or $CKP_UTXNID_RECTYPE')
-recovery=$(echo $res | grep -oP "[0-9]+\)$")
-echo "numrecoveredchildren $numrecoveredchildren"
-
-res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, t logs where commits.utxnid=logs.childutxnid')
-numrecoveredchildren=$(echo $res | grep -oP "[0-9]+\)$")
-echo "numrecoveredchildren $numrecoveredchildren"
 
 verify_child_commit_lsn_is_parent_commit_lsn
 
-#master_swing
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, tranlog_copy logs where commits.utxnid=logs.childutxnid and (logs.lsnfile>'$recoverylsnfile' or (logs.lsnfile='$recoverylsnfile' and logs.lsnoffset>'$recoverylsnoffset'))')
+numrecoveredchildren=$(echo $res | grep -oP "[0-9]+\)$")
 
-#setup
-#verify_child_commit_lsn_is_parent_commit_lsn
-#teardown
+echo "numrecoveredchildren $numrecoveredchildren expectedrecoveredchildren $childrentorecover"
+
+if [[ $numrecoveredchildren < $childrentorecover ]]; then
+	echo "FAIL: Expected to recover more children."
+	exit 1
+fi
 
 #####################
 # TEST 2 - log deletion

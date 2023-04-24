@@ -160,7 +160,10 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 			goto err;
 		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
-		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
+
+		if (argp->opcode == TXN_COMMIT) {
+			__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
+		}
 	}
 
 	if (ret == 0) {
@@ -261,7 +264,9 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret != TXN_OK)
 			goto err;
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
-		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
+		if (argp->opcode == TXN_COMMIT) {
+			__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
+		}
 	}
 
 	if (ret == 0) {
@@ -506,7 +511,9 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret != TXN_OK)
 			goto err;
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
-		__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
+		if (argp->opcode == TXN_COMMIT) {
+			__txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp);
+		}
 	}
 
 	if (ret == 0) {

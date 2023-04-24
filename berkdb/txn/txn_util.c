@@ -385,6 +385,7 @@ int __txn_commit_map_destroy(dbenv)
 		hash_free(dbenv->txmap->transactions);
 		hash_free(dbenv->txmap->logfile_lists);
 		Pthread_mutex_destroy(&dbenv->txmap->txmap_mutexp);
+		destroy_mspace(txmap->txmap_base);
 		__os_free(dbenv, dbenv->txmap->txmap_base);
 		__os_free(dbenv, dbenv->txmap);
 	}

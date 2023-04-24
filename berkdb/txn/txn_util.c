@@ -469,7 +469,6 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 		LISTC_FOR_EACH_SAFE(&to_delete->commit_utxnids, elt, tmpp, lnk)
 		{
 			__txn_commit_map_remove_nolock(dbenv, elt->utxnid);
-			listc_rfl(&to_delete->commit_utxnids, elt);
 			mspace_free(txmap->msp, elt);
 		}
 

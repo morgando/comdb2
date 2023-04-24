@@ -69,6 +69,10 @@ function count_archive
     cdb2sql --tabs ${CDB2_OPTIONS} --host $master $dbnm 'exec procedure sys.cmd.send("bdb log_archive")' | egrep 'log.00000' | wc -l
 }
 
+######################
+# TEST 1 - child txns
+######################
+
 function insert_values
 {
 	for (( i=0; i<$1; i++))
@@ -93,146 +97,146 @@ function verify_child_commit_lsn_is_parent_commit_lsn
 	failif numinvalidchildren
 }
 
-function test_commit_lsns_of_child
-{
-	setup
-	insert_values 100 data
-	verify_child_commit_lsn_is_parent_commit_lsn
+setup
+insert_values 100 data
+verify_child_commit_lsn_is_parent_commit_lsn
 
-	cdb2sql ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb checkpoint")'
-	sleep 3
+cdb2sql ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb checkpoint")'
+sleep 3
 
-	# insert_values 100 data
+# insert_values 100 data
 
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select lsnfile, max(lsnoffset) from comdb2_transaction_logs where (rectype='$CKP_RECTYPE' or rectype='$CKP_UTXNID_RECTYPE') and lsnfile=(select max(lsnfile) from comdb2_transaction_logs where (rectype='$CKP_RECTYPE' or rectype='$CKP_UTXNID_RECTYPE'))')
-	recoverylsnfile=$(echo $res | grep -oP "[0-9]+\,")
-	recoverylsnfile=${recoverylsnfile:0:-1}
-	recoverylsnoffset=$(echo $res | grep -oP "[0-9]+\)$")
-	recoverylsnoffset=${recoverylsnoffset:0:-1}
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select lsnfile, max(lsnoffset) from comdb2_transaction_logs where (rectype='$CKP_RECTYPE' or rectype='$CKP_UTXNID_RECTYPE') and lsnfile=(select max(lsnfile) from comdb2_transaction_logs where (rectype='$CKP_RECTYPE' or rectype='$CKP_UTXNID_RECTYPE'))')
+recoverylsnfile=$(echo $res | grep -oP "[0-9]+\,")
+recoverylsnfile=${recoverylsnfile:0:-1}
+recoverylsnoffset=$(echo $res | grep -oP "[0-9]+\)$")
+recoverylsnoffset=${recoverylsnoffset:0:-1}
 
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(lsnfile) from comdb2_transaction_logs')
-	maxlsnfilebeforebounce=$(echo $res | grep -oP "[0-9]+\)$")
-	maxlsnfilebeforebounce=${maxlsnfilebeforebounce:0:-1}
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(lsnoffset) from comdb2_transaction_logs where lsnfile='$maxlsnfilebeforebounce'')
-	maxlsnoffsetbeforebounce=$(echo $res | grep -oP "[0-9]+\)$")
-	maxlsnoffsetbeforebounce=${maxlsnoffsetbeforebounce:0:-1}
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(lsnfile) from comdb2_transaction_logs')
+maxlsnfilebeforebounce=$(echo $res | grep -oP "[0-9]+\)$")
+maxlsnfilebeforebounce=${maxlsnfilebeforebounce:0:-1}
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select max(lsnoffset) from comdb2_transaction_logs where lsnfile='$maxlsnfilebeforebounce'')
+maxlsnoffsetbeforebounce=$(echo $res | grep -oP "[0-9]+\)$")
+maxlsnoffsetbeforebounce=${maxlsnoffsetbeforebounce:0:-1}
 
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'insert into tranlog_copy select utxnid, childutxnid, lsnfile, lsnoffset from comdb2_transaction_logs where childutxnid is not null on conflict do nothing')
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'insert into tranlog_copy select utxnid, childutxnid, lsnfile, lsnoffset from comdb2_transaction_logs where childutxnid is not null on conflict do nothing')
 
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, tranlog_copy logs where commits.utxnid=logs.childutxnid and (logs.lsnfile>'$recoverylsnfile' or (logs.lsnfile='$recoverylsnfile' and logs.lsnoffset>'$recoverylsnoffset')) and (logs.lsnfile<'$maxlsnfilebeforebounce' or (logs.lsnfile='$maxlsnfilebeforebounce' and logs.lsnoffset<'$maxlsnoffsetbeforebounce'))')
-	childrentorecover=$(echo $res | grep -oP "[0-9]+\)$")
-	childrentorecover=${childrentorecover:0:-1}
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, tranlog_copy logs where commits.utxnid=logs.childutxnid and (logs.lsnfile>'$recoverylsnfile' or (logs.lsnfile='$recoverylsnfile' and logs.lsnoffset>'$recoverylsnoffset')) and (logs.lsnfile<'$maxlsnfilebeforebounce' or (logs.lsnfile='$maxlsnfilebeforebounce' and logs.lsnoffset<'$maxlsnoffsetbeforebounce'))')
+childrentorecover=$(echo $res | grep -oP "[0-9]+\)$")
+childrentorecover=${childrentorecover:0:-1}
 
-	bounce
+bounce
 
-	verify_child_commit_lsn_is_parent_commit_lsn
+verify_child_commit_lsn_is_parent_commit_lsn
 
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, tranlog_copy logs where commits.utxnid=logs.childutxnid and (logs.lsnfile>'$recoverylsnfile' or (logs.lsnfile='$recoverylsnfile' and logs.lsnoffset>'$recoverylsnoffset'))')
-	numrecoveredchildren=$(echo $res | grep -oP "[0-9]+\)$")
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(*) from comdb2_transaction_commit commits, tranlog_copy logs where commits.utxnid=logs.childutxnid and (logs.lsnfile>'$recoverylsnfile' or (logs.lsnfile='$recoverylsnfile' and logs.lsnoffset>'$recoverylsnoffset'))')
+numrecoveredchildren=$(echo $res | grep -oP "[0-9]+\)$")
 
-	echo "numrecoveredchildren $numrecoveredchildren expectedrecoveredchildren $childrentorecover"
+echo "numrecoveredchildren $numrecoveredchildren expectedrecoveredchildren $childrentorecover"
 
-	if [[ $numrecoveredchildren < $childrentorecover ]]; then
-		echo "FAIL: Expected to recover more children."
-		exit 1
-	fi
-}
+if [[ $numrecoveredchildren < $childrentorecover ]]; then
+	echo "FAIL: Expected to recover more children."
+	exit 1
+fi
 
-function test_commit_lsns_on_log_delete
-{
-	# Let the test
-	while [[ "$seen_archives" -eq "0" && "$count" -lt "$seen_iter" ]]
-	do
-	    #comdb2sc -m $dbnm send pushlogs $target
-	    cdb2sql --tabs ${CDB2_OPTIONS} --host $master $dbnm "exec procedure sys.cmd.send('pushlogs $target')"
-	    sleep 3
-
-	    res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile), MAX(commitlsnfile) from comdb2_transaction_commit')
-	    numfilesinmap=$(echo $res | grep -oP "[0-9]+\,")
-	    numfilesinmap=${numfilesinmap:0:-1}
-	    maxfileinmap=$(echo $res | grep -oP "[0-9]+\)$")
-	    maxfileinmap=${maxfileinmap:0:-1}
-
-	    seen_count="$(count_archive $dbnm)"
-
-	    # Didn't see anything that needed to be archived: try again
-	    if [[ "$seen_count" == "0" ]]; then
-
-		let target=target+1
-		let count=count+1
-
-	    # Saw something that needed to be archived: break out of loop
-	    else
-
-		# Break out of this loop
-		seen_archives=1
-
-	    fi
-
-	done
+#####################
+# TEST 2 - log deletion
+#####################
 
 
-	if [[ "$seen_archives" == "0" ]]; then
+# Let the test
+while [[ "$seen_archives" -eq "0" && "$count" -lt "$seen_iter" ]]
+do
+    #comdb2sc -m $dbnm send pushlogs $target
+    cdb2sql --tabs ${CDB2_OPTIONS} --host $master $dbnm "exec procedure sys.cmd.send('pushlogs $target')"
+    sleep 3
 
-	    echo "Never saw any archives, failing testcase"
-	    exit 1
+    res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile), MAX(commitlsnfile) from comdb2_transaction_commit')
+    numfilesinmap=$(echo $res | grep -oP "[0-9]+\,")
+    numfilesinmap=${numfilesinmap:0:-1}
+    maxfileinmap=$(echo $res | grep -oP "[0-9]+\)$")
+    maxfileinmap=${maxfileinmap:0:-1}
 
-	fi
+    seen_count="$(count_archive $dbnm)"
 
-	echo "$dbnm has accrued $seen_count logfiles."
+    # Didn't see anything that needed to be archived: try again
+    if [[ "$seen_count" == "0" ]]; then
 
-	seencountsave=$seen_count
+        let target=target+1
+        let count=count+1
 
-	cluster=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb cluster")' | grep lsn | cut -f1 -d':' `
-	for node in $cluster ; do 
-	    cdb2sql ${CDB2_OPTIONS} --host $node $dbnm 'exec procedure sys.cmd.send("bdb setattr MIN_KEEP_LOGS 1")'
-	    cdb2sql ${CDB2_OPTIONS} --host $node $dbnm 'exec procedure sys.cmd.send("flush")'
-	done
+    # Saw something that needed to be archived: break out of loop
+    else
+
+        # Break out of this loop
+        seen_archives=1
+
+    fi
+
+done
 
 
-	# Sleep a bit
-	sleep 10
+if [[ "$seen_archives" == "0" ]]; then
 
-	count=0
+    echo "Never saw any archives, failing testcase"
+    exit 1
 
-	while [[ "$seen_clear" == "0" && "$count" -lt "$clean_iter" ]]; do
+fi
 
-	    seen_count="$(count_archive $dbnm)"
+echo "$dbnm has accrued $seen_count logfiles."
 
-	    if [ "$seen_count" -eq "0" ]; then
+seencountsave=$seen_count
 
-		seen_clear=1
+cluster=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb cluster")' | grep lsn | cut -f1 -d':' `
+for node in $cluster ; do 
+    cdb2sql ${CDB2_OPTIONS} --host $node $dbnm 'exec procedure sys.cmd.send("bdb setattr MIN_KEEP_LOGS 1")'
+    cdb2sql ${CDB2_OPTIONS} --host $node $dbnm 'exec procedure sys.cmd.send("flush")'
+done
 
-	    else
 
-		echo "Waiting for $seen_count logfiles to be deleted."
+# Sleep a bit
+sleep 10
 
-		for node in $cluster ; do 
-		    cdb2sql --tabs ${CDB2_OPTIONS} --host $node $dbnm "exec procedure sys.cmd.send('flush')"
-		done
+count=0
 
-		sleep 30
-		let count=count+1
+while [[ "$seen_clear" == "0" && "$count" -lt "$clean_iter" ]]; do
 
-	    fi
+    seen_count="$(count_archive $dbnm)"
 
-	done
+    if [ "$seen_count" -eq "0" ]; then
 
-	if [[ "$seen_clear" == "0" ]]; then
+        seen_clear=1
 
-	    echo "Archives were never cleared, failing testcase"
-	    exit 1
+    else
 
-	fi
+        echo "Waiting for $seen_count logfiles to be deleted."
 
-	res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile) from comdb2_transaction_commit where commitlsnfile<="$maxfileinmap"')
-	numremainingfiles=$(echo $res | grep -oP "[0-9]+\)$")
-	numremainingfiles=${numremainingfiles:0:-1}
+        for node in $cluster ; do 
+            cdb2sql --tabs ${CDB2_OPTIONS} --host $node $dbnm "exec procedure sys.cmd.send('flush')"
+        done
 
-	if ((numfilesinmap - numremainingfiles < seencountsave)); then
-	    exit 1
-	fi
-}
+        sleep 30
+        let count=count+1
 
-test_commit_lsns_on_log_delete
-test_commit_lsns_of_child
+    fi
+
+done
+
+if [[ "$seen_clear" == "0" ]]; then
+
+    echo "Archives were never cleared, failing testcase"
+    exit 1
+
+fi
+
+res=$(cdb2sql ${CDB2_OPTIONS} $dbnm default 'select COUNT(DISTINCT commitlsnfile) from comdb2_transaction_commit where commitlsnfile<="$maxfileinmap"')
+numremainingfiles=$(echo $res | grep -oP "[0-9]+\)$")
+numremainingfiles=${numremainingfiles:0:-1}
+
+if ((numfilesinmap - numremainingfiles < seencountsave)); then
+    exit 1
+fi
+
+
+
+

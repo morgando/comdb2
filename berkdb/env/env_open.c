@@ -46,7 +46,7 @@ static int __dbenv_config __P((DB_ENV *, const char *, u_int32_t));
 static int __dbenv_refresh __P((DB_ENV *, u_int32_t, int));
 static int __dbenv_remove_int __P((DB_ENV *, const char *, u_int32_t));
 
-int __txn_commit_map_init(DB_ENV *, u_int64_t);
+int __txn_commit_map_init(DB_ENV *);
 int __txn_commit_map_destroy(DB_ENV *);
 
 extern int gbl_file_permissions;

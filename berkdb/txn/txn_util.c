@@ -332,11 +332,10 @@ void *gbl_txmap_base;
  * 	Initialize commit LSN map.
  *
  * PUBLIC: int __txn_commit_map_init
- * PUBLIC:     __P((DB_ENV *, u_int64_t));
+ * PUBLIC:     __P((DB_ENV *));
  */
 int __txn_commit_map_init(dbenv) 
 	DB_ENV *dbenv;
-	u_int64_t size;
 {
 	int ret;
 	DB_TXN_COMMIT_MAP *txmap;
@@ -346,8 +345,6 @@ int __txn_commit_map_init(dbenv)
 	if (ret) {
 		goto err;
 	}
-
-	ret = __os_malloc(dbenv, size, &txmap->txmap_base);
 
 	if (ret) {
 		goto err;
@@ -385,8 +382,7 @@ int __txn_commit_map_destroy(dbenv)
 		hash_free(dbenv->txmap->transactions);
 		hash_free(dbenv->txmap->logfile_lists);
 		Pthread_mutex_destroy(&dbenv->txmap->txmap_mutexp);
-		destroy_mspace(txmap->txmap_base);
-		__os_free(dbenv, dbenv->txmap->txmap_base);
+		destroy_mspace(dbenv->txmap->msp);
 		__os_free(dbenv, dbenv->txmap);
 	}
 

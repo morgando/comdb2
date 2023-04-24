@@ -2768,7 +2768,6 @@ struct __utxnid_track {
 struct __txn_commit_map {
 	pthread_mutex_t txmap_mutexp;
 	mspace *msp;
-	void * txmap_base;
 	hash_t *transactions;
 	hash_t *logfile_lists;
 };

@@ -85,8 +85,6 @@ static int __log_find_latest_checkpoint_before_lsn(DB_ENV *dbenv,
 	DB_LOGC *logc, DB_LSN *max_lsn, DB_LSN *start_lsn);
 static int __log_find_latest_checkpoint_before_lsn_try_harder(DB_ENV *dbenv,
 	DB_LOGC *logc, DB_LSN *max_lsn, DB_LSN *foundlsn);
-int __txn_commit_map_add(DB_ENV * dbenv, u_int64_t utxnid, DB_LSN commit_lsn);
-int __txn_commit_map_get(DB_ENV * dbenv, u_int64_t utxnid, DB_LSN* commit_lsn);
 int gbl_ufid_dbreg_test = 0;
 int gbl_ufid_log = 0;
 
@@ -2096,30 +2094,6 @@ int bdb_checkpoint_list_push(DB_LSN lsn, DB_LSN ckp_lsn, int32_t timestamp);
 extern DB_LSN bdb_latest_commit_lsn;
 extern pthread_mutex_t bdb_asof_current_lsn_mutex;
 
-struct child {
-	u_int64_t utxnid;
-	u_int64_t parent_utxnid;
-};
-
-int add_child_to_txn_map(obj, arg)
-	void *obj;
-	void *arg;
-{
-	DB_LSN parent_commit_lsn;
-	DB_ENV *dbenv;
-	struct child * c; 
-	
-	c = (struct child *) obj;
-	dbenv = *((DB_ENV **) arg);
-
-	/* Get may fail if the parent aborted after the child committed */
-	if (__txn_commit_map_get(dbenv, c->parent_utxnid, &parent_commit_lsn) == 0) {
-		__txn_commit_map_add(dbenv, c->utxnid, parent_commit_lsn);
-	}
-
-	return 0;
-}
-
 /*
  * __recover_logfile_pglogs
  *
@@ -2148,10 +2122,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 	DB *file_dbp;
 	DB_MPOOLFILE *mpf;
 	u_int32_t rectype;
-	hash_t *children;
 
-	children = hash_init_o(offsetof(struct child, utxnid), sizeof(u_int64_t));
-	__txn_child_args *child_args = NULL;
 	__txn_ckp_args *ckp_args = NULL;
 	__txn_regop_args *txn_args = NULL;
 	__txn_regop_gen_args *txn_gen_args = NULL;
@@ -2174,22 +2145,6 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 		LOGCOPY_32(&rectype, data.data);
 		normalize_rectype(&rectype);
 		switch (rectype) {
-		case DB___txn_child:
-			if ((ret =
-				__txn_child_read(dbenv, data.data,
-					&child_args)) != 0) {
-					GOTOERR;
-			}
-			struct child * c;
-			if (__os_malloc(dbenv, sizeof(struct child), &c) != 0) {
-				GOTOERR;
-			}
-
-			c->utxnid = child_args->child_utxnid;
-			c->parent_utxnid = child_args->txnid->utxnid;
-
-			hash_add(children, c);
-			break;
 		case DB___txn_ckp:
 			if ((ret =
 				__txn_ckp_read(dbenv, data.data,
@@ -2219,7 +2174,6 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 						lsn.file, lsn.offset);
 				}
 			}
-
 
 			break;
 		case DB___txn_regop_gen:
@@ -2251,8 +2205,6 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			if (ret) {
 				GOTOERR;
 		 }
-
-		 __txn_commit_map_add(dbenv, txn_gen_args->txnid->utxnid, lsn);
 		 break;
 		case DB___txn_regop:
 			if ((ret =
@@ -2282,8 +2234,6 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			if (ret) {
 				GOTOERR;
 		 }
-
-		 __txn_commit_map_add(dbenv, txn_args->txnid->utxnid, lsn);
 		 break;
 		case DB___txn_regop_rowlocks:
 			if ((ret =
@@ -2327,7 +2277,6 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			   }
 		 }
 
-		 __txn_commit_map_add(dbenv, txn_rl_args->txnid->utxnid, lsn);
 						break;
 		case DB___bam_split:
 					if ((ret =
@@ -2429,9 +2378,6 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 			keylist = NULL;
 			keycnt = 0;
 		}
-
-		ret = hash_for(children, add_child_to_txn_map, (void *) &dbenv);
-		hash_free(children);
 
 		if (not_newsi_log_format) {
 			logmsg(LOGMSG_ERROR, 

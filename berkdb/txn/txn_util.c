@@ -334,7 +334,7 @@ void *gbl_txmap_base;
  * PUBLIC: int __txn_commit_map_init
  * PUBLIC:     __P((DB_ENV *, u_int64_t));
  */
-int __txn_commit_map_init(dbenv, size) 
+int __txn_commit_map_init(dbenv) 
 	DB_ENV *dbenv;
 	u_int64_t size;
 {
@@ -353,7 +353,7 @@ int __txn_commit_map_init(dbenv, size)
 		goto err;
 	}
 
-	txmap->msp = create_mspace_with_base(txmap->txmap_base, size, 1);
+	txmap->msp = create_mspace(0, 1);
 	txmap->transactions = hash_init_o(offsetof(UTXNID_TRACK, utxnid), sizeof(u_int64_t));
 	txmap->logfile_lists = hash_init_o(offsetof(LOGFILE_TXN_LIST, file_num), sizeof(u_int32_t));
 
@@ -385,6 +385,7 @@ int __txn_commit_map_destroy(dbenv)
 		hash_free(dbenv->txmap->transactions);
 		hash_free(dbenv->txmap->logfile_lists);
 		Pthread_mutex_destroy(&dbenv->txmap->txmap_mutexp);
+		destroy_mspace(txmap->txmap_base);
 		__os_free(dbenv, dbenv->txmap->txmap_base);
 		__os_free(dbenv, dbenv->txmap);
 	}
@@ -469,7 +470,6 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 		LISTC_FOR_EACH_SAFE(&to_delete->commit_utxnids, elt, tmpp, lnk)
 		{
 			__txn_commit_map_remove_nolock(dbenv, elt->utxnid);
-			listc_rfl(&to_delete->commit_utxnids, elt);
 			mspace_free(txmap->msp, elt);
 		}
 

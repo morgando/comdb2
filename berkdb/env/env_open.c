@@ -408,8 +408,7 @@ __dbenv_open(dbenv, db_home, flags, mode)
 		if ((ret = __txn_open(dbenv)) != 0)
 			goto err;
 
-		// TODO: Real number
-		if ((ret = __txn_commit_map_init(dbenv,(1024*1024*64))) != 0) {
+		if ((ret = __txn_commit_map_init(dbenv)) != 0) {
 			goto err;
 		}
 

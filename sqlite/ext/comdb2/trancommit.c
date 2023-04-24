@@ -25,12 +25,17 @@
 #include "comdb2systblInt.h"
 #include "ezsystables.h"
 #include "types.h"
-#include "trancommit_systable.h"
 
 sqlite3_module systblTransactionCommitModule =
 {
 	.access_flag = CDB2_ALLOW_USER,
 };
+
+typedef struct txn_commit_info {
+        u_int64_t utxnid;
+        u_int64_t commit_lsn_file;
+        u_int64_t commit_lsn_offset;
+} txn_commit_info;
 
 typedef struct add_tran_commit_args {
 	txn_commit_info **data;

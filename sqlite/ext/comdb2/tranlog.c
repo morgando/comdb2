@@ -531,21 +531,21 @@ static int tranlogColumn(
     case TRANLOG_COLUMN_LOG:
         sqlite3_result_blob(ctx, pCur->data.data, pCur->data.size, NULL);
         break;
-	case TRANLOG_COLUMN_CHILDUTXNID:
-		if (pCur->data.data)
-			LOGCOPY_32(&rectype, pCur->data.data);
+    case TRANLOG_COLUMN_CHILDUTXNID:
+        if (pCur->data.data)
+                LOGCOPY_32(&rectype, pCur->data.data);
 
-		if (rectype == DB___txn_child+2000 || rectype == DB___txn_child+3000)
-		{ 
-			LOGCOPY_64(&childutxnid, &((char *) pCur->data.data)[4 + 4 + 8 + 8 + 4]); 
-		}
-		
-		if (childutxnid > 0) {
-			sqlite3_result_int64(ctx, childutxnid);
-		} else {
-			sqlite3_result_null(ctx);
-		}
-		break;
+        if (rectype == DB___txn_child+2000 || rectype == DB___txn_child+3000)
+        { 
+                LOGCOPY_64(&childutxnid, &((char *) pCur->data.data)[4 + 4 + 8 + 8 + 4]); 
+        }
+
+        if (childutxnid > 0) {
+                sqlite3_result_int64(ctx, childutxnid);
+        } else {
+                sqlite3_result_null(ctx);
+        }
+        break;
     case TRANLOG_COLUMN_LSN_FILE:
         sqlite3_result_int(ctx, pCur->curLsn.file);
         break;

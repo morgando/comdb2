@@ -38,9 +38,9 @@
 #define TRANLOG_COLUMN_TXNID        8
 #define TRANLOG_COLUMN_UTXNID       9
 #define TRANLOG_COLUMN_MAXUTXNID    10
-#define TRANLOG_COLUMN_CHILDUTXNID	11
-#define TRANLOG_COLUMN_LSN_FILE		12 /* Useful for sorting records by LSN */
-#define TRANLOG_COLUMN_LSN_OFFSET	13
+#define TRANLOG_COLUMN_CHILDUTXNID  11
+#define TRANLOG_COLUMN_LSN_FILE     12 /* Useful for sorting records by LSN */
+#define TRANLOG_COLUMN_LSN_OFFSET   13
 
 
 /* Modeled after generate_series */

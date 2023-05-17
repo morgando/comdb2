@@ -4768,6 +4768,14 @@ int start_new_transaction(struct sqlclntstate *clnt, struct sql_thread *thd)
 
     get_current_lsn(clnt);
 
+    /* Latch last commit LSN */
+    if (!clnt->last_commit_lsn_isset) {
+            struct dbtable *db =
+                    &thedb->static_table; /* this is not used but required */
+            bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
+            clnt->last_commit_lsn_isset = 1;
+    }
+
     if (clnt->ctrl_sqlengine == SQLENG_STRT_STATE)
         sql_set_sqlengine_state(clnt, __FILE__, __LINE__, SQLENG_INTRANS_STATE);
 
@@ -8149,6 +8157,10 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
         return SQLITE_INTERNAL;
     }
     cur->tableversion = cur->db->tableversion;
+
+    /* Set cursor's last commit LSN to the value latched at transaction begin. */
+    clnt->dbtran.cursor_tran->last_commit_lsn.file = clnt->last_commit_lsn_file;
+    clnt->dbtran.cursor_tran->last_commit_lsn.offset = clnt->last_commit_lsn_offset;
 
     /* initialize the shadow, if any  */
     cur->shadtbl = osql_get_shadow_bydb(thd->clnt, cur->db);

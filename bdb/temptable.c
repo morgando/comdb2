@@ -1077,6 +1077,8 @@ static int bdb_temp_table_first_last(bdb_state_type *bdb_state,
     DBT dkey, ddata;
     int rc, arrlen;
 
+    printf("temptbl %s: cur %p\n", __func__, cur->cur);
+
     if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
         cur->valid = 0;
         if (how != DB_FIRST) {
@@ -1173,6 +1175,7 @@ static int bdb_temp_table_next_prev_norewind(bdb_state_type *bdb_state,
 {
     DBT ddata, dkey;
     int rc;
+    printf("temptbl %s: cur %p\n", __func__, cur->cur);
 
     if (!cur->valid)
         return IX_PASTEOF;
@@ -1902,6 +1905,7 @@ int bdb_temp_table_find(bdb_state_type *bdb_state, struct temp_cursor *cur,
     tmptbl_cmp cmpfn;
     arr_elem_t *elem;
     DBT dkey, ddata;
+    printf("temptbl %s: cur %p\n", __func__, cur->cur);
 
     if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
         logmsg(LOGMSG_ERROR, 
@@ -2057,6 +2061,7 @@ int bdb_temp_table_find_exact(bdb_state_type *bdb_state,
     int exists = 0;
     arr_elem_t *elem;
     void *keydup;
+    printf("temptbl %s: cur %p\n", __func__, cur->cur);
 
     if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
         logmsg(LOGMSG_ERROR, "bdb_temp_table_find_exact operation not supported for "
@@ -2186,14 +2191,18 @@ static int bdb_temp_table_reset_cursor(bdb_state_type *bdb_state, struct temp_cu
     struct temp_table *tbl;
     tbl = cur->tbl;
 
+    printf("Resetting cur %p\n", cur->cur);
+
     if (tbl->temp_table_type == TEMP_TABLE_TYPE_BTREE ||
         tbl->temp_table_type == TEMP_TABLE_TYPE_ARRAY) {
         if (cur->key) {
+	    printf("cur->key About to free pointer %p\n", cur->key);
             free(cur->key);
             cur->key = NULL;
         }
 
         if (cur->data) {
+	    printf("cur->data About to free pointer %p\n", cur->data);
             free(cur->data);
             cur->data = NULL;
         }

@@ -1721,6 +1721,11 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     reqlog_logf(thd->logger, REQL_QUERY, "\"%s\" new transaction\n",
                 (clnt->sql) ? clnt->sql : "(???.)");
 
+    /* Latch the last commit LSN */
+    struct dbtable *db = &thedb->static_table;
+    bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
+    clnt->last_commit_lsn_isset = 1;
+
     if (clnt->osql.replay)
         goto done;
 
@@ -2288,6 +2293,9 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
     /* we are out of transaction, mark this here */
     clnt->intrans = 0;
     clnt->dbtran.shadow_tran = NULL;
+
+    clnt->last_commit_lsn_isset = 0;
+    printf("unsetting\n");
 
     if (rc == SQLITE_OK) {
         /* send return code */
@@ -5392,6 +5400,8 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
     if (gbl_sockbplog) {
         init_bplog_socket(clnt);
     }
+
+    clnt->last_commit_lsn_isset = 0;
 }
 
 void reset_clnt_flags(struct sqlclntstate *clnt)
@@ -5400,6 +5410,7 @@ void reset_clnt_flags(struct sqlclntstate *clnt)
     clnt->has_recording = 0;
     clnt->statement_timedout = 0;
     clnt->writeTransaction = 0;
+    clnt->last_commit_lsn_isset = 0;
 }
 
 int sbuf_is_local(SBUF2 *sb)

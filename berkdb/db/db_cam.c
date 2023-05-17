@@ -749,6 +749,7 @@ __db_c_idup(dbc_orig, dbcp, flags)
 
 	dbp = dbc_orig->dbp;
 	dbc_n = *dbcp;
+	printf("point 1\n");
 
 	/* Pausible must be set before the cursor is on the active queue */
 	if ((ret = __db_cursor_int(dbp, dbc_orig->txn, dbc_orig->dbtype,
@@ -759,6 +760,11 @@ __db_c_idup(dbc_orig, dbcp, flags)
 #if USE_BTPF
 	btpf_copy_dbc(dbc_orig, dbc_n);
 #endif
+
+	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_SNAPSHOT));
+	dbc_n->snapshot_lsn = dbc_orig->snapshot_lsn;
+	printf("point 2\n");
+
 	/* If the user wants the cursor positioned, do it here.  */
 	if (flags == DB_POSITION) {
 		int_n = dbc_n->internal;
@@ -798,6 +804,8 @@ __db_c_idup(dbc_orig, dbcp, flags)
 	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_PAGE_ORDER));
 	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_DIRTY_READ));
 	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_WRITECURSOR));
+	//F_SET(dbc_n, F_ISSET(dbc_orig, DBC_SNAPSHOT));
+	//dbc_n->snapshot_lsn = dbc_orig->snapshot_lsn;
 
 	/*
 	 * If we're in CDB and this isn't an offpage dup cursor, then
@@ -835,6 +843,7 @@ __db_c_idup(dbc_orig, dbcp, flags)
 			}
 		}
 	}
+	printf("point3\n");
 
 
 	return (0);
@@ -991,6 +1000,7 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 			return (ret);
 		if ((ret = __db_c_idup(cp->opd, &opd, DB_POSITION)) != 0)
 			return (ret);
+		printf("point4\n");
 
 		switch ((ret = opd->c_am_get(opd, key, data, flags, NULL))) {
 		case 0:
@@ -1012,6 +1022,7 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 			goto err;
 		}
 	}
+	printf("point5\n");
 
 	if (flags == DB_PREV_VALUE) {
 		flags = DB_PREV;
@@ -1056,6 +1067,8 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 		if (tmp_dirty)
 			F_CLR(dbc_arg, DBC_DIRTY_READ);
 
+		printf("point 6\n");	
+
 		if (ret != 0)
 			goto err;
 		COPY_RET_MEM(dbc_arg, dbc_n);
@@ -1081,6 +1094,8 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 
 	pgno = PGNO_INVALID;
 	ret = dbc_n->c_am_get(dbc_n, key, data, flags, &pgno);
+
+	printf("point 7\n");
 
 	if (dbc_n != NULL) {
 		if (flags == DB_SET_RANGE &&
@@ -1156,10 +1171,12 @@ done:	/*
 	 */
 	cp_n = dbc_n == NULL ? dbc_arg->internal : dbc_n->internal;
 	if (!F_ISSET(key, DB_DBT_ISSET)) {
-		if (cp_n->page == NULL && (ret =
-		    __memp_fget(mpf, &cp_n->pgno, 0, &cp_n->page)) != 0)
-			goto err;
-
+		if (cp_n->page == NULL) {
+			PAGEGET(dbc_n, mpf, &cp_n->pgno, 0, &cp_n->page, ret);
+			if (ret != 0) {
+				goto err;
+			}
+		}
 		if ((ret = __db_ret(dbp, cp_n->page, cp_n->indx,
 		    key, &dbc_arg->rkey->data, &dbc_arg->rkey->ulen)) != 0)
 			goto err;
@@ -1917,15 +1934,15 @@ __db_c_cleanup(dbc, dbc_n, failed)
 
 	/* Discard any pages we're holding. */
 	if (internal->page != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc, mpf, internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		internal->page = NULL;
 	}
 	opd = internal->opd;
 	if (opd != NULL && opd->internal->page != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, opd->internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc, mpf, opd->internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		opd->internal->page = NULL;
 	}
@@ -1948,15 +1965,15 @@ __db_c_cleanup(dbc, dbc_n, failed)
 		return (ret);
 
 	if (dbc_n->internal->page != NULL) {
-		if ((t_ret = __memp_fput(
-		    mpf, dbc_n->internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc_n, mpf, dbc_n->internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		dbc_n->internal->page = NULL;
 	}
 	opd = dbc_n->internal->opd;
 	if (opd != NULL && opd->internal->page != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, opd->internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc_n, mpf, opd->internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		opd->internal->page = NULL;
 	}

@@ -149,7 +149,6 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
     int check_page = gbl_check_page_in_recovery;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_addrem_print);
 	REC_INTRO(__db_addrem_read, 1);
 
@@ -161,24 +160,30 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			goto out;
 	}
 
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_UNDO(op)) {
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op)) {
 #if defined (UFID_HASH_DEBUG)
-			logmsg(LOGMSG_USER, "t-%p %s ignoring failed memp_fget because undo\n",
-					(void *)pthread_self(),__func__);
+				logmsg(LOGMSG_USER, "t-%p %s ignoring failed memp_fget because undo\n",
+						(void *)pthread_self(),__func__);
 #endif
-			/*
-			 * We are undoing and the page doesn't exist.  That
-			 * is equivalent to having a pagelsn of 0, so we
-			 * would not have to undo anything.  In this case,
-			 * don't bother creating a page.
-			 */
-			goto done;
-		} else
-			if ((ret = __memp_fget(mpf,
-			    &argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
-				goto out;
+				/*
+				 * We are undoing and the page doesn't exist.  That
+				 * is equivalent to having a pagelsn of 0, so we
+				 * would not have to undo anything.  In this case,
+				 * don't bother creating a page.
+				 */
+				goto done;
+			} else {
+				if ((ret = __memp_fget(mpf,
+					&argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
+					goto out;
+			}
+		}
+	} else {
+		pagep = (PAGE*) info;
 	}
+
 
     if (check_page) {
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
@@ -239,13 +244,13 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 		else
 			LSN(pagep) = argp->pagelsn;
 	}
-    
     if (check_page) {
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
 
-	if ((ret = __memp_fput(mpf, pagep, change)) != 0)
+	// TODO use pageput
+	if (!info && ((ret = __memp_fput(mpf, pagep, change)) != 0))
 		goto out;
 	pagep = NULL;
 
@@ -278,24 +283,27 @@ __db_big_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_big_print);
 	REC_INTRO(__db_big_read, 1);
 
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_UNDO(op)) {
-			/*
-			 * We are undoing and the page doesn't exist.  That
-			 * is equivalent to having a pagelsn of 0, so we
-			 * would not have to undo anything.  In this case,
-			 * don't bother creating a page.
-			 */
-			ret = 0;
-			goto ppage;
-		} else
-			if ((ret = __memp_fget(mpf,
-			    &argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
-				goto out;
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op)) {
+				/*
+				 * We are undoing and the page doesn't exist.  That
+				 * is equivalent to having a pagelsn of 0, so we
+				 * would not have to undo anything.  In this case,
+				 * don't bother creating a page.
+				 */
+				ret = 0;
+				goto ppage;
+			} else
+				if ((ret = __memp_fget(mpf,
+					&argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
+					goto out;
+		}
+	} else {
+		pagep = (PAGE*) info;
 	}
 
 	/*
@@ -454,15 +462,18 @@ __db_ovref_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_ovref_print);
 	REC_INTRO(__db_ovref_read, 1);
 
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_UNDO(op))
-			goto done;
-		ret = __db_pgerr(file_dbp, argp->pgno, ret);
-		goto out;
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op))
+				goto done;
+			ret = __db_pgerr(file_dbp, argp->pgno, ret);
+			goto out;
+		}
+	} else {
+		pagep = (PAGE*) info;
 	}
 
 	modified = 0;
@@ -482,7 +493,7 @@ __db_ovref_recover(dbenv, dbtp, lsnp, op, info)
 		pagep->lsn = argp->lsn;
 		modified = 1;
 	}
-	if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
+	if (!info && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
 		goto out;
 	pagep = NULL;
 
@@ -519,7 +530,6 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_relink_print);
 	REC_INTRO(__db_relink_read, 1);
 
@@ -535,13 +545,18 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 	 * the current page is the result of a split and is being recovered
 	 * elsewhere, so all we need do is recover the next page.
 	 */
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_REDO(op)) {
-			ret = __db_pgerr(file_dbp, argp->pgno, ret);
-			goto out;
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_REDO(op)) {
+				ret = __db_pgerr(file_dbp, argp->pgno, ret);
+				goto out;
+			}
+			goto next2;
 		}
-		goto next2;
+	} else {
+		pagep = (PAGE*) info;
 	}
+
 	modified = 0;
 	if (argp->opcode == DB_ADD_PAGE)
 		goto next1;
@@ -741,6 +756,7 @@ __db_pg_alloc_recover(dbenv, dbtp, lsnp, op, info)
 	db_recops op;
 	void *info;
 {
+	// TODO
 	__db_pg_alloc_args *argp;
 	DB *file_dbp;
 	DBC *dbc;

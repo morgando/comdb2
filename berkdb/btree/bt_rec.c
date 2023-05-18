@@ -43,7 +43,7 @@ int bdb_relink_pglogs(void *bdb_state, unsigned char *fileid, db_pgno_t pgno,
 	db_pgno_t prev_pgno, db_pgno_t next_pgno, DB_LSN lsn);
 extern int gbl_check_page_in_recovery;
 
-/*
+/* TODO
  * __bam_split_recover --
  *	Recovery function for split.
  *
@@ -75,7 +75,6 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	genid_hash *hash = NULL;
 	__genid_pgno *hashtbl = NULL;
 	db_indx_t off;
-	int single_update = 0;
 
 	COMPQUIET(info, NULL);
 
@@ -127,23 +126,10 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	root_pgno = argp->root_pgno;
 	rootsplit = root_pgno != PGNO_INVALID;
 
-	PAGE * lp_image;
-	PAGE * rp_image;
-
-	if (!info) {
-		if ((ret_l = __memp_fget(mpf, &argp->left, 0, &lp)) != 0)
-			lp = NULL;
-		lp_image = lp;
-	} else if (PGNO(info) == argp->left) {
-		lp_image = info;
-	}
-	if (!info) {
-		if (__memp_fget(mpf, &argp->right, 0, &rp) != 0)
-			rp = NULL;
-		rp_image = rp;
-	} else if (PGNO(info) == argp->right) {
-		rp_image = info;
-	}
+	if ((ret_l = __memp_fget(mpf, &argp->left, 0, &lp)) != 0)
+		lp = NULL;
+	if (__memp_fget(mpf, &argp->right, 0, &rp) != 0)
+		rp = NULL;
 
 	if (DB_REDO(op)) {
 		l_update = r_update = p_update = 0;
@@ -319,23 +305,15 @@ check_next:	/*
 		 * the adds onto the page that caused the split, and there's
 		 * really no undo-ing to be done.
 		 */
-		PAGE * pp_image;
-		if (!info) {
-			if ((ret = __memp_fget(mpf, &pgno, 0, &pp)) != 0) {
-				pp = NULL;
-				goto lrundo;
-			}
-			pp_image = pp;
-		} else if (PGNO(info) == pgno) {
-			pp_image = info;
+		if ((ret = __memp_fget(mpf, &pgno, 0, &pp)) != 0) {
+			pp = NULL;
+			goto lrundo;
 		}
-		if ((pp_image != NULL) && log_compare(lsnp, &LSN(pp_image)) == 0) {
-			memcpy(pp_image, argp->pg.data, argp->pg.size);
-			if (pp != NULL) {
-				if ((ret = __memp_fput(mpf, pp_image, DB_MPOOL_DIRTY)) != 0)
-					goto out;
-				pp = NULL;
-			}
+		if (log_compare(lsnp, &LSN(pp)) == 0) {
+			memcpy(pp, argp->pg.data, argp->pg.size);
+			if ((ret = __memp_fput(mpf, pp, DB_MPOOL_DIRTY)) != 0)
+				goto out;
+			pp = NULL;
 		}
 
 		/*
@@ -346,26 +324,22 @@ check_next:	/*
 		 * The undo of the page allocation(s) will restore them to the
 		 * free list.
 		 */
-lrundo:		if ((rootsplit && lp_image != NULL) || rp_image != NULL) {
-			if (rootsplit && lp_image != NULL &&
-			    log_compare(lsnp, &LSN(lp_image)) == 0) {
-				lp_image->lsn = argp->llsn;
-				if (lp != NULL) {
-					if ((ret =
-					    __memp_fput(mpf, lp, DB_MPOOL_DIRTY)) != 0)
-						goto out;
-					lp = NULL;
-				}
+lrundo:		if ((rootsplit && lp != NULL) || rp != NULL) {
+			if (rootsplit && lp != NULL &&
+			    log_compare(lsnp, &LSN(lp)) == 0) {
+				lp->lsn = argp->llsn;
+				if ((ret =
+				    __memp_fput(mpf, lp, DB_MPOOL_DIRTY)) != 0)
+					goto out;
+				lp = NULL;
 			}
-			if ((rp_image != NULL) &&
-			    log_compare(lsnp, &LSN(rp_image)) == 0) {
-				rp_image->lsn = argp->rlsn;
-				if (rp != NULL) {
-					if ((ret =
-					    __memp_fput(mpf, rp, DB_MPOOL_DIRTY)) != 0)
-						goto out;
-					rp = NULL;
-				}
+			if (rp != NULL &&
+			    log_compare(lsnp, &LSN(rp)) == 0) {
+				rp->lsn = argp->rlsn;
+				if ((ret =
+				    __memp_fput(mpf, rp, DB_MPOOL_DIRTY)) != 0)
+					goto out;
+				rp = NULL;
 			}
 		}
 
@@ -377,27 +351,19 @@ lrundo:		if ((rootsplit && lp_image != NULL) || rp_image != NULL) {
 		 * possible that the next-page never existed, we ignore it as
 		 * if there's nothing to undo.
 		 */
-		PAGE * np_image;
 		if (!rootsplit && argp->npgno != PGNO_INVALID) {
-			if (!info) {
-				if ((ret =
-				    __memp_fget(mpf, &argp->npgno, 0, &np)) != 0) {
-					np = NULL;
+			if ((ret =
+			    __memp_fget(mpf, &argp->npgno, 0, &np)) != 0) {
+				np = NULL;
 
-					goto done;
-				}
-				np_image = np;
-			} else if(PGNO(info) == argp->npgno) {
-				np_image = info;
+				goto done;
 			}
-			if ((np_image != NULL) && log_compare(lsnp, &LSN(np_image)) == 0) {
-				PREV_PGNO(np_image) = argp->left;
-				np_image->lsn = argp->nlsn;
-				if (np != NULL) {
-					if (__memp_fput(mpf, np, DB_MPOOL_DIRTY))
-						goto out;
-					np = NULL;
-				}
+			if (log_compare(lsnp, &LSN(np)) == 0) {
+				PREV_PGNO(np) = argp->left;
+				np->lsn = argp->nlsn;
+				if (__memp_fput(mpf, np, DB_MPOOL_DIRTY))
+					goto out;
+				np = NULL;
 			}
 		}
 	}
@@ -467,7 +433,7 @@ out:	/* Free any pages that weren't dirtied. */
 	REC_CLOSE;
 }
 
-/*
+/* TODO
  * __bam_rsplit_recover --
  *	Recovery function for a reverse split.
  *
@@ -502,6 +468,7 @@ __bam_rsplit_recover(dbenv, dbtp, lsnp, op, info)
 	db_indx_t off;
 
 	pagep = NULL;
+	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_rsplit_print);
 	REC_INTRO_PANIC(__bam_rsplit_read, 1);
@@ -659,7 +626,6 @@ __bam_adj_recover(dbenv, dbtp, lsnp, op, info)
 
 	/* Get the page; if it never existed and we're undoing, we're done. */
 	if (info == NULL) {
-		// TODO: Check
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op))
 				goto done;
@@ -692,16 +658,14 @@ __bam_adj_recover(dbenv, dbtp, lsnp, op, info)
 		LSN(pagep) = argp->lsn;
 		modified = 1;
 	}
-	if (!info) {
-		if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
-			goto out;
-	}
+	if (info == NULL && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
+		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if (info == NULL && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }
@@ -736,7 +700,6 @@ __bam_cadjust_recover(dbenv, dbtp, lsnp, op, info)
 
 	/* Get the page; if it never existed and we're undoing, we're done. */
 	if (info == NULL) {
-		// TODO: Check
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op))
 				goto done;
@@ -744,7 +707,7 @@ __bam_cadjust_recover(dbenv, dbtp, lsnp, op, info)
 			goto out;
 		}
 	} else {
-		pagep = (PAGE*) info;
+		pagep = (PAGE*)info;
 	}
 
 	modified = 0;
@@ -784,16 +747,14 @@ __bam_cadjust_recover(dbenv, dbtp, lsnp, op, info)
 		LSN(pagep) = argp->lsn;
 		modified = 1;
 	}
-	if (!info) {
-		if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
-			goto out;
-	}
+	if (info == NULL && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
+		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if (info == NULL && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }
@@ -828,7 +789,6 @@ __bam_cdel_recover(dbenv, dbtp, lsnp, op, info)
 
 	/* Get the page; if it never existed and we're undoing, we're done. */
 	if (info == NULL) {
-		// TODO: Check
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op))
 				goto done;
@@ -861,16 +821,15 @@ __bam_cdel_recover(dbenv, dbtp, lsnp, op, info)
 		LSN(pagep) = argp->lsn;
 		modified = 1;
 	}
-	if (!info) {
-		if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
-			goto out;
+	if (info == NULL && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)) {
+		goto out;
 	}
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if (info == NULL && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }
@@ -908,7 +867,6 @@ __bam_repl_recover(dbenv, dbtp, lsnp, op, info)
 
 	/* Get the page; if it never existed and we're undoing, we're done. */
 	if (info == NULL) {
-		// TODO: Check
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op))
 				goto done;
@@ -985,15 +943,13 @@ __bam_repl_recover(dbenv, dbtp, lsnp, op, info)
 		modified = 1;
 	}
 
-	if (check_page) {
-		__dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
-		__dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
-	}
+    if (check_page) {
+        __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
+        __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
+    }
 
-	if (!info) {
-		if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
-			goto out;
-	}
+	if (info == NULL && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
+		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
@@ -1001,7 +957,7 @@ done:	*lsnp = argp->prev_lsn;
 
 out:	
     
-    if (pagep != NULL)
+    if (info == NULL && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }
@@ -1029,20 +985,18 @@ __bam_root_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	meta = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_root_print);
 	REC_INTRO_PANIC(__bam_root_read, 0);
 
 	if (info == NULL) {
-		// TODO: Check
 		if ((ret = __memp_fget(mpf, &argp->meta_pgno, 0, &meta)) != 0) {
+			/* The metadata page must always exist on redo. */
 			if (DB_REDO(op)) {
 				ret = __db_pgerr(file_dbp, argp->meta_pgno, ret);
 				goto out;
-			} else {
+			} else
 				goto done;
-			}
 		}
 	} else {
 		meta = (BTMETA*) info;
@@ -1064,7 +1018,7 @@ __bam_root_recover(dbenv, dbtp, lsnp, op, info)
 		meta->dbmeta.lsn = argp->meta_lsn;
 		modified = 1;
 	}
-	if (!info) {
+	if (info == NULL) {
 		if ((ret = __memp_fput(mpf, meta, modified ? DB_MPOOL_DIRTY : 0)) != 0)
 			goto out;
 	}
@@ -1073,7 +1027,7 @@ __bam_root_recover(dbenv, dbtp, lsnp, op, info)
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (meta != NULL)
+out:	if (info == NULL && meta != NULL)
 		(void)__memp_fput(mpf, meta, 0);
 	REC_CLOSE;
 }
@@ -1250,15 +1204,12 @@ __bam_prefix_recover(dbenv, dbtp, lsnp, op, info)
 	REC_INTRO(__bam_prefix_read, 1);
 
 	if (info == NULL) {
-		// TODO: Check
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-			if (DB_UNDO(op)) {
-				goto done;
-			} else {
-				ret = __db_pgerr(file_dbp, argp->pgno, ret);
-				goto out;
-			}
-		}
+		if (DB_UNDO(op))
+		    goto done;
+		ret = __db_pgerr(file_dbp, argp->pgno, ret);
+			goto out;
+	    }
 	} else {
 		pagep = (PAGE*) info;
 	}
@@ -1294,22 +1245,22 @@ __bam_prefix_recover(dbenv, dbtp, lsnp, op, info)
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
 
-    if (!info) {
-	if ((ret = __memp_fput(mpf, pagep, modified) != 0))
-		goto out;
+	if (info == NULL) {
+		if ((ret = __memp_fput(mpf, pagep, modified) != 0))
+			goto out;
+	}
 	pagep = NULL;
-    }
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if (info == NULL && pagep != NULL)
 		__memp_fput(mpf, pagep, 0);
 	__os_free(dbenv, c);
 	REC_CLOSE;
 }
 
-/*
+/* TODO
  * __bam_pgcompact_recover --
  *	Recovery function for page compaction.
  *
@@ -1358,9 +1309,8 @@ __bam_pgcompact_recover(dbenv, dbtp, lsnp, op, info)
 		__dir_pg(mpf, argp->pgno, (u_int8_t *)pagep, 1);
 	}
 
-	DB_LSN * pglsn = (DB_LSN *) &LSN(pagep);
-	cmp_n = log_compare(lsnp, pglsn);
-	cmp_p = log_compare(pglsn, &argp->lsn);
+	cmp_n = log_compare(lsnp, &LSN(pagep));
+	cmp_p = log_compare(&LSN(pagep), &argp->lsn);
 	CHECK_LSN(op, cmp_p, &LSN(pagep), &argp->lsn, lsnp, argp->fileid, argp->pgno);
 
 	if (cmp_p == 0 && DB_REDO(op)) {
@@ -1423,9 +1373,8 @@ next:
 		__dir_pg(mpf, argp->pgno, (u_int8_t *)pagep, 1);
 	}
 
-	pglsn = (DB_LSN*) &LSN(pagep);
-	cmp_n = log_compare(lsnp, pglsn);
-	cmp_p = log_compare(pglsn, &argp->nlsn);
+	cmp_n = log_compare(lsnp, &LSN(pagep));
+	cmp_p = log_compare(&LSN(pagep), &argp->nlsn);
 	CHECK_LSN(op, cmp_p, &LSN(pagep), &argp->nlsn, lsnp, argp->fileid, argp->npgno);
 
 	if (cmp_p == 0 && DB_REDO(op)) {

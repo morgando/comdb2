@@ -1954,11 +1954,9 @@ __bam_c_get(dbc, key, data, flags, pgnop)
 
 	newopd = 0;
 
-	printf("%s 1 cur %p\n", __func__, dbc);
 	if (F_ISSET(dbc, DBC_SNAPSHOT)) {
 		printf("%s: is snapshot cursor\n", __func__);
 	}
-	printf("val %d\n", flags & DB_OPFLAGS_MASK);
 	switch (flags & DB_OPFLAGS_MASK) {
 	case DB_CURRENT:
 		/* It's not possible to return a deleted record. */
@@ -1974,7 +1972,6 @@ __bam_c_get(dbc, key, data, flags, pgnop)
 		 * chance of succeeding now instead of later, so don't try.
 		 */
 		PAGEGET(dbc, mpf, &cp->pgno, 0, &cp->page, ret);
-		printf("%s 2\n", __func__);
 		if (ret != 0)
 			goto err;
 		break;
@@ -2104,12 +2101,10 @@ __bam_c_get(dbc, key, data, flags, pgnop)
 		newopd = 1;
 
 		INTERNAL_PTR_CHECK(cp == dbc->internal);
-		printf("before\n");
 
 		if ((ret = __bam_c_search(dbc,
 			    PGNO_INVALID, key, flags, &exact)) != 0)
 			goto err;
-		printf("after\n");
 
 		INTERNAL_PTR_CHECK(cp == dbc->internal);
 
@@ -2129,13 +2124,11 @@ __bam_c_get(dbc, key, data, flags, pgnop)
 		if (cp->indx == NUM_ENT(cp->page) || IS_CUR_DELETED(dbc))
 			if ((ret = __bam_c_next(dbc, 0, 0)) != 0)
 				goto err;
-		printf("done\n");
 		break;
 	default:
 		ret = __db_unknown_flag(dbp->dbenv, "__bam_c_get", flags);
 		goto err;
 	}
-	printf("%s 3\n", __func__);
 
 	if (cp->page == NULL) {
 		cp->pagelsn.file = 0;
@@ -2170,8 +2163,6 @@ err:	/*
 	    (cp->pgno != orig_pgno || cp->indx != orig_indx))
 		F_CLR(cp, C_DELETED);
 	prefault_dbp = NULL;
-
-	printf("%s 4\n", __func__);
 
 	return (ret);
 }
@@ -3834,7 +3825,6 @@ __bam_c_search(dbc, root_pgno, key, flags, exactp)
 
 	INTERNAL_PTR_CHECK(cp == dbc->internal);
 
-	printf("flage %d\n", flags);
 	switch (flags) {
 	case DB_SET_RECNO:
 		if ((ret = __ram_getno(dbc, key, &recno, 0)) != 0)

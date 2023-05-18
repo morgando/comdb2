@@ -162,7 +162,5 @@ __db_retcopy(dbenv, dbt, data, len, memp, memsize)
 	 */
 	dbt->size = len;
 
-	printf("Allocated %p\n", dbt->data);
-
 	return (ret);
 }

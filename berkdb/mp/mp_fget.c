@@ -1219,7 +1219,6 @@ __memp_fget(dbmfp, pgnoaddr, flags, addrp)
 		}
 	}
 out:
-	printf("%s: ret page %p\n", __func__, *(PAGE **)addrp);
 
 	return ret;
 }

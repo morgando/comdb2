@@ -749,7 +749,6 @@ __db_c_idup(dbc_orig, dbcp, flags)
 
 	dbp = dbc_orig->dbp;
 	dbc_n = *dbcp;
-	printf("point 1\n");
 
 	/* Pausible must be set before the cursor is on the active queue */
 	if ((ret = __db_cursor_int(dbp, dbc_orig->txn, dbc_orig->dbtype,
@@ -763,7 +762,6 @@ __db_c_idup(dbc_orig, dbcp, flags)
 
 	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_SNAPSHOT));
 	dbc_n->snapshot_lsn = dbc_orig->snapshot_lsn;
-	printf("point 2\n");
 
 	/* If the user wants the cursor positioned, do it here.  */
 	if (flags == DB_POSITION) {
@@ -843,7 +841,6 @@ __db_c_idup(dbc_orig, dbcp, flags)
 			}
 		}
 	}
-	printf("point3\n");
 
 
 	return (0);
@@ -1000,7 +997,6 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 			return (ret);
 		if ((ret = __db_c_idup(cp->opd, &opd, DB_POSITION)) != 0)
 			return (ret);
-		printf("point4\n");
 
 		switch ((ret = opd->c_am_get(opd, key, data, flags, NULL))) {
 		case 0:
@@ -1022,7 +1018,6 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 			goto err;
 		}
 	}
-	printf("point5\n");
 
 	if (flags == DB_PREV_VALUE) {
 		flags = DB_PREV;
@@ -1067,8 +1062,6 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 		if (tmp_dirty)
 			F_CLR(dbc_arg, DBC_DIRTY_READ);
 
-		printf("point 6\n");	
-
 		if (ret != 0)
 			goto err;
 		COPY_RET_MEM(dbc_arg, dbc_n);
@@ -1094,8 +1087,6 @@ __db_c_get_dup(dbc_arg, dbc_dup, key, data, flags)
 
 	pgno = PGNO_INVALID;
 	ret = dbc_n->c_am_get(dbc_n, key, data, flags, &pgno);
-
-	printf("point 7\n");
 
 	if (dbc_n != NULL) {
 		if (flags == DB_SET_RANGE &&

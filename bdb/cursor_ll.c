@@ -305,7 +305,7 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
         }
 
 		if (env->attr->use_snapshot_for_sql && cur->shadow_tran && (cur->shadow_tran->tranclass == TRANCLASS_SNAPISOL)) {
-			curflags |= DB_CUR_SNAPSHOT;
+			//curflags |= DB_CUR_SNAPSHOT;
 		}
         dbc =
             get_cursor_for_cursortran_flags(cur->curtran, db, curflags, bdberr);

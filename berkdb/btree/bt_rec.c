@@ -620,7 +620,6 @@ __bam_adj_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_adj_print);
 	REC_INTRO_PANIC(__bam_adj_read, 1);
@@ -695,7 +694,6 @@ __bam_cadjust_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_cadjust_print);
 	REC_INTRO_PANIC(__bam_cadjust_read, 1);
@@ -785,7 +783,6 @@ __bam_cdel_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_cdel_print);
 	REC_INTRO_PANIC(__bam_cdel_read, 1);
@@ -864,7 +861,6 @@ __bam_repl_recover(dbenv, dbtp, lsnp, op, info)
 	u_int8_t *p;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_repl_print);
 	REC_INTRO_PANIC(__bam_repl_read, 1);
@@ -989,7 +985,6 @@ __bam_root_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	meta = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_root_print);
 	REC_INTRO_PANIC(__bam_root_read, 0);

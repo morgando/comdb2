@@ -249,15 +249,14 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
 
-	// TODO use pageput
-	if (!info && ((ret = __memp_fput(mpf, pagep, change)) != 0))
+	if ((info == NULL) && ((ret = __memp_fput(mpf, pagep, change)) != 0))
 		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if ((info == NULL) && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }

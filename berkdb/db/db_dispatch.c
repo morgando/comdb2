@@ -447,6 +447,7 @@ int needs_info_for_recovery(rectype)
 		case DB___qam_incfirst:
 		case DB___qam_mvptr:
 		case DB___fop_file_remove:
+		case DB___dbreg_register:
 			return 1;
 		default:
 			return 0;

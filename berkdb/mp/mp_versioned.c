@@ -230,6 +230,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			break;
 	}
 done:		
+	printf("hello\n");
 	return ret;
 }
 
@@ -256,11 +257,9 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 	PAGE *page, *page_image;
 	DB_LSN curPageLsn, prevPageLsn, commit_lsn;
 	DB_MPOOLFILE *mpf;
-	DB_LOCK_ILOCK lk;
-	DB_LOCK lock;
 
 	DBT dbt = {0};
-	dbt.flags = DB_DBT_REALLOC;
+	dbt.flags = DB_DBT_MALLOC;
 	ret = 0;
 	found = 0;
 	dbp = dbc->dbp;
@@ -270,16 +269,6 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 	*(void **)ret_page = NULL;
 	page_image = (PAGE *) malloc(dbp->pgsize);
 
-	lk.pgno = pgno;
-	memcpy(lk.fileid, mpf->fileid, DB_FILE_ID_LEN);
-	lk.type = DB_PAGE_LOCK;
-	DBT lock_dbt = {0};
-	lock_dbt.data = &lk;
-	lock_dbt.size = sizeof(lk);
-	ret = __lock_get(dbenv, dbc->locker, DB_LOCK_NOWAIT, &lock_dbt, DB_LOCK_READ, &lock);
-	if (ret == DB_LOCK_NOTGRANTED) {
-		goto done;
-	}
 	// Get current version of the page
 	if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
 		if (DEBUG_PAGES) {
@@ -295,7 +284,6 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 		goto done;
 	}
 
-	ret = __lock_put(dbenv, &lock);
 	if (ret) {
 		goto done;
 	}
@@ -365,6 +353,7 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 
 	*(void **)ret_page = (void *) page_image;
 	printf("page image ptr %p at LSN %d:%d\n", page_image, LSN(page_image).file, LSN(page_image).offset);
+	printf("%s: page pointer %p\n", __func__, page_image);
 done:
 	printf("exiting \n");
 	if (logc)
@@ -385,9 +374,11 @@ int __mempv_fput(dbc, page)
 	DBC *dbc;
 	void *page;
 {
+	printf("%s: page pointer %p\n", __func__, page);
 	if (page != NULL) {
 		printf("freeing %p\n", page);
 		free(page);
+		page = NULL;
 	}
 	return 0;
 }

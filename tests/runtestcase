@@ -14,7 +14,7 @@ setup_debugger() {
             DEBUG_PREFIX="gdb --args"
             ;;
         valgrind)
-            DEBUG_PREFIX="valgrind --track-origins=yes --log-file=$TESTDIR/$TESTCASE.valgrind"
+            DEBUG_PREFIX="valgrind --track-origins=yes --keep-stacktraces=alloc-and-free --log-file=$TESTDIR/$TESTCASE.valgrind"
             ;;
         memcheck)
             DEBUG_PREFIX="valgrind --leak-check=full --show-reachable=yes --track-origins=yes --leak-resolution=high --num-callers=30 --log-file=$TESTDIR/$TESTCASE.valgrind"

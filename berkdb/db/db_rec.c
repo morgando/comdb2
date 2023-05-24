@@ -160,6 +160,7 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			goto out;
 	}
 
+	printf("addrem recover\n");
 	if (info == NULL) {
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op)) {
@@ -181,6 +182,11 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			}
 		}
 	} else {
+		if (!DB_UNDO(op)) {
+			printf("I am redo\n");
+		} else if (DB_UNDO(op)) {
+			printf("I am undo\n");
+		}
 		pagep = (PAGE*) info;
 	}
 

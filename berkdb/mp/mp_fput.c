@@ -318,6 +318,7 @@ done:
 			__memp_reset_lru(dbenv, dbmp->reginfo);
 	}
 
+	printf("%s\n", __func__);
 	return (0);
 }
 

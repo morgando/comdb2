@@ -5,10 +5,12 @@
 #include "dbinc/txn.h"
 #include "dbinc/db_swap.h"
 #include "dbinc/lock.h"
+#include "btree/bt_cache.h"
 
 static int DEBUG_PAGES = 1;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
+extern __thread DB *prefault_dbp;
 
 /*
  * __mempv_init --
@@ -231,6 +233,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 	}
 done:		
 	printf("hello\n");
+	printf("hello\n");
 	return ret;
 }
 
@@ -240,10 +243,10 @@ done:
  * 	Return a page in the version that it was at a past LSN.
  *
  * PUBLIC: int __mempv_fget
- * PUBLIC:     __P((DBC *, db_pgno_t, DB_LSN, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, db_pgno_t, DB_LSN, void *));
  */
-int __mempv_fget(dbc, pgno, target_lsn, ret_page)
-	DBC *dbc;
+int __mempv_fget(mpf, pgno, target_lsn, ret_page)
+	DB_MPOOLFILE *mpf;
 	db_pgno_t pgno;
 	DB_LSN target_lsn;
 	void *ret_page;
@@ -252,35 +255,51 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 	int have_lock, have_page, have_page_image, found, ret;
 	u_int64_t utxnid;
 	DB *dbp;
-	DB_ENV *dbenv;
 	DB_LOGC *logc;
 	PAGE *page, *page_image;
 	DB_LSN curPageLsn, prevPageLsn, commit_lsn;
-	DB_MPOOLFILE *mpf;
+	DB_ENV *dbenv;
+	BH *bhp;
 
 	DBT dbt = {0};
 	dbt.flags = DB_DBT_MALLOC;
 	ret = 0;
 	found = 0;
-	dbp = dbc->dbp;
-	dbenv = dbp->dbenv;
-	mpf = dbp->mpf;
 	logc = NULL;
 	*(void **)ret_page = NULL;
-	page_image = (PAGE *) malloc(dbp->pgsize);
+	dbenv = mpf->dbenv;
+	__os_malloc(dbenv, offsetof(BH, buf) + prefault_dbp->pgsize, (void *) &bhp);
+	printf("TOTAL SPACE %ld\n", offsetof(BH, buf) + prefault_dbp->pgsize);
+	printf("BHP START ADDR %p\n", bhp);
+	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+	printf("PAGE START ADDR %p\n", page_image);
+	printf("PAGE END ADDR %p\n", bhp + offsetof(BH, buf) + prefault_dbp->pgsize);
+
+	if (!page_image) {
+		if (DEBUG_PAGES) {
+			printf("%s: Failed to allocate page image\n", __func__);
+		}
+		ret = ENOMEM;
+		goto done;
+	}
 
 	// Get current version of the page
 	if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
 		if (DEBUG_PAGES) {
 			printf("%s: Failed to get initial page version\n", __func__);
 		}
+		ret = 1;
 		goto done;
 	}
 
-	memcpy(page_image, page, dbp->pgsize);
+	printf("PAGE FGET START %p\n", page);
+	printf("COPY FROM START %p COPY FROM END %p\n", ((char*)page)-offsetof(BH, buf), ((char*)page)-offsetof(BH,buf)+ sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
+	memcpy(bhp, ((char*)page) - offsetof(BH, buf), sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
+	printf("COPIED PAGE FROM BHP START %p TO PAGE END %p\n", ((char*)bhp), ((char*)bhp) + sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
 
 	if ((ret = __memp_fput(mpf, page, 0)) != 0) {
 		printf("%s: Failed to return initial page version\n", __func__);
+		ret = 1;
 		goto done;
 	}
 
@@ -288,15 +307,26 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 		goto done;
 	}
 
-	if ((ret = __log_cursor(dbenv, &logc)) != 0) {
+	printf("LSN START ADDR %p\n", &LSN(page_image));
+
+	if (IS_NOT_LOGGED_LSN(LSN(page_image))) {
+		if (DEBUG_PAGES) {
+			printf("%s: Original page has unlogged LSN\n", __func__);
+		}
+		found = 1;
+	} else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
 		if (DEBUG_PAGES) {
 			printf("%s: Failed to create log cursor\n", __func__);
 		}
+		ret = 1;
 		goto done;
 	}
 
 	while (!found) 
 	{
+		PAGE p = *page_image;
+		printf("Page addrs %d\n", *((u_int8_t *) page_image));
+		++GET_BH_GEN(page_image);
 		if (DEBUG_PAGES)
 			printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
 
@@ -319,6 +349,7 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 			if (DEBUG_PAGES) {
 				printf("%s: Failed to get log cursor\n", __func__);
 			}
+			ret = 1;
 			goto done;
 		}
 
@@ -326,6 +357,7 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 			if (DEBUG_PAGES) {
 				printf("%s: Failed to read log record\n", __func__);
 			}
+			ret = 1;
 			goto done;
 		}
 
@@ -347,6 +379,7 @@ int __mempv_fget(dbc, pgno, target_lsn, ret_page)
 			if (DEBUG_PAGES) {
 				printf("%s: Failed to undo log record\n", __func__);
 			}
+			ret = 1;
 			goto done;
 		}
 	}
@@ -368,16 +401,22 @@ done:
  * 	Release a page accessed with __mempv_fget.
  *
  * PUBLIC: int __mempv_fput
- * PUBLIC:     __P((DBC *, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, void *));
  */
-int __mempv_fput(dbc, page)
-	DBC *dbc;
+int __mempv_fput(mpf, page)
+	DB_MPOOLFILE *mpf;
 	void *page;
 {
+	BH *bhp;
+	DB_ENV *dbenv;
+
+	dbenv = mpf->dbenv;
+
 	printf("%s: page pointer %p\n", __func__, page);
 	if (page != NULL) {
-		printf("freeing %p\n", page);
-		free(page);
+		bhp = (BH *) (((char*)page)-offsetof(BH, buf));
+		printf("freeing %p\n", bhp);
+		__os_free(dbenv, bhp);
 		page = NULL;
 	}
 	return 0;

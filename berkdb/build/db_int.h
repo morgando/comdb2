@@ -543,12 +543,12 @@ extern int gbl_use_perfect_ckp;
  */
 extern pthread_key_t txn_key;
 
-extern int __mempv_fget(DBC *, db_pgno_t, DB_LSN, void *);
+extern int __mempv_fget(DB_MPOOLFILE *, db_pgno_t, DB_LSN, void *);
 
 #define PAGEGET(dbc, mpf, pgno, flags, page, ret) \
-	(ret = F_ISSET(dbc, DBC_SNAPSHOT) ? __mempv_fget(dbc, *pgno, dbc->snapshot_lsn, page) : __memp_fget(mpf, pgno, flags, page));
+	(ret = F_ISSET(dbc, DBC_SNAPSHOT) ? __mempv_fget(mpf, *pgno, dbc->snapshot_lsn, page) : __memp_fget(mpf, pgno, flags, page));
 
 #define PAGEPUT(dbc, mpf, page, flags, ret) \
-	(ret = F_ISSET(dbc, DBC_SNAPSHOT) ? __mempv_fput(dbc, page) : __memp_fput(mpf, page, flags));
+	(ret = F_ISSET(dbc, DBC_SNAPSHOT) ? __mempv_fput(mpf, page) : __memp_fput(mpf, page, flags));
 
 #endif /* !_DB_INTERNAL_H_ */

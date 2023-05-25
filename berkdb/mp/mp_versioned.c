@@ -273,7 +273,7 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 	printf("BHP START ADDR %p\n", bhp);
 	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 	printf("PAGE START ADDR %p\n", page_image);
-	printf("PAGE END ADDR %p\n", bhp + offsetof(BH, buf) + prefault_dbp->pgsize);
+	printf("PAGE END ADDR %p\n", ((char*)bhp) + offsetof(BH, buf) + prefault_dbp->pgsize);
 
 	if (!page_image) {
 		if (DEBUG_PAGES) {
@@ -293,8 +293,8 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 	}
 
 	printf("PAGE FGET START %p\n", page);
-	printf("COPY FROM START %p COPY FROM END %p\n", ((char*)page)-offsetof(BH, buf), ((char*)page)-offsetof(BH,buf)+ sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
-	memcpy(bhp, ((char*)page) - offsetof(BH, buf), sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
+	printf("COPY FROM START %p COPY FROM END %p\n", ((char*)page)-offsetof(BH, buf), ((char*)page) + prefault_dbp->pgsize);
+	memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + prefault_dbp->pgsize);
 	printf("COPIED PAGE FROM BHP START %p TO PAGE END %p\n", ((char*)bhp), ((char*)bhp) + sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
 
 	if ((ret = __memp_fput(mpf, page, 0)) != 0) {

@@ -1219,7 +1219,5 @@ __memp_fget(dbmfp, pgnoaddr, flags, addrp)
 		}
 	}
 out:
-	printf("%s\n", __func__);
-
 	return ret;
 }

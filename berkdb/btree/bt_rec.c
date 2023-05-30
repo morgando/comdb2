@@ -76,7 +76,7 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	__genid_pgno *hashtbl = NULL;
 	db_indx_t off;
 
-	COMPQUIET(info, NULL);
+	// COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_split_print);
 
@@ -87,8 +87,9 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	REC_INTRO_PANIC(__bam_split_read, 1);
 	dbp = file_dbp->peer;
 
+	printf("in split rec\n");
 
-	if (mpf) {
+	if (info == NULL && mpf) {
 		if (argp->root_pgno != PGNO_INVALID) {
 			/* root split */
 			ret = bdb_relink_pglogs(dbenv->app_private, mpf->fileid,
@@ -125,6 +126,14 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	pgno = PGNO(sp);
 	root_pgno = argp->root_pgno;
 	rootsplit = root_pgno != PGNO_INVALID;
+
+	printf("I am here\n");
+
+	if (rootsplit && (info != NULL)) {
+		printf("Returning page as is\n");
+		memcpy(info, argp->pg.data, argp->pg.size);
+		return 0;
+	}
 
 	if ((ret_l = __memp_fget(mpf, &argp->left, 0, &lp)) != 0)
 		lp = NULL;

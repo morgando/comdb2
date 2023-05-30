@@ -56,6 +56,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 	//__bam_pgcompact_args *pgcompact_args;
 
 	ret = 0;
+
 	LOGCOPY_32(&rectype, data);
 	
 	if ((utxnid_logged = normalize_rectype(&rectype)) != 1) {
@@ -131,6 +132,10 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			if (DEBUG_PAGES) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam split\n");
 			}
+		//   PAGE *page_t;
+		 //  __os_malloc(dbenv, prefault_dbp->pgsize, (void *) &page_t);
+		  // data
+
 		   if ((ret = __bam_split_read(dbenv, data, &split_args)) != 0) {
 			   goto done;
 		   }
@@ -141,8 +146,14 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		   } else if (pgno == split_args->right) {
 			   *prevPageLsn = split_args->rlsn;
 			   // this should not happen. Assert?
+		   } else if (pgno == split_args->root_pgno) {
+			   *prevPageLsn = LSN(split_args->pg.data); // TODO: verify
+			   printf("LSN %d:%d\n", prevPageLsn->file, prevPageLsn->offset);
 		   } else {
 			   // this should not happen.
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Split: Page %d is not left page %d not n page %d not right page %d not root page %d\n", pgno, split_args->left, split_args->npgno, split_args->right, split_args->root_pgno);
+			   }
 			   ret = 1;
 			   goto done;
 		   }
@@ -254,18 +265,20 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 	int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
 	int have_lock, have_page, have_page_image, found, ret;
 	u_int64_t utxnid;
-	DB *dbp;
+	u_int32_t rectype;
 	DB_LOGC *logc;
 	PAGE *page, *page_image;
 	DB_LSN curPageLsn, prevPageLsn, commit_lsn;
 	DB_ENV *dbenv;
 	BH *bhp;
+	void *data_t;
 
 	DBT dbt = {0};
 	dbt.flags = DB_DBT_MALLOC;
 	ret = 0;
 	found = 0;
 	logc = NULL;
+	data_t = NULL;
 	*(void **)ret_page = NULL;
 	dbenv = mpf->dbenv;
 	__os_malloc(dbenv, offsetof(BH, buf) + prefault_dbp->pgsize, (void *) &bhp);
@@ -348,13 +361,23 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 			goto done;
 		}
 
-		if ((ret = __mempv_read_log_record(dbenv, dbt.data, &apply, &prevPageLsn, &utxnid, PGNO(page_image))) != 0) {
+		LOGCOPY_32(&rectype, dbt.data);
+		normalize_rectype(&rectype);
+		if (rectype == DB___bam_split) {
+			__os_malloc(dbenv, dbt.size, &data_t);
+			memcpy(data_t, dbt.data, dbt.size);
+		}
+		if ((ret = __mempv_read_log_record(dbenv, data_t != NULL ? data_t : dbt.data, &apply, &prevPageLsn, &utxnid, PGNO(page_image))) != 0) {
 			if (DEBUG_PAGES) {
 				printf("%s: Failed to read log record\n", __func__);
 			}
 			ret = 1;
 			goto done;
 		}
+		if (data_t != NULL) { 
+			__os_free(dbenv, data_t);
+			data_t = NULL;
+	       	}
 
 		/* If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
 		if (((ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 1) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {

@@ -8409,6 +8409,7 @@ int sqlite3BtreeCursor(
     struct KeyInfo *pKeyInfo, /* First argument to compare function */
     BtCursor *cur             /* Space to write cursor structure */
 ){
+    printf("Creating a cursor on btree %p\n", pBt);
     int rc = SQLITE_OK;
     static int cursorid = 0;
 

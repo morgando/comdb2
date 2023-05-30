@@ -190,7 +190,7 @@ __bam_cmp_inline(dbp, dbt, h, indx, func, cmpp, buf)
 	/*
 	 * Overflow.
 	 */
-	return (__db_moff(dbp, dbt,
+	return (__db_moff(NULL, dbp, dbt,
 		bo->pgno, bo->tlen, func == __bam_defcmp ? NULL : func, cmpp));
 }
 

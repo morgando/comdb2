@@ -1372,7 +1372,7 @@ __ham_dup_return(dbc, val, flags)
 				    HOFFPAGE_TLEN(hk), sizeof(u_int32_t));
 				memcpy(&pgno,
 				    HOFFPAGE_PGNO(hk), sizeof(db_pgno_t));
-				if ((ret = __db_moff(dbp, val,
+				if ((ret = __db_moff(dbc, dbp, val,
 				    pgno, tlen, dbp->dup_compare, &cmp)) != 0)
 					return (ret);
 			} else {
@@ -1716,7 +1716,7 @@ __ham_lookup(dbc, key, sought, mode, pgnop)
 			if (tlen == key->size) {
 				memcpy(&pgno,
 				    HOFFPAGE_PGNO(hk), sizeof(db_pgno_t));
-				if ((ret = __db_moff(dbp,
+				if ((ret = __db_moff(dbc, dbp,
 				    key, pgno, tlen, NULL, &match)) != 0)
 					return (ret);
 				if (match == 0)

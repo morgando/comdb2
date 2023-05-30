@@ -269,11 +269,11 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 	*(void **)ret_page = NULL;
 	dbenv = mpf->dbenv;
 	__os_malloc(dbenv, offsetof(BH, buf) + prefault_dbp->pgsize, (void *) &bhp);
-	printf("TOTAL SPACE %ld\n", offsetof(BH, buf) + prefault_dbp->pgsize);
-	printf("BHP START ADDR %p\n", bhp);
 	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
-	printf("PAGE START ADDR %p\n", page_image);
-	printf("PAGE END ADDR %p\n", ((char*)bhp) + offsetof(BH, buf) + prefault_dbp->pgsize);
+
+	if (DEBUG_PAGES) {
+		printf("%s: Page num %d\n", __func__, pgno);
+	}
 
 	if (!page_image) {
 		if (DEBUG_PAGES) {
@@ -292,10 +292,7 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 		goto done;
 	}
 
-	printf("PAGE FGET START %p\n", page);
-	printf("COPY FROM START %p COPY FROM END %p\n", ((char*)page)-offsetof(BH, buf), ((char*)page) + prefault_dbp->pgsize);
 	memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + prefault_dbp->pgsize);
-	printf("COPIED PAGE FROM BHP START %p TO PAGE END %p\n", ((char*)bhp), ((char*)bhp) + sizeof(BH) + prefault_dbp->pgsize - sizeof(u_int8_t));
 
 	if ((ret = __memp_fput(mpf, page, 0)) != 0) {
 		printf("%s: Failed to return initial page version\n", __func__);
@@ -306,8 +303,6 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 	if (ret) {
 		goto done;
 	}
-
-	printf("LSN START ADDR %p\n", &LSN(page_image));
 
 	if (IS_NOT_LOGGED_LSN(LSN(page_image))) {
 		if (DEBUG_PAGES) {

@@ -241,6 +241,7 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 		ret = __db_addrem_log(dbp, dbc->txn,
 		    &LSN(pagep), 0, DB_ADD_DUP, PGNO(pagep),
 		    (u_int32_t)indx, nbytes, hdr, data, &LSN(pagep));
+		printf("INSERT: new LSN of page %d is %d:%d\n", PGNO(pagep), LSN(pagep).file, LSN(pagep).offset);
 
 		if (binternal_swap) {
 			M_16_SWAP(bi->len);
@@ -320,8 +321,9 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 	++NUM_ENT(pagep);
 	p = P_ENTRY(dbp, pagep, indx);
 	memcpy(p, hdr->data, hdr->size);
-	if (data != NULL)
+	if (data != NULL) {
 		memcpy(p + hdr->size, data->data, data->size);
+	}
 	return (0);
 }
 

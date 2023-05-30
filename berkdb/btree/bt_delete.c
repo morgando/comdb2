@@ -169,6 +169,11 @@ __bam_ditem(dbc, h, indx)
 		return (__db_pgfmt(dbp->dbenv, PGNO(h)));
 	}
 
+	if (F_ISSET(dbc, DBC_SNAPSHOT)) {
+		printf("I AM A SNAPSHOT CURSOR\n");
+	} else {
+		printf("I AM NOT A SNAPSHOT CURSOR\n");
+	}
 	/* Delete the item and mark the page dirty. */
 	if ((ret = __db_ditem(dbc, h, indx, nbytes)) != 0)
 		return (ret);

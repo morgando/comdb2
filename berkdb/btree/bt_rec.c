@@ -43,7 +43,7 @@ int bdb_relink_pglogs(void *bdb_state, unsigned char *fileid, db_pgno_t pgno,
 	db_pgno_t prev_pgno, db_pgno_t next_pgno, DB_LSN lsn);
 extern int gbl_check_page_in_recovery;
 
-/* TODO
+/* 
  * __bam_split_recover --
  *	Recovery function for split.
  *
@@ -487,11 +487,24 @@ __bam_rsplit_recover(dbenv, dbtp, lsnp, op, info)
 	db_indx_t off;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 
 	REC_PRINT(__bam_rsplit_print);
 	REC_INTRO_PANIC(__bam_rsplit_read, 1);
 	dbp = file_dbp->peer;
+
+	if (info != NULL) {
+		pagep = (PAGE *) info;
+		db_pgno_t pgno_in = PGNO(pagep);
+
+		if (pgno_in == argp->pgno) {
+			memcpy(pagep, argp->pgdbt.data, argp->pgdbt.size);
+		} else if(pgno_in == argp->root_pgno) {
+			memcpy(pagep, argp->rootent.data, argp->rootent.size);
+		} else {
+			abort();
+		}
+		return 0;
+	}
 
 	if (mpf && bdb_relink_pglogs(dbenv->app_private, mpf->fileid,
 		argp->pgno, argp->root_pgno, PGNO_INVALID, *lsnp) != 0) {

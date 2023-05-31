@@ -141,10 +141,19 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		   }
 		   if (pgno == split_args->left) {
 			   *prevPageLsn = split_args->llsn;
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Split: Page %d is left page\n", pgno);
+			   }
 		   } else if (pgno == split_args->npgno) {
 			   *prevPageLsn = split_args->nlsn;
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Split: Page %d is n page\n", pgno);
+			   }
 		   } else if (pgno == split_args->right) {
 			   *prevPageLsn = split_args->rlsn;
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Split: Page %d is right page\n", pgno);
+			   }
 			   // this should not happen. Assert?
 		   } else if (pgno == split_args->root_pgno) {
 			   *prevPageLsn = LSN(split_args->pg.data); // TODO: verify
@@ -254,10 +263,11 @@ done:
  * 	Return a page in the version that it was at a past LSN.
  *
  * PUBLIC: int __mempv_fget
- * PUBLIC:     __P((DB_MPOOLFILE *, db_pgno_t, DB_LSN, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, void *));
  */
-int __mempv_fget(mpf, pgno, target_lsn, ret_page)
+int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	DB_MPOOLFILE *mpf;
+	DB *dbp;
 	db_pgno_t pgno;
 	DB_LSN target_lsn;
 	void *ret_page;
@@ -281,7 +291,7 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 	data_t = NULL;
 	*(void **)ret_page = NULL;
 	dbenv = mpf->dbenv;
-	__os_malloc(dbenv, offsetof(BH, buf) + prefault_dbp->pgsize, (void *) &bhp);
+	__os_malloc(dbenv, offsetof(BH, buf) + dbp->pgsize, (void *) &bhp);
 	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
 	if (DEBUG_PAGES) {
@@ -305,7 +315,7 @@ int __mempv_fget(mpf, pgno, target_lsn, ret_page)
 		goto done;
 	}
 
-	memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + prefault_dbp->pgsize);
+	memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
 
 	if ((ret = __memp_fput(mpf, page, 0)) != 0) {
 		printf("%s: Failed to return initial page version\n", __func__);

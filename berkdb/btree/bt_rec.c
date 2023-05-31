@@ -89,7 +89,25 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 
 	printf("in split rec\n");
 
-	if (info == NULL && mpf) {
+	/* Handle modsnap recovery */
+
+	if (info != NULL) {
+		db_pgno_t pgin = PGNO((PAGE *) info);
+		if (pgin == argp->root_pgno || pgin == argp->left) {
+			printf("Returning page as is\n");
+			memcpy(info, argp->pg.data, argp->pg.size);
+		} else if (pgin == argp->npgno) {
+			printf("Fixing up prev ptr\n");
+			PREV_PGNO((PAGE *) info) = argp->left;
+			LSN((PAGE *) info) = argp->nlsn;
+		} else {
+			printf("Modsnap split recover input is not root, left, or next page.\n");
+			abort();
+		}
+		return 0;
+	}
+
+	if (mpf) {
 		if (argp->root_pgno != PGNO_INVALID) {
 			/* root split */
 			ret = bdb_relink_pglogs(dbenv->app_private, mpf->fileid,
@@ -126,14 +144,6 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	pgno = PGNO(sp);
 	root_pgno = argp->root_pgno;
 	rootsplit = root_pgno != PGNO_INVALID;
-
-	printf("I am here\n");
-
-	if (rootsplit && (info != NULL)) {
-		printf("Returning page as is\n");
-		memcpy(info, argp->pg.data, argp->pg.size);
-		return 0;
-	}
 
 	if ((ret_l = __memp_fget(mpf, &argp->left, 0, &lp)) != 0)
 		lp = NULL;

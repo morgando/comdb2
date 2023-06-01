@@ -7,6 +7,8 @@
 #include "dbinc/lock.h"
 #include "btree/bt_cache.h"
 
+// TODO: Remove prevpagelsn
+
 static int DEBUG_PAGES = 1;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
@@ -252,8 +254,6 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			break;
 	}
 done:		
-	printf("hello\n");
-	printf("hello\n");
 	return ret;
 }
 
@@ -295,7 +295,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
 	if (DEBUG_PAGES) {
-		printf("%s: Page num %d\n", __func__, pgno);
+		printf("%s: Running on dbp with file id %d\n", __func__, dbp->adj_fileid);
 	}
 
 	if (!page_image) {
@@ -342,9 +342,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 	while (!found) 
 	{
-		PAGE p = *page_image;
-		printf("Page addrs %d\n", *((u_int8_t *) page_image));
-		++GET_BH_GEN(page_image);
 		if (DEBUG_PAGES)
 			printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
 

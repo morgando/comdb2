@@ -231,17 +231,6 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			M_32_SWAP(bo->tlen);
 		}
 		/* Need to redo an add, or undo a delete. */
-		printf("I am here\n");
-		if (DBC_LOGGING(dbc)) {
-			printf("DBC LOGGING ON\n");
-		} else {
-			printf("DBC LOGGING OFF\n");
-		}
-		if (argp->dbt.size == 0) {
-			printf("EMPTY DBT\n");
-		} else {
-			printf("DBT has stuff\n");
-		}
 		if ((ret =
 			__db_pitem_opcode(dbc, pagep, argp->indx, argp->nbytes,
 			    argp->hdr.size == 0 ? NULL : &argp->hdr,

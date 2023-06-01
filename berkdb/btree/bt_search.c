@@ -356,11 +356,6 @@ __bam_search(dbc, root_pgno, key, flags, stop, recnop, exactp)
 	t = dbp->bt_internal;
 	recno = 0;
 
-	if (F_ISSET(dbc, DBC_SNAPSHOT)) {
-		printf("I am a snapshot\n");
-	}
-
-
 	BT_STK_CLR(cp);
 
 	INTERNAL_PTR_CHECK(cp == dbc->internal);

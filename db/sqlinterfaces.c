@@ -2295,7 +2295,6 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
     clnt->dbtran.shadow_tran = NULL;
 
     clnt->last_commit_lsn_isset = 0;
-    printf("unsetting\n");
 
     if (rc == SQLITE_OK) {
         /* send return code */

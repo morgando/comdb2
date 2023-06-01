@@ -126,7 +126,7 @@ __db_new_from_freelist(DBC *dbc, DBMETA *meta, u_int32_t type, PAGE **pagepp)
 	DB_MPOOLFILE *mpf;
 	PAGE *h;
 	db_pgno_t last, pgno, newnext;
-	int ret;
+	int ret, t_ret;
 
 	dbp = dbc->dbp;
 	mpf = dbp->mpf;
@@ -145,7 +145,8 @@ __db_new_from_freelist(DBC *dbc, DBMETA *meta, u_int32_t type, PAGE **pagepp)
 	}
 
 	pgno = meta->free;
-	if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0)
+	PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+	if (ret != 0)
 		goto err;
 
 	/*
@@ -196,7 +197,7 @@ __db_new_from_freelist(DBC *dbc, DBMETA *meta, u_int32_t type, PAGE **pagepp)
 
 err:
 	if (h != NULL)
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 	return (ret);
 }
 
@@ -209,6 +210,7 @@ __db_next_freepage(DB *dbp, db_pgno_t * pg)
 
 	mpf = dbp->mpf;
 
+	// TODO
 	rc = __memp_fget(mpf, pg, 0, &h);
 	if (rc)
 		return rc;
@@ -262,6 +264,7 @@ __db_dump_freepages(DB *dbp, FILE *out)
     int i = 0;
 
     mpf = dbp->mpf;
+    // TODO
     rc = __memp_fget(mpf, &pg, 0, &meta);
     if (rc) {
         fprintf(stderr, "Error getting metapage: %d\n", rc);
@@ -333,7 +336,7 @@ __db_new(dbc, type, pagepp)
 	DBMETA *meta;
 	DB_LOCK metalock;
 	db_pgno_t pgno;
-	int extend, ret;
+	int extend, ret, t_ret;
 	int meta_flags;
 	uint8_t *pagebuf = NULL;
 	int i;
@@ -359,7 +362,8 @@ __db_new(dbc, type, pagepp)
 	if ((ret = __db_lget(dbc,
 		    LCK_ALWAYS, pgno, DB_LOCK_WRITE, 0, &metalock)) != 0)
 		goto err;
-	if ((ret = __memp_fget(mpf, &pgno, 0, &meta)) != 0)
+	PAGEGET(dbc, mpf, &pgno, 0, &meta, ret);
+	if (ret != 0)
 		goto err;
 
 	extend = (meta->free == PGNO_INVALID);
@@ -423,10 +427,8 @@ __db_new(dbc, type, pagepp)
 
 				ldbt.data = h;
 				ldbt.size = P_OVERHEAD(dbc->dbp);
-
-				ret =
-				    __memp_fget(mpf, &pgno, DB_MPOOL_CREATE,
-				    &bp);
+				
+				PAGEGET(dbc, mpf, &pgno, DB_MPOOL_CREATE, &bp, ret);
 				if (ret)
 					goto err;
 				memcpy(bp, ldbt.data, ldbt.size);
@@ -443,7 +445,7 @@ __db_new(dbc, type, pagepp)
 				bp->lsn = meta->lsn;
 
 				/* We cheated and wrote it already, so the page shouldn't be dirty */
-				ret = __memp_fput(mpf, bp, 0);
+				PAGEPUT(dbc, mpf, bp, 0, ret);
 				if (ret)
 					goto err;
 
@@ -502,7 +504,7 @@ __db_new(dbc, type, pagepp)
 	if (ret)
 		goto err;
 
-	(void)__memp_fput(mpf, (PAGE *)meta, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY, t_ret);
 
 	(void)__TLPUT(dbc, metalock);
 	if (pagebuf) {
@@ -533,9 +535,9 @@ err:
 	if (t)
 		t->abort(t);
 	if (h != NULL)
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 	if (meta != NULL)
-		(void)__memp_fput(mpf, meta, meta_flags);
+		PAGEPUT(dbc, mpf, meta, meta_flags, t_ret);
 	(void)__TLPUT(dbc, metalock);
 	if (pagebuf)
 		__os_free(dbc->dbp->dbenv, pagebuf);
@@ -556,7 +558,7 @@ __db_new_original(dbc, type, pagepp)
 	PAGE *h;
 	db_pgno_t last, pgno, newnext;
 	u_int32_t meta_flags;
-	int extend, ret;
+	int extend, ret, t_ret;
 
 	u_int32_t mbytes, bytes, iosize;
 	off_t sz;
@@ -574,7 +576,8 @@ __db_new_original(dbc, type, pagepp)
 	if ((ret = __db_lget(dbc,
 		    LCK_ALWAYS, pgno, DB_LOCK_WRITE, 0, &metalock)) != 0)
 		goto err;
-	if ((ret = __memp_fget(mpf, &pgno, 0, &meta)) != 0)
+	PAGEGET(dbc, mpf, &pgno, 0, &meta, ret);
+	if (ret != 0)
 		goto err;
 	last = meta->last_pgno;
 	if (meta->free == PGNO_INVALID) {
@@ -583,7 +586,8 @@ __db_new_original(dbc, type, pagepp)
 		extend = 1;
 	} else {
 		pgno = meta->free;
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0)
+		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+		if (ret != 0)
 			goto err;
 
 		/*
@@ -660,7 +664,8 @@ __db_new_original(dbc, type, pagepp)
 	meta->free = newnext;
 
 	if (extend == 1) {
-		if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_NEW, &h)) != 0)
+		PAGEGET(dbc, mpf, &pgno, DB_MPOOL_NEW, &h, ret);
+		if (ret != 0)
 			goto err;
 		DB_ASSERT(last == pgno);
 		meta->last_pgno = pgno;
@@ -674,7 +679,7 @@ __db_new_original(dbc, type, pagepp)
 	if (TYPE(h) != P_INVALID)
 		return (__db_panic(dbp->dbenv, EINVAL));
 
-	(void)__memp_fput(mpf, (PAGE *)meta, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY, t_ret);
 
 	(void)__TLPUT(dbc, metalock);
 
@@ -707,9 +712,9 @@ __db_new_original(dbc, type, pagepp)
 	return (0);
 
 err:	if (h != NULL)
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 	if (meta != NULL)
-		(void)__memp_fput(mpf, meta, meta_flags);
+		PAGEPUT(dbc, mpf, meta, meta_flags, t_ret);
 	(void)__TLPUT(dbc, metalock);
 	return (ret);
 }
@@ -747,7 +752,8 @@ __db_free(dbc, h)
 	if ((ret = __db_lget(dbc,
 	    LCK_ALWAYS, pgno, DB_LOCK_WRITE, 0, &metalock)) != 0)
 		goto err;
-	if ((ret = __memp_fget(mpf, &pgno, 0, &meta)) != 0) {
+	PAGEGET(dbc, mpf, &pgno, 0, &meta, ret);
+	if (ret != 0) {
 		(void)__TLPUT(dbc, metalock);
 		goto err;
 	}
@@ -795,7 +801,7 @@ log:			ret = __db_pg_free_log(dbp,
 			    &LSN(meta), PGNO_BASE_MD, &ldbt, meta->free);
 		}
 		if (ret != 0) {
-			(void)__memp_fput(mpf, (PAGE *)meta, 0);
+			PAGEPUT(dbc, mpf, meta, 0, t_ret);
 			(void)__TLPUT(dbc, metalock);
 			goto err;
 		}
@@ -826,15 +832,16 @@ log:			ret = __db_pg_free_log(dbp,
 	meta->free = h->pgno;
 
 	/* Discard the metadata page. */
-	if ((t_ret =
-	    __memp_fput(mpf, (PAGE *)meta, DB_MPOOL_DIRTY)) != 0 && ret == 0)
+	PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY, t_ret);
+	if (t_ret != 0 && ret == 0)
 		ret = t_ret;
 	if ((t_ret = __TLPUT(dbc, metalock)) != 0 && ret == 0)
 		ret = t_ret;
 
 	/* Discard the caller's page reference. */
 	dirty_flag = DB_MPOOL_DIRTY;
-err:	if ((t_ret = __memp_fput(mpf, h, dirty_flag)) != 0 && ret == 0)
+	PAGEPUT(dbc, mpf, h, dirty_flag, t_ret);
+err:	if (t_ret != 0 && ret == 0)
 		ret = t_ret;
 
 	/*

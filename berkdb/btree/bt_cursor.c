@@ -1954,9 +1954,6 @@ __bam_c_get(dbc, key, data, flags, pgnop)
 
 	newopd = 0;
 
-	if (F_ISSET(dbc, DBC_SNAPSHOT)) {
-		printf("%s: is snapshot cursor\n", __func__);
-	}
 	switch (flags & DB_OPFLAGS_MASK) {
 	case DB_CURRENT:
 		/* It's not possible to return a deleted record. */

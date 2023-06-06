@@ -9,7 +9,7 @@
 
 // TODO: Remove prevpagelsn
 
-static int DEBUG_PAGES = 1;
+static int DEBUG_PAGES = 0;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
@@ -294,10 +294,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	__os_malloc(dbenv, offsetof(BH, buf) + dbp->pgsize, (void *) &bhp);
 	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
-	if (DEBUG_PAGES) {
-		printf("%s: Running on dbp with file id %d\n", __func__, dbp->adj_fileid);
-	}
-
 	if (!page_image) {
 		if (DEBUG_PAGES) {
 			printf("%s: Failed to allocate page image\n", __func__);
@@ -339,6 +335,9 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		ret = 1;
 		goto done;
 	}
+
+	if (found && DEBUG_PAGES)
+		printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
 
 	while (!found) 
 	{
@@ -410,10 +409,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	}
 
 	*(void **)ret_page = (void *) page_image;
-	printf("page image ptr %p at LSN %d:%d\n", page_image, LSN(page_image).file, LSN(page_image).offset);
-	printf("%s: page pointer %p\n", __func__, page_image);
 done:
-	printf("exiting \n");
 	if (logc)
 		logc->close(logc, 0);
 	if (dbt.data)
@@ -437,10 +433,8 @@ int __mempv_fput(mpf, page)
 
 	dbenv = mpf->dbenv;
 
-	printf("%s: page pointer %p\n", __func__, page);
 	if (page != NULL) {
 		bhp = (BH *) (((char*)page)-offsetof(BH, buf));
-		printf("freeing %p\n", bhp);
 		__os_free(dbenv, bhp);
 		page = NULL;
 	}

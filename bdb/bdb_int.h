@@ -560,6 +560,7 @@ struct bdb_cursor_impl_tag {
     bdb_state_type *state;  /* state for */
     cursor_tran_t *curtran; /* all cursors (but comdb2 mode have this */
     tran_type *shadow_tran; /* read committed and snapshot/serializable modes */
+    int use_snapcur;
 
     /* cursor position */
     int rrn;                  /* == 2 (don't need this) */

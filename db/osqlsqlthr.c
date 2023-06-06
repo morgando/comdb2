@@ -1004,6 +1004,8 @@ int osql_sock_commit(struct sqlclntstate *clnt, int type, enum trans_clntcomm si
     int retries = 0;
     int bdberr = 0;
 
+    clnt->last_commit_lsn_isset = 0;
+
     if (gbl_is_physical_replicant) {
         logmsg(LOGMSG_ERROR, "%s attempted write against physical replicant\n", __func__);
         osql_sock_abort(clnt, type);

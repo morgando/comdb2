@@ -129,6 +129,7 @@ static __thread struct temptable *tmptbl_clone = NULL;
 
 uint32_t gbl_sql_temptable_count;
 int gbl_throttle_txn_chunks_msec = 0;
+extern char *sqlenginestate_tostr(int state);
 
 void free_cached_idx(uint8_t **cached_idx)
 {
@@ -4768,14 +4769,6 @@ int start_new_transaction(struct sqlclntstate *clnt, struct sql_thread *thd)
 
     get_current_lsn(clnt);
 
-    /* Latch last commit LSN */
-    if (!clnt->last_commit_lsn_isset) {
-            struct dbtable *db =
-                    &thedb->static_table; /* this is not used but required */
-            bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
-            clnt->last_commit_lsn_isset = 1;
-    }
-
     if (clnt->ctrl_sqlengine == SQLENG_STRT_STATE)
         sql_set_sqlengine_state(clnt, __FILE__, __LINE__, SQLENG_INTRANS_STATE);
 
@@ -4833,7 +4826,7 @@ int start_new_transaction(struct sqlclntstate *clnt, struct sql_thread *thd)
  */
 
 int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersion)
-{
+{ 
     int rc = SQLITE_OK;
     struct sql_thread *thd = pthread_getspecific(query_info_key);
     struct sqlclntstate *clnt = thd->clnt;
@@ -4844,6 +4837,16 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
                clnt->ctrl_sqlengine);
     }
 #endif
+
+    /* Latch last commit LSN */
+    if (!clnt->last_commit_lsn_isset) {
+	    printf("SETTING LAST COMMIT LSN\n");
+            struct dbtable *db =
+                    &thedb->static_table; /* this is not used but required */
+            bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
+            clnt->last_commit_lsn_isset = 1;
+	    //printf("clnt %p set last commit lsn to %d:%d\n", clnt, clnt->last_commit_lsn_file, clnt->last_commit_lsn_offset);
+    }
 
     /* already have a transaction, keep using it until it commits/aborts */
     if (clnt->intrans || clnt->in_sqlite_init ||
@@ -4884,6 +4887,7 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
         if (clnt->has_recording == 0 ||                        // not selectv
             clnt->ctrl_sqlengine == SQLENG_NORMAL_PROCESS) { // singular selectv
             rc = SQLITE_OK;
+	    clnt->intrans = 1;
             goto done;
         }
     }
@@ -4953,6 +4957,7 @@ int sqlite3BtreeCommit(Btree *pBt)
     if (clnt->selectv_arr)
         currangearr_coalesce(clnt->selectv_arr);
 
+    /* This condition should be triggered in all but final call for transaction */
     if (!clnt->intrans || clnt->in_sqlite_init ||
         (!clnt->in_sqlite_init && clnt->ctrl_sqlengine != SQLENG_FNSH_STATE &&
          clnt->ctrl_sqlengine != SQLENG_NORMAL_PROCESS &&
@@ -4960,6 +4965,9 @@ int sqlite3BtreeCommit(Btree *pBt)
         rc = SQLITE_OK;
         goto done;
     }
+
+    printf("UNSETTING LAST COMMIT LSN\n");
+    clnt->last_commit_lsn_isset = 0;
 
     clnt->recno = 0;
 
@@ -8158,7 +8166,7 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     }
     cur->tableversion = cur->db->tableversion;
 
-    /* Set cursor's last commit LSN to the value latched at transaction begin. */
+    assert(clnt->last_commit_lsn_isset);
     clnt->dbtran.cursor_tran->last_commit_lsn.file = clnt->last_commit_lsn_file;
     clnt->dbtran.cursor_tran->last_commit_lsn.offset = clnt->last_commit_lsn_offset;
 
@@ -8305,7 +8313,7 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
         rowlocks ? &clnt->holding_pagelocks_flag : NULL,
         rowlocks ? pause_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
         rowlocks ? count_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
-        clnt->bdb_osql_trak, &bdberr);
+        clnt->bdb_osql_trak, &bdberr, clnt->dbtran.mode == TRANLEVEL_RECOM ? 1 : 0); // TODO: add tran type here?
     if (cur->bdbcur == NULL) {
         logmsg(LOGMSG_ERROR, "%s: bdb_cursor_open rc %d\n", __func__, bdberr);
         if (bdberr == BDBERR_DEADLOCK)
@@ -8409,7 +8417,6 @@ int sqlite3BtreeCursor(
     struct KeyInfo *pKeyInfo, /* First argument to compare function */
     BtCursor *cur             /* Space to write cursor structure */
 ){
-    printf("Creating a cursor on btree %p\n", pBt);
     int rc = SQLITE_OK;
     static int cursorid = 0;
 
@@ -8604,6 +8611,7 @@ int sqlite3BtreeBeginStmt(Btree *pBt, int iStatement)
 static int chunk_transaction(BtCursor *pCur, struct sqlclntstate *clnt,
                              struct sql_thread *thd)
 {
+    printf("%s\n", __func__);
     BtCursor *cur = NULL;
     int rc = SQLITE_OK;
     int commit_rc = SQLITE_OK;

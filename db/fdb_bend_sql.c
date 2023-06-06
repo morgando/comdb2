@@ -345,6 +345,8 @@ int fdb_svc_trans_begin(char *tid, enum transaction_level lvl, int flags,
         return rc;
     }
 
+    printf("%s: STARTING TXN IN FDB BEND\n", __func__);
+
     /* we keep the rqid in osql_sock_start */
     /* register transaction */
     if (isuuid) {
@@ -641,7 +643,7 @@ _fdb_svc_cursor_start(BtCursor *pCur, struct sqlclntstate *clnt, char *tblname,
                 : BDB_OPEN_REAL,
             NULL /* TODO: I don't think I need this here, please double check */,
             clnt->pageordertablescan, 0, NULL, NULL, NULL, NULL, NULL,
-            clnt->bdb_osql_trak, &bdberr);
+            clnt->bdb_osql_trak, &bdberr, clnt->dbtran.mode == TRANLEVEL_RECOM ? 1 : 0);
         if (pCur->bdbcur == NULL) {
             logmsg(LOGMSG_ERROR, "%s: bdb_cursor_open rc %d\n", __func__, bdberr);
 

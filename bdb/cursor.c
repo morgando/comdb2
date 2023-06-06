@@ -561,7 +561,7 @@ bdb_cursor_ifn_t *bdb_cursor_open(
     int ixnum, enum bdb_open_type type, void *shadadd, int pageorder,
     int rowlocks, int *holding_pagelocks_flag,
     int (*pause_pagelock_cursors)(void *), void *pausearg,
-    int (*count_cursors)(void *), void *countarg, int trak, int *bdberr)
+    int (*count_cursors)(void *), void *countarg, int trak, int *bdberr, int snapcur)
 {
     bdb_cursor_ifn_t *pcur_ifn = NULL;
     bdb_cursor_impl_t *cur = NULL;
@@ -616,6 +616,8 @@ bdb_cursor_ifn_t *bdb_cursor_open(
     cur->upd_shadows_count = 0;
 
     cur->trak = trak | ((shadow_tran) ? shadow_tran->trak : 0);
+
+    cur->use_snapcur = snapcur;
 
     if (cur->trak && shadow_tran) {
         logmsg(LOGMSG_USER, "Cur %p opened as tranclass %d startgenid %llx\n", cur,

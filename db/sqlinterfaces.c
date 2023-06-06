@@ -1783,7 +1783,7 @@ void reset_query_effects(struct sqlclntstate *clnt)
     bzero(&clnt->chunk_effects, sizeof(clnt->chunk_effects));
 }
 
-static char *sqlenginestate_tostr(int state)
+char *sqlenginestate_tostr(int state)
 {
     switch (state) {
     case SQLENG_NORMAL_PROCESS:
@@ -1923,6 +1923,8 @@ void handle_sql_intrans_unrecoverable_error(struct sqlclntstate *clnt)
 static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt, enum trans_clntcomm sideeffects)
 {
     int irc = 0, rc = 0, bdberr = 0;
+
+    clnt->last_commit_lsn_isset = 0;
 
     if (!clnt->intrans) {
         reqlog_logf(thd->logger, REQL_QUERY, "\"%s\" ignore (no transaction)\n",
@@ -2226,8 +2228,11 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
                               struct sqlclntstate *clnt,
                               enum trans_clntcomm sideeffects)
 {
+
     int rc = 0;
     int outrc = 0;
+
+    clnt->last_commit_lsn_isset = 0;
 
     if (sideeffects == TRANS_CLNTCOMM_NORMAL) {
     /* Don't setup(reset) logger for commits of individual chunks,
@@ -2293,8 +2298,6 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
     /* we are out of transaction, mark this here */
     clnt->intrans = 0;
     clnt->dbtran.shadow_tran = NULL;
-
-    clnt->last_commit_lsn_isset = 0;
 
     if (rc == SQLITE_OK) {
         /* send return code */

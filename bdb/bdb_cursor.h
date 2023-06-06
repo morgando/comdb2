@@ -140,7 +140,7 @@ bdb_cursor_open(bdb_state_type *bdb_state, cursor_tran_t *curtran,
                 int pageorder, int rowlocks, int *holding_pagelocks_flag,
                 int (*pause_pagelock_cursors)(void *), void *pausearg,
                 int (*count_pagelock_cursors)(void *), void *countarg, int trak,
-                int *bdberr);
+                int *bdberr, int snapcur);
 
 int bdb_cursor_process_skip(bdb_state_type *bdb_state, tran_type *tran,
                             /* upcall */

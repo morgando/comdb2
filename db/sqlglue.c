@@ -4887,7 +4887,6 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
         if (clnt->has_recording == 0 ||                        // not selectv
             clnt->ctrl_sqlengine == SQLENG_NORMAL_PROCESS) { // singular selectv
             rc = SQLITE_OK;
-	    clnt->intrans = 1;
             goto done;
         }
     }
@@ -4957,7 +4956,10 @@ int sqlite3BtreeCommit(Btree *pBt)
     if (clnt->selectv_arr)
         currangearr_coalesce(clnt->selectv_arr);
 
-    /* This condition should be triggered in all but final call for transaction */
+    if (!clnt->in_sqlite_init) {
+	    printf("UNSETTING LAST COMMIT LSN\n");
+	    clnt->last_commit_lsn_isset = 0;
+    }
     if (!clnt->intrans || clnt->in_sqlite_init ||
         (!clnt->in_sqlite_init && clnt->ctrl_sqlengine != SQLENG_FNSH_STATE &&
          clnt->ctrl_sqlengine != SQLENG_NORMAL_PROCESS &&
@@ -4965,9 +4967,6 @@ int sqlite3BtreeCommit(Btree *pBt)
         rc = SQLITE_OK;
         goto done;
     }
-
-    printf("UNSETTING LAST COMMIT LSN\n");
-    clnt->last_commit_lsn_isset = 0;
 
     clnt->recno = 0;
 

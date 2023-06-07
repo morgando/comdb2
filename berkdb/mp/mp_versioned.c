@@ -9,7 +9,7 @@
 
 // TODO: Remove prevpagelsn
 
-static int DEBUG_PAGES = 0;
+static int DEBUG_PAGES = 1;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
@@ -336,9 +336,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		goto done;
 	}
 
-	if (found && DEBUG_PAGES)
-		printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
-
 	while (!found) 
 	{
 		if (DEBUG_PAGES)
@@ -384,6 +381,17 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 			__os_free(dbenv, data_t);
 			data_t = NULL;
 	       	}
+
+		if (!__txn_commit_map_get(dbenv, utxnid, &commit_lsn)) {
+			printf("commit lsn for txn %"PRIx64" %d:%d\n", utxnid, commit_lsn.file, commit_lsn.offset);
+			if (log_compare(&commit_lsn, &target_lsn) <= 0) {
+				printf("This is lower than our target lsn\n");
+			} else {
+				printf("This is equal to or greater than our target lsn\n");
+			}
+		} else {
+			printf("txn %"PRIx64" still in progress\n", utxnid);
+		}
 
 		/* If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
 		if (((ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 1) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {

@@ -1723,8 +1723,10 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 
     /* Latch the last commit LSN */
     struct dbtable *db = &thedb->static_table;
+    assert(db->handle);
     bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
     clnt->last_commit_lsn_isset = 1;
+    printf("%s: SETTING LAST COMMIT LSN\n", __func__);
 
     if (clnt->osql.replay)
         goto done;
@@ -1924,6 +1926,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 {
     int irc = 0, rc = 0, bdberr = 0;
 
+    printf("%s: UNSETTING\n", __func__);
     clnt->last_commit_lsn_isset = 0;
 
     if (!clnt->intrans) {

@@ -307,6 +307,7 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
         }
 
 	if (cur->use_snapcur) {
+		printf("Opening a snapshot cursor\n");
 		curflags |= DB_CUR_SNAPSHOT;
 	}
         dbc =

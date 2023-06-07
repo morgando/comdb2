@@ -2197,6 +2197,7 @@ static int insert_record_indexes(BtCursor *pCur, struct sql_thread *thd,
             }
         }
 
+	printf("%s: %d\n", __func__, thd->clnt->dbtran.mode);
         tmpcur = bdb_cursor_open(
             pCur->db->handle, thd->clnt->dbtran.cursor_tran,
             thd->clnt->dbtran.shadow_tran, ix, BDB_OPEN_SHAD,
@@ -2301,6 +2302,7 @@ static int delete_record_indexes(BtCursor *pCur, char *pdta, int dtasize,
         }
         memcpy(&key[db->ix_keylen[ix]], &genid, sizeof(genid));
 
+	printf("%s: tran mode %d\n", __func__, thd->clnt->dbtran.mode);
         tmpcur = bdb_cursor_open(
             db->handle, thd->clnt->dbtran.cursor_tran,
             thd->clnt->dbtran.shadow_tran, ix, BDB_OPEN_SHAD,

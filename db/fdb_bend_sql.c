@@ -635,6 +635,7 @@ _fdb_svc_cursor_start(BtCursor *pCur, struct sqlclntstate *clnt, char *tblname,
     pCur->numblobs = get_schema_blob_count(pCur->db->tablename, ".ONDISK");
 
     if (need_bdbcursor) {
+	    printf("%s: CURSOR TYPE %d\n", __func__, clnt->dbtran.mode);
         pCur->bdbcur = bdb_cursor_open(
             pCur->db->handle, clnt->dbtran.cursor_tran,
             clnt->dbtran.shadow_tran, pCur->ixnum,

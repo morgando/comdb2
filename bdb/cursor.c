@@ -8646,6 +8646,8 @@ struct count_arg {
     int rc;
     /* the sql_thread struct from parent thread. sql_tick() needs it. */
     void *sqlthd;
+    int is_snapcur;
+    DB_LSN last_commit_lsn;
 };
 
 extern pthread_key_t query_info_key;
@@ -8676,6 +8678,10 @@ static void *db_count(void *varg)
         arg->rc = rc;
         return NULL;
     }
+    if (arg->is_snapcur) {
+	    dbc->flags |= DBC_SNAPSHOT; // TODO: Use F_SET
+	    dbc->snapshot_lsn = arg->last_commit_lsn;
+    }
     int64_t count = 0;
     while ((rc = dbc->c_get(dbc, &k, &v, DB_NEXT | DB_MULTIPLE_KEY)) == 0) {
         rc = comdb2_sql_tick();
@@ -8702,7 +8708,7 @@ static void *db_count(void *varg)
 }
 
 int gbl_parallel_count = 0;
-int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt)
+int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt, int is_snapcur, uint32_t last_commit_lsn_file, uint32_t last_commit_lsn_offset)
 {
     int64_t count = 0;
     int parallel_count;
@@ -8727,6 +8733,9 @@ int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt)
     pthread_t thds[stripes];
     for (int i = 0; i < stripes; ++i) {
         args[i].db = db[i];
+	args[i].is_snapcur = is_snapcur;
+	args[i].last_commit_lsn.file = last_commit_lsn_file;
+	args[i].last_commit_lsn.offset = last_commit_lsn_offset;
         if (parallel_count) {
             args[i].sqlthd = pthread_getspecific(query_info_key);
             pthread_create(&thds[i], &attr, db_count, &args[i]);

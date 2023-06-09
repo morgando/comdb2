@@ -6,3 +6,6 @@ init_with_inplace_updates
 round_robin_stripes
 enable_snapshot_isolation
 nowatch
+pagesizeix 512
+pagesizedta 512
+dtastripe 1

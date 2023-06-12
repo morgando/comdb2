@@ -158,8 +158,10 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			   }
 			   // this should not happen. Assert?
 		   } else if (pgno == split_args->root_pgno) {
-			   *prevPageLsn = LSN(split_args->pg.data); // TODO: verify
-			   printf("LSN %d:%d\n", prevPageLsn->file, prevPageLsn->offset);
+			   *prevPageLsn = LSN(split_args->pg.data); 
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Split: Page %d is root page\n", pgno);
+			   }
 		   } else {
 			   // this should not happen.
 			   if (DEBUG_PAGES) {

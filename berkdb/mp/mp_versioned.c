@@ -134,13 +134,10 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			if (DEBUG_PAGES) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam split\n");
 			}
-		//   PAGE *page_t;
-		 //  __os_malloc(dbenv, prefault_dbp->pgsize, (void *) &page_t);
-		  // data
-
 		   if ((ret = __bam_split_read(dbenv, data, &split_args)) != 0) {
 			   goto done;
 		   }
+
 		   if (pgno == split_args->left) {
 			   *prevPageLsn = split_args->llsn;
 			   if (DEBUG_PAGES) {
@@ -170,18 +167,41 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			   ret = 1;
 			   goto done;
 		   }
-		   *apply = __bam_split_recover; // TODO single page recover.
+
+		   *apply = __bam_split_recover;
 		   *utxnid = split_args->txnid->utxnid;
 		   break;
 		case DB___bam_rsplit:
 			if (DEBUG_PAGES) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam rsplit\n");
 			}
-		   ;
-		   if ((ret = __bam_rsplit_read(dbenv, data, &rsplit_args)) != 0) {
+			if ((ret = __bam_rsplit_read(dbenv, data, &rsplit_args)) != 0) {
+				goto done;
+			}
+
+		    if (pgno == rsplit_args->pgno) {
+				*prevPageLsn = LSN(rsplit_args->pgdbt.data);
+
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Rsplit: Page %d is non-root page\n", pgno);
+			   }
+			} else if(pgno == rsplit_args->root_pgno) {
+				*prevPageLsn = rsplit_args->rootlsn;
+				assert(LSN(rsplit_args->rootent.data) == *prevPageLsn);
+
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Rsplit: Page %d is root page\n", pgno);
+			   }
+			} else {
+				// this should not happen.
+			   if (DEBUG_PAGES) {
+				   logmsg(LOGMSG_USER, "Rsplit: Page %d is not root page %d or non-root page %d\n", pgno, rsplit_args->root_pgno, rsplit_args->pgno);
+			   }
+
+			   ret = 1;
 			   goto done;
-		   }
-		   *prevPageLsn = rsplit_args->rootlsn;
+			}
+
 		   *apply = __bam_rsplit_recover;
 		   *utxnid = rsplit_args->txnid->utxnid;
 		   break;
@@ -368,7 +388,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 		LOGCOPY_32(&rectype, dbt.data);
 		normalize_rectype(&rectype);
-		if (rectype == DB___bam_split) {
+		if (rectype == DB___bam_split || rectype == DB___bam_rsplit) {
 			__os_malloc(dbenv, dbt.size, &data_t);
 			memcpy(data_t, dbt.data, dbt.size);
 		}

@@ -491,6 +491,7 @@ __bam_rsplit_recover(dbenv, dbtp, lsnp, op, info)
 	REC_PRINT(__bam_rsplit_print);
 	REC_INTRO_PANIC(__bam_rsplit_read, 1);
 	dbp = file_dbp->peer;
+	pgno = root_pgno = argp->root_pgno;
 
 	if (info != NULL) {
 		pagep = (PAGE *) info;
@@ -499,7 +500,13 @@ __bam_rsplit_recover(dbenv, dbtp, lsnp, op, info)
 		if (pgno_in == argp->pgno) {
 			memcpy(pagep, argp->pgdbt.data, argp->pgdbt.size);
 		} else if(pgno_in == argp->root_pgno) {
-			memcpy(pagep, argp->rootent.data, argp->rootent.size);
+			P_INIT(pagep, file_dbp->pgsize, root_pgno,
+			    argp->nrec, PGNO_INVALID, pagep->level + 1,
+			    IS_BTREE_PAGE(pagep) ? P_IBTREE : P_IRECNO);
+			if ((ret = __db_pitem(dbc, pagep, 0,
+			    argp->rootent.size, &argp->rootent, NULL)) != 0)
+				goto out;
+			pagep->lsn = argp->rootlsn;
 		} else {
 			abort();
 		}
@@ -513,7 +520,6 @@ __bam_rsplit_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	/* Fix the root page. */
-	pgno = root_pgno = argp->root_pgno;
 	if ((ret = __memp_fget(mpf, &pgno, 0, &pagep)) != 0) {
 		/* The root page must always exist if we are going forward. */
 		if (DB_REDO(op)) {

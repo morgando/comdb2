@@ -48,6 +48,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 	__db_relink_args *relink_args;
 	__db_big_args *big_args;
 	__db_pg_alloc_args *pg_alloc_args;
+	__db_pg_freedata_args *pg_freedata_args;
 	__bam_split_args *split_args;
 	__bam_rsplit_args *rsplit_args;
 	__bam_repl_args *repl_args;
@@ -260,6 +261,16 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		   *apply = __bam_prefix_recover;
 		   *utxnid = prefix_args->txnid->utxnid;
 		   break;
+		case DB___db_pg_freedata:
+			if (DEBUG_PAGES) {
+				logmsg(LOGMSG_USER, "Op type of log record is pg freedata\n");
+			}
+		   if ((ret = __db_pg_freedata_read(dbenv, data, &pg_freedata_args)) != 0) {
+			   goto done;
+		   }
+		   *apply = __db_pg_freedata_recover;
+		   *utxnid = pg_freedata_args->txnid->utxnid;
+		   break;
 		/*case DB___bam_pgcompact:
 		   // TODO
 		   ret = __bam_pgcompact_read(dbenv, data, &pgcompact_args);
@@ -271,6 +282,9 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		   *utxnid = pgcompact_args->txnid->txnid;
 		   break;*/
 		default:
+			if (DEBUG_PAGES) {
+				logmsg(LOGMSG_USER, "Op type of log record is unrecognized %d\n", rectype);
+			}
 			ret = 1;
 			goto done;
 			break;
@@ -388,7 +402,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 		LOGCOPY_32(&rectype, dbt.data);
 		normalize_rectype(&rectype);
-		if (rectype == DB___bam_split || rectype == DB___bam_rsplit) {
+		if (rectype == DB___bam_split || rectype == DB___bam_rsplit || rectype == DB___db_pg_freedata) {
 			__os_malloc(dbenv, dbt.size, &data_t);
 			memcpy(data_t, dbt.data, dbt.size);
 		}

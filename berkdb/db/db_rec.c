@@ -547,24 +547,42 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 		abort();
 	}
 
+	if (info != NULL) {
+		pagep = (PAGE*) info;
+
+		if (argp->pgno == PGNO(pagep)) {
+			pagep->next_pgno = argp->next;
+			pagep->prev_pgno = argp->prev;
+			pagep->lsn = argp->lsn;
+		} else if (argp->next == PGNO(pagep)) {
+
+			if (argp->opcode == DB_ADD_PAGE) {
+				pagep->prev_pgno = argp->prev;
+			} else if (argp->opcode == DB_REM_PAGE) {
+				pagep->prev_pgno = argp->pgno;
+			}
+
+			pagep->lsn = argp->lsn_next;
+		} else if (argp->prev == PGNO(pagep)) {
+			pagep->next_pgno = argp->pgno;
+			pagep->lsn = argp->lsn_prev;
+		}
+		return 0;
+	}
+
 	/*
 	 * There are up to three pages we need to check -- the page, and the
 	 * previous and next pages, if they existed.  For a page add operation,
 	 * the current page is the result of a split and is being recovered
 	 * elsewhere, so all we need do is recover the next page.
 	 */
-	if (info == NULL) {
-		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-			if (DB_REDO(op)) {
-				ret = __db_pgerr(file_dbp, argp->pgno, ret);
-				goto out;
-			}
-			goto next2;
+	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+		if (DB_REDO(op)) {
+			ret = __db_pgerr(file_dbp, argp->pgno, ret);
+			goto out;
 		}
-	} else {
-		pagep = (PAGE*) info;
+		goto next2;
 	}
-
 	modified = 0;
 	if (argp->opcode == DB_ADD_PAGE)
 		goto next1;

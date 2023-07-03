@@ -48,6 +48,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 	__db_relink_args *relink_args;
 	__db_big_args *big_args;
 	__db_pg_alloc_args *pg_alloc_args;
+	__db_pg_free_args *pg_free_args;
 	__db_pg_freedata_args *pg_freedata_args;
 	__bam_split_args *split_args;
 	__bam_rsplit_args *rsplit_args;
@@ -271,6 +272,14 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		   *apply = __db_pg_freedata_recover;
 		   *utxnid = pg_freedata_args->txnid->utxnid;
 		   break;
+		case DB___db_pg_free:
+		   if ((ret = __db_pg_free_read(dbenv, data, &pg_free_args)) != 0) {
+			   goto done;
+		   }
+		   *apply = __db_pg_free_recover;
+		   *utxnid = pg_free_args->txnid->utxnid;
+		   break;
+			
 		/*case DB___bam_pgcompact:
 		   // TODO
 		   ret = __bam_pgcompact_read(dbenv, data, &pgcompact_args);
@@ -402,7 +411,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 		LOGCOPY_32(&rectype, dbt.data);
 		normalize_rectype(&rectype);
-		if (rectype == DB___bam_split || rectype == DB___bam_rsplit || rectype == DB___db_pg_freedata) {
+		if (rectype == DB___bam_split || rectype == DB___bam_rsplit || rectype == DB___db_pg_freedata || rectype == DB___db_pg_free ) {
 			__os_malloc(dbenv, dbt.size, &data_t);
 			memcpy(data_t, dbt.data, dbt.size);
 		}

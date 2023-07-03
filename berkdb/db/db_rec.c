@@ -1109,12 +1109,22 @@ __db_pg_free_recover(dbenv, dbtp, lsnp, op, info)
 	DB *file_dbp;
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
+	PAGE *pagep;
 	__db_pg_free_args *argp;
 	int ret;
 
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_pg_free_print);
 	REC_INTRO(__db_pg_free_read, 1);
+	pagep = (PAGE *) info;
+
+	if (pagep != NULL) {
+		if (PGNO(pagep) == argp->pgno) {
+			memcpy(pagep, argp->header.data, argp->header.size);
+		} else {
+			abort();
+		} 
+		goto done;
+	}
 
 	ret = __db_pg_free_recover_int(dbenv,
 	     (__db_pg_freedata_args *)argp, file_dbp, lsnp, mpf, op, 0);

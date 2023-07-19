@@ -177,6 +177,10 @@ struct __utxnid; typedef struct __utxnid UTXNID;
 struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
 struct __logfile_txn_list; typedef struct __logfile_txn_list LOGFILE_TXN_LIST;
 struct __txn_commit_map; typedef struct __txn_commit_map DB_TXN_COMMIT_MAP;
+struct __mempv_page_header; typedef struct __mempv_page_header MEMPV_PAGE_HEADER;
+struct __mempv_page_cache; typedef struct __mempv_page_cache MEMPV_PAGE_CACHE;
+struct __mempv; typedef struct __mempv DB_MEMPV;
+struct __mempv_key; typedef struct __mempv_key MEMPV_KEY;
 
 struct txn_properties;
 
@@ -2754,6 +2758,8 @@ struct __db_env {
 	u_int64_t next_utxnid;
 
 	DB_TXN_COMMIT_MAP* txmap;
+
+	DB_MEMPV *mempv;
 };
 
 struct __utxnid {
@@ -2777,6 +2783,31 @@ struct __txn_commit_map {
 	DB_LSN highest_commit_lsn;
 	hash_t *transactions;
 	hash_t *logfile_lists;
+};
+
+struct __mempv_key {
+	db_pgno_t pgno;
+	u_int8_t ufid[DB_FILE_ID_LEN];
+};
+
+struct __mempv_page_header {
+	u_int16_t pin;
+	MEMPV_PAGE_CACHE *pagecache;
+	LINKC_T(struct __mempv_page_header) lrulnk;
+	char page[1];
+};
+
+struct __mempv_page_cache {
+	MEMPV_KEY key;
+	LISTC_T(struct __mempv_page_header) pages;
+};
+
+struct __mempv {
+	pthread_mutex_t mempv_mutexp;
+	mspace *msp;
+	u_int64_t size;
+	hash_t *pages;
+	LISTC_T(struct __mempv_page_header) pagelru;
 };
 
 #ifndef DB_DBM_HSEARCH

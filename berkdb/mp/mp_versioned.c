@@ -14,17 +14,45 @@ static int DEBUG_PAGES = 1;
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
 
+void *gbl_mempv_base = NULL;
+
 /*
  * __mempv_init --
  * 	Initialize versioned memory pool.
  *
  * PUBLIC: int __mempv_init
- * PUBLIC:     __P((DB_ENV *));
+ * PUBLIC:     __P((DB_ENV *, u_int64_t size));
  */
-int __mempv_init(dbenv)
+int __mempv_init(dbenv, size)
 	DB_ENV *dbenv;
+	u_int64_t size;
 {
-	return 1;
+	int ret;
+	DB_MEMPV *mpv;
+
+	ret = 0;
+
+	__os_calloc(dbenv, 1, sizeof(DB_MEMPV), &mpv);
+	mpv->pages = hash_init_o(offsetof(MEMPV_PAGE_CACHE, key), sizeof(MEMPV_KEY));
+	if (mpv->pages == NULL) {
+		ret = ENOMEM;
+		goto done;
+	}
+
+	gbl_mempv_base = malloc(size);
+	if (gbl_mempv_base == NULL) {
+		ret = ENOMEM;
+		goto done;
+	}
+
+	mpv->msp = create_mspace_with_base(gbl_mempv_base, size, 1);
+	mpv->size = size;
+	dbenv->mempv = mpv;
+	Pthread_mutex_init(&mpv->mempv_mutexp, NULL);
+	listc_init(&mpv->pagelru, offsetof(MEMPV_PAGE_HEADER, lrulnk));
+	
+done:
+	return ret;
 }
 
 /*
@@ -39,6 +67,17 @@ int __mempv_destroy(dbenv)
 {
 	return 1;
 }
+
+/*static int __mempv_create_cache() {
+	MEMPV_PAGE_CACHE *pc;
+	int ret;
+
+	ret = __os_malloc(dbenv, sizeof(MEMPV_PAGE_CACHE), &pc);
+	if (ret)
+		goto err;
+	
+
+}*/
 
 static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *), DB_LSN *prevPageLsn, u_int64_t *utxnid, db_pgno_t pgno) {
 	int ret, utxnid_logged;

@@ -404,6 +404,10 @@ __dbenv_open(dbenv, db_home, flags, mode)
 	listc_init(&dbenv->mintruncate,
 			offsetof(struct mintruncate_entry, lnk));
 
+	if ((ret = __mempv_init(dbenv, 1024*1024*64)) != 0) {
+		goto err;
+	}
+
 	if (LF_ISSET(DB_INIT_TXN)) {
 		if ((ret = __txn_open(dbenv)) != 0)
 			goto err;
@@ -929,6 +933,9 @@ __dbenv_close(dbenv, rep_check)
 
 	/* Release read-only mempool */
 	__txn_commit_map_destroy(dbenv);
+
+	/* Release versioned memory pool */
+	__mempv_destroy(dbenv);
 
 	/* Discard the structure. */
 	memset(dbenv, CLEAR_BYTE, sizeof(DB_ENV));

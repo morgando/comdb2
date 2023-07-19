@@ -2792,14 +2792,16 @@ struct __mempv_key {
 
 struct __mempv_page_header {
 	u_int16_t pin;
+	DB_LSN commit_lsn;
 	MEMPV_PAGE_CACHE *pagecache;
-	LINKC_T(struct __mempv_page_header) lrulnk;
+	LINKC_T(struct __mempv_page_header) commit_order;
 	char page[1];
 };
 
 struct __mempv_page_cache {
 	MEMPV_KEY key;
 	LISTC_T(struct __mempv_page_header) pages;
+	LINKC_T(struct __mempv_page_cache) lrulnk;
 };
 
 struct __mempv {
@@ -2807,7 +2809,7 @@ struct __mempv {
 	mspace *msp;
 	u_int64_t size;
 	hash_t *pages;
-	LISTC_T(struct __mempv_page_header) pagelru;
+	LISTC_T(struct __mempv_page_cache) lru;
 };
 
 #ifndef DB_DBM_HSEARCH

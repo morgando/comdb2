@@ -49,7 +49,7 @@ int __mempv_init(dbenv, size)
 	mpv->size = size;
 	dbenv->mempv = mpv;
 	Pthread_mutex_init(&mpv->mempv_mutexp, NULL);
-	listc_init(&mpv->pagelru, offsetof(MEMPV_PAGE_HEADER, lrulnk));
+	listc_init(&mpv->lru, offsetof(MEMPV_PAGE_CACHE, lrulnk));
 	
 done:
 	return ret;
@@ -68,16 +68,25 @@ int __mempv_destroy(dbenv)
 	return 1;
 }
 
-/*static int __mempv_create_cache() {
+static int __mempv_create_page_cache(DB *dbp, db_pgno_t pgno, MEMPV_PAGE_CACHE **page_cache) {
 	MEMPV_PAGE_CACHE *pc;
 	int ret;
 
-	ret = __os_malloc(dbenv, sizeof(MEMPV_PAGE_CACHE), &pc);
-	if (ret)
-		goto err;
-	
+	ret = 0;
 
-}*/
+	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_PAGE_CACHE), &pc);
+	if (ret)
+		goto done;
+
+	pc->key.pgno = pgno;
+	memcpy(pc->key.ufid, dbp->mpf->fileid, DB_FILE_ID_LEN);
+	listc_init(&pc->pages, offsetof(MEMPV_PAGE_HEADER, commit_order));
+	*page_cache = pc;
+	hash_add(dbp->dbenv->mempv->pages, pc);
+
+done:
+	return ret;
+}
 
 static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *), DB_LSN *prevPageLsn, u_int64_t *utxnid, db_pgno_t pgno) {
 	int ret, utxnid_logged;
@@ -360,6 +369,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	int have_lock, have_page, have_page_image, found, ret;
 	u_int64_t utxnid;
 	u_int32_t rectype;
+	DB_MEMPV *mempv;
+	MEMPV_KEY key;
+	MEMPV_PAGE_CACHE *pages;
+	MEMPV_PAGE_HEADER *hdr;
 	DB_LOGC *logc;
 	PAGE *page, *page_image;
 	DB_LSN curPageLsn, prevPageLsn, commit_lsn;
@@ -375,6 +388,66 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	data_t = NULL;
 	*(void **)ret_page = NULL;
 	dbenv = mpf->dbenv;
+	mempv = dbenv->mempv;
+
+	// Get cached page versions. If DNE, create list of versions for this page.
+	key.pgno = pgno;
+	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
+	Pthread_mutex_lock(&mempv->mempv_mutexp);
+	pages = hash_find(mempv->pages, &key);
+	if (pages == NULL) {
+		if (DEBUG_PAGES) {
+			printf("%s: Creating page cache for key pgno %d \n", __func__, pgno);
+		}
+		ret = __mempv_create_page_cache(dbp, pgno, &pages);
+		if (ret) { goto done; }
+	}
+
+	// Check cache for correct version.
+
+	hdr = pages->pages.top;
+	while (hdr) {
+		page_image = (PAGE*) hdr->page;
+		DB_LSN commit_lsn = hdr->commit_lsn;
+		if (log_compare(&commit_lsn, &target_lsn) <= 0) {
+			// TODO: Consider holes
+			hdr->pin = 1;
+			*(void **)ret_page = (void *) page_image;
+			if (DEBUG_PAGES) {
+				printf("%s: Found correct page version in cache\n", __func__);
+			}
+			goto done;
+		}
+		hdr = hdr->commit_order.next;
+	}
+
+	// Cache did not contain correct version. Create spot in cache for correct version
+
+	do {
+		// TODO: Also allocate bhp
+		hdr = mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + dbp->pgsize);
+		if (hdr == NULL) {
+			MEMPV_PAGE_CACHE *lru;
+			lru = listc_rtl(&mempv->lru);
+			if (lru == NULL) {
+				// TODO: panic
+				goto done;
+			}
+			hash_del(mempv->pages, lru);
+			// destroy_pagelist(dbenv, lru);
+			mspace_free(mempv->msp, lru);
+			if (DEBUG_PAGES) {
+				printf("%s: Evicted page from cache\n", __func__);
+			}
+		}
+	} while (hdr == NULL);
+
+	hdr->pin = 1;
+	hdr->pagecache = pages;
+	hdr->commit_order.next = hdr->commit_order.prev = NULL;
+
+	// Rollback page to target version.
+
 	__os_malloc(dbenv, offsetof(BH, buf) + dbp->pgsize, (void *) &bhp);
 	page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
@@ -477,7 +550,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 			printf("txn %"PRIx64" still in progress\n", utxnid);
 		}
 
-		/* If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
+		/* TODO: Reword -- If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
 		if (((ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 1) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {
 			if (DEBUG_PAGES) {
 				printf("%s: Found the right page version\n", __func__);
@@ -500,8 +573,11 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		}
 	}
 
+	memcpy(hdr->page, page_image, dbp->pgsize);
+	listc_atl(&pages->pages, hdr);
 	*(void **)ret_page = (void *) page_image;
 done:
+	Pthread_mutex_unlock(&mempv->mempv_mutexp);
 	if (logc)
 		logc->close(logc, 0);
 	if (dbt.data)
@@ -520,7 +596,8 @@ int __mempv_fput(mpf, page)
 	DB_MPOOLFILE *mpf;
 	void *page;
 {
-	BH *bhp;
+// TODO: unpin page
+	/*BH *bhp;
 	DB_ENV *dbenv;
 
 	dbenv = mpf->dbenv;
@@ -529,6 +606,6 @@ int __mempv_fput(mpf, page)
 		bhp = (BH *) (((char*)page)-offsetof(BH, buf));
 		__os_free(dbenv, bhp);
 		page = NULL;
-	}
+	}*/
 	return 0;
 }

@@ -69,11 +69,16 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	DB_ENV *dbenv;
 	DB_MPOOL *dbmp;
 	DB_MPOOL_HASH *hp;
+	DB_MEMPV *mempv;
+	MEMPV_KEY key;
+        MEMPV_PAGE_CACHE *cached_page_versions;
+        MEMPV_PAGE_HEADER *hdr;
 	MPOOL *c_mp;
 	u_int32_t n_cache;
 	int adjust, ret, incr_count = 1;
 
 	dbenv = dbmfp->dbenv;
+	mempv = dbenv->mempv;
 	MPF_ILLEGAL_BEFORE_OPEN(dbmfp, "DB_MPOOLFILE->put");
 
 	dbmp = dbenv->mp_handle;
@@ -95,6 +100,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		}
 	}
 
+        key.pgno = PGNO(pgaddr);
+        memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
+        Pthread_mutex_lock(&mempv->mempv_mutexp);
+        cached_page_versions = hash_find(mempv->pages, &key);
+	if (cached_page_versions != NULL)
+		cached_page_versions->new_version = 1;
+        Pthread_mutex_unlock(&mempv->mempv_mutexp);
 
 	/*
 	 * If we're mapping the file, there's nothing to do.  Because we can

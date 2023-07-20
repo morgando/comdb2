@@ -2791,8 +2791,8 @@ struct __mempv_key {
 };
 
 struct __mempv_page_header {
-	u_int16_t pin;
 	DB_LSN commit_lsn;
+	DB_LSN prev_cache_entry_lsn;
 	MEMPV_PAGE_CACHE *pagecache;
 	LINKC_T(struct __mempv_page_header) commit_order;
 	char page[1];
@@ -2800,6 +2800,7 @@ struct __mempv_page_header {
 
 struct __mempv_page_cache {
 	MEMPV_KEY key;
+	u_int16_t pin;
 	LISTC_T(struct __mempv_page_header) pages;
 	LINKC_T(struct __mempv_page_cache) lrulnk;
 };

@@ -100,13 +100,15 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		}
 	}
 
-        key.pgno = PGNO(pgaddr);
-        memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
-        Pthread_mutex_lock(&mempv->mempv_mutexp);
-        cached_page_versions = hash_find(mempv->pages, &key);
-	if (cached_page_versions != NULL)
-		cached_page_versions->new_version = 1;
-        Pthread_mutex_unlock(&mempv->mempv_mutexp);
+	if (LF_ISSET(DB_MPOOL_DIRTY)) {
+		key.pgno = PGNO(pgaddr);
+		memcpy(key.ufid, dbmfp->mfp->fileid, DB_FILE_ID_LEN);
+		Pthread_mutex_lock(&mempv->mempv_mutexp);
+		cached_page_versions = hash_find(mempv->pages, &key);
+		if (cached_page_versions != NULL)
+			cached_page_versions->new_version = 1;
+		Pthread_mutex_unlock(&mempv->mempv_mutexp);
+	}
 
 	/*
 	 * If we're mapping the file, there's nothing to do.  Because we can

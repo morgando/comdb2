@@ -21,6 +21,8 @@ static const char revid[] = "$Id: mp_fput.c,v 11.48 2003/09/30 17:12:00 sue Exp 
 #include "dbinc/mp.h"
 #include "dbinc/txn.h"
 
+#include <tohex.h>
+
 #include <string.h>
 #include "comdb2_atomic.h"
 
@@ -82,6 +84,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	MPF_ILLEGAL_BEFORE_OPEN(dbmfp, "DB_MPOOLFILE->put");
 
 	dbmp = dbenv->mp_handle;
+
 	/* Validate arguments. */
 	if (flags) {
 		if ((ret = __db_fchk(dbenv, "memp_fput", flags,
@@ -100,13 +103,19 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		}
 	}
 
-	if (LF_ISSET(DB_MPOOL_DIRTY)) {
+	if (mempv != NULL) {
+		printf("mempv %p flags %d\n", mempv, flags);
+	}
+	if (mempv != NULL && LF_ISSET(DB_MPOOL_DIRTY)) {
+		printf("dbmp %p dbenv %p mempv %p\n", dbmp, dbenv, mempv);
 		key.pgno = PGNO(pgaddr);
-		memcpy(key.ufid, dbmfp->mfp->fileid, DB_FILE_ID_LEN);
+		memcpy(key.ufid, dbmfp->fileid, DB_FILE_ID_LEN);
 		Pthread_mutex_lock(&mempv->mempv_mutexp);
 		cached_page_versions = hash_find(mempv->pages, &key);
-		if (cached_page_versions != NULL)
+		if (cached_page_versions != NULL) {
+			printf("Setting new version flag for %d %s\n", key.pgno, key.ufid);
 			cached_page_versions->new_version = 1;
+		}
 		Pthread_mutex_unlock(&mempv->mempv_mutexp);
 	}
 

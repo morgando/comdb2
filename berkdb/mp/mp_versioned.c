@@ -435,6 +435,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 				if (pages->new_version) {
 					// The newest thing in the cache is older than us and there is a newer
 					// version. We need to check it.
+					printf("Need to fetch new version.\n");
 					pages->new_version = 0; // TODO: Consider if right place for this.
 					*fetch_newest_version = 1;
 					goto done;
@@ -489,6 +490,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	u_int64_t utxnid;
 	u_int32_t rectype;
 	DB_MEMPV *mempv;
+	DB_MPOOL *dbmp;
 	MEMPV_KEY key;
 	MEMPV_PAGE_CACHE *pages;
 	MEMPV_PAGE_HEADER *hdr, *prev_hdr, *start_of_hole, *end_of_hole;
@@ -514,6 +516,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	end_of_hole = NULL;
 	dbenv = mpf->dbenv;
 	mempv = dbenv->mempv;
+
+	dbmp = dbenv->mp_handle;
+
+	printf("dbmp %p dbenv %p mempv %p\n", dbmp, dbenv, mempv);
 
 	// Get cached page versions. If DNE, create list of versions for this page.
 	key.pgno = pgno;

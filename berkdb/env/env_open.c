@@ -404,8 +404,10 @@ __dbenv_open(dbenv, db_home, flags, mode)
 	listc_init(&dbenv->mintruncate,
 			offsetof(struct mintruncate_entry, lnk));
 
-	if ((ret = __mempv_init(dbenv, 1024*1024*64)) != 0) {
-		goto err;
+	if (LF_ISSET(DB_INIT_LOCK) && LF_ISSET(DB_INIT_LOG) && LF_ISSET(DB_INIT_REP)) {
+		if ((ret = __mempv_init(dbenv, 1024*1024*64)) != 0) {
+			goto err;
+		}
 	}
 
 	if (LF_ISSET(DB_INIT_TXN)) {

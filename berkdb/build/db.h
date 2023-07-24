@@ -2802,6 +2802,7 @@ struct __mempv_page_cache {
 	MEMPV_KEY key;
 	u_int16_t pin;
 	u_int16_t new_version;
+	DB_LSN newest_lsn;
 	LISTC_T(struct __mempv_page_header) pages;
 	LINKC_T(struct __mempv_page_cache) lrulnk;
 };

@@ -104,19 +104,19 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	}
 
 	if (mempv != NULL) {
-		printf("mempv %p flags %d\n", mempv, flags);
-	}
-	if (mempv != NULL && LF_ISSET(DB_MPOOL_DIRTY)) {
-		printf("dbmp %p dbenv %p mempv %p\n", dbmp, dbenv, mempv);
+		DB_LSN pglsn = LSN(pgaddr);
 		key.pgno = PGNO(pgaddr);
 		memcpy(key.ufid, dbmfp->fileid, DB_FILE_ID_LEN);
-		Pthread_mutex_lock(&mempv->mempv_mutexp);
+		int acquired_lock = pthread_mutex_trylock(&mempv->mempv_mutexp) == 0 ? 1 : 0;
 		cached_page_versions = hash_find(mempv->pages, &key);
 		if (cached_page_versions != NULL) {
+			if (log_compare(&cached_page_versions->newest_lsn, &pglsn) != 0)
 			printf("Setting new version flag for %d %s\n", key.pgno, key.ufid);
 			cached_page_versions->new_version = 1;
+			cached_page_versions->newest_lsn = pglsn;
 		}
-		Pthread_mutex_unlock(&mempv->mempv_mutexp);
+		if (acquired_lock)
+			Pthread_mutex_unlock(&mempv->mempv_mutexp);
 	}
 
 	/*

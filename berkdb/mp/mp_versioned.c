@@ -535,7 +535,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		if (ret) { goto done; }
 	}
 
-	printf("hi1\n");
 	// Check cache for correct version.
 
 	__mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, &found, &page_image, &fetch_newest_version, target_lsn);
@@ -547,15 +546,12 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	// If we are here then we are doing a rollback.
 	// We either start from the page preceding a hole, or we start from the newest page (retrieved from memp_fget).
 
-	printf("hi2\n");
-
 	if (fetch_newest_version || alloc_new_page_cache) {
 		// Start from newest page.
 		ret = __mempv_add_page_header(mpf, dbp, &hdr);
 		if (ret) {
 			goto done;
 		}
-		printf("hi3\n");
 
 		hdr->pagecache = pages;
 		hdr->commit_order.next = hdr->commit_order.prev = NULL;

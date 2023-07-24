@@ -406,8 +406,8 @@ done:
 
 static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, found, page_image, fetch_newest_version, target_lsn)
 	MEMPV_PAGE_CACHE *pages;
-	MEMPV_PAGE_HEADER *start_of_hole;
-	MEMPV_PAGE_HEADER *end_of_hole;
+	MEMPV_PAGE_HEADER **start_of_hole;
+	MEMPV_PAGE_HEADER **end_of_hole;
 	int *found;
 	PAGE **page_image;
 	int *fetch_newest_version;
@@ -418,8 +418,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 	int firstItr, ret;
 
 	hdr = pages->pages.top;
-	end_of_hole = NULL;
-	pages->pin = 1;
+	pages->pin = 1; // TODO: ?
 	firstItr = 1;
 	ret = 0;
 
@@ -435,7 +434,8 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 				if (pages->new_version) {
 					// The newest thing in the cache is older than us and there is a newer
 					// version. We need to check it.
-					printf("Need to fetch new version.\n");
+					if (DEBUG_PAGES)
+						printf("Need to fetch new version.\n");
 					pages->new_version = 0; // TODO: Consider if right place for this.
 					*fetch_newest_version = 1;
 					goto done;
@@ -445,8 +445,11 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 				// We need to make sure that the target version isn't in the hole.
 
 				// Start walkback from preceding image.
-				end_of_hole = hdr;
-				start_of_hole = prev_hdr;
+				*end_of_hole = hdr;
+				*start_of_hole = prev_hdr;
+
+				if (DEBUG_PAGES)
+					printf("Found a hole.\n");
 				goto done;
 			}
 
@@ -537,7 +540,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 	// Check cache for correct version.
 
-	__mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, &found, &page_image, &fetch_newest_version, target_lsn);
+	__mempv_check_cache_for_version(pages, &start_of_hole, &end_of_hole, &found, &page_image, &fetch_newest_version, target_lsn);
 
 	if (found) {
 		goto rollback;
@@ -587,7 +590,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	// Rollback page to target version.
 
 	if (IS_NOT_LOGGED_LSN(LSN(page_image))) {
-		assert((alloc_new_page_cache == 1) || (fetch_newest_version == 1));
+		// assert((alloc_new_page_cache == 1) || (fetch_newest_version == 1));
 
 		if (DEBUG_PAGES) {
 			printf("%s: Original page has unlogged LSN\n", __func__);

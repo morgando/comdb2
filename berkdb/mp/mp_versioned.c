@@ -431,7 +431,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 		if (log_compare(&commit_lsn, &target_lsn) <= 0) {
 			// Is target candidate. Now check for holes.
 			if (firstItr) {
-				if (pages->new_version) {
+				if (pages->new_version == 1) {
 					// The newest thing in the cache is older than us and there is a newer
 					// version. We need to check it.
 					if (DEBUG_PAGES)

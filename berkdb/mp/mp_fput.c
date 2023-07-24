@@ -110,10 +110,11 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		int acquired_lock = pthread_mutex_trylock(&mempv->mempv_mutexp) == 0 ? 1 : 0;
 		cached_page_versions = hash_find(mempv->pages, &key);
 		if (cached_page_versions != NULL) {
-			if (log_compare(&cached_page_versions->newest_lsn, &pglsn) != 0)
-			printf("Setting new version flag for %d %s\n", key.pgno, key.ufid);
-			cached_page_versions->new_version = 1;
-			cached_page_versions->newest_lsn = pglsn;
+			if (log_compare(&cached_page_versions->newest_lsn, &pglsn) != 0) {
+				printf("Setting new version flag for %d %s\n", key.pgno, key.ufid);
+				cached_page_versions->new_version = 1;
+				cached_page_versions->newest_lsn = pglsn;
+			}
 		}
 		if (acquired_lock)
 			Pthread_mutex_unlock(&mempv->mempv_mutexp);

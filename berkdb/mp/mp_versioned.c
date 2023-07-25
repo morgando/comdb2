@@ -404,6 +404,36 @@ done:
 	return ret;
 }
 
+static void __mempv_print_page_cache(pages)
+	MEMPV_PAGE_CACHE *pages;
+{
+	MEMPV_PAGE_HEADER *hdr;
+	BH *bhp;
+	PAGE * page_image;
+	int num;
+
+	hdr = pages->pages.top;
+	num = 1;
+	
+	printf("==== Start of cache ====\n");
+
+	while (hdr) {
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+
+		printf("--- hdr %d ---\n", num);
+		printf("commit lsn: %d:%d\n", hdr->commit_lsn.file, hdr->commit_lsn.offset);
+		printf("prev entry lsn: %d:%d\n", hdr->prev_cache_entry_lsn.file, hdr->prev_cache_entry_lsn.offset);
+		printf("my lsn: %d:%d\n", LSN(page_image).file, LSN(page_image).offset);
+		printf("--------------\n");
+
+		hdr = hdr->commit_order.next;
+		num++;
+	}
+
+	printf("==== End of cache ====\n");
+}
+
 static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, found, page_image, fetch_newest_version, target_lsn)
 	MEMPV_PAGE_CACHE *pages;
 	MEMPV_PAGE_HEADER **start_of_hole;
@@ -422,6 +452,8 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 	firstItr = 1;
 	ret = 0;
 
+	__mempv_print_page_cache(pages);
+
 	while (hdr) {
 		if (DEBUG_PAGES) {
 			printf("%s: Checking next cache header for match\n", __func__);
@@ -438,6 +470,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 						printf("Need to fetch new version.\n");
 					pages->new_version = 0; // TODO: Consider if right place for this.
 					*fetch_newest_version = 1;
+					*end_of_hole = hdr;
 					goto done;
 				}
 			} else if (log_compare(&hdr->prev_cache_entry_lsn, &prev_cache_entry_lsn) != 0) {
@@ -457,7 +490,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 			// *(void **)ret_page = (void *) page_image;
 			*found = 1;
 			if (DEBUG_PAGES) {
-				printf("%s: Found correct page version in cache\n", __func__);
+				printf("%s: Found correct page version in cache. Version lsn %d:%d. Target lsn %d:%d\n", __func__, commit_lsn.file, commit_lsn.offset, target_lsn.file, target_lsn.offset);
 			}
 
 			goto done;
@@ -473,6 +506,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 done:
 	return ret;
 }
+
 
 /*
  * __mempv_fget --
@@ -578,6 +612,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 			goto done;
 		}
 
+		if (alloc_new_page_cache) {
+			pages->newest_lsn = LSN(page_image);
+		}
+		pages->new_version = 0;
 		listc_atl(&pages->pages, hdr);
 	} else {
 		// Start from start of hole.
@@ -595,6 +633,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		if (DEBUG_PAGES) {
 			printf("%s: Original page has unlogged LSN\n", __func__);
 		}
+		LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
 		found = 1;
 		goto rollback;
 	} else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
@@ -656,18 +695,28 @@ rollback:
 		/* TODO: Reword -- If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
 		if (((ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 1) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {
 			if (DEBUG_PAGES) {
-				printf("%s: Found the right page version\n", __func__);
+				printf("%s: Found the right page version with lsn %d:%d and commit lsn %d:%d\n", __func__, LSN(page_image).file, LSN(page_image).offset, commit_lsn.file, commit_lsn.offset);
 				if (ret) {
 					printf("%s: Page commit LSN did not exist in the map\n", __func__);
 				}
 			}
-			hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
+			if (ret) {
+				printf("%s: Page commit LSN did not exist in the map\n", __func__);
+				LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+			} else {
+				hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
+			}
 			found = 1;
 			ret = 0;
 			break;
 		}
 
 		// create a new cache hdr for next page version.
+		if (ret) {
+			LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+		} else {
+			hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
+		}
 		prev_hdr = hdr;
 		prev_bhp = bhp;
 		prev_page_image = page_image;
@@ -692,32 +741,45 @@ rollback:
 		}
 
 		// Check if hole filled
+		printf("end of hole %p lsn pg image %d:%d lsn end of hole %d:%d\n", end_of_hole, LSN(page_image).file, LSN(page_image).offset, end_of_hole != NULL ? LSN(end_of_hole).file : 0, end_of_hole != NULL ? LSN(end_of_hole).offset : 0);
 		if ((end_of_hole != NULL) && (log_compare(&LSN(page_image), &LSN(end_of_hole->page + offsetof(BH, buf))) == 0)) {
 			// We scanned a hole and did not find a newer version. Return end of hole. Throw out newly created header.
+
+			printf("%s: Closing hole\n", __func__);
 			
 			// Close the hole.
+
+			/* List link */
 			prev_hdr->commit_order.next = end_of_hole;
 			end_of_hole->commit_order.prev = prev_hdr;
-			end_of_hole->prev_cache_entry_lsn = LSN(prev_hdr->page + offsetof(BH, buf));
+
+			/* Cache link */
+			end_of_hole->prev_cache_entry_lsn = LSN(prev_page_image);
 
 			// Throw out newly created header.
 			mspace_free(mempv->msp, hdr);
 
 			found = 1;
-			break;
 		} else {
 			// Not end of a hole. Link in new header and continue scan.
 
 			hdr->pagecache = pages;
 			if (pages->pages.bot == prev_hdr) {
 				// Add header to the bottom of the list.
+
+				/* List link */
 				listc_abl(&pages->pages, hdr);
 			} else {
 				// Add header somewhere within the list.
+
+				/* List link */
 				hdr->commit_order.next = NULL;
 				hdr->commit_order.prev = prev_hdr;
 				prev_hdr->commit_order.next = hdr;
 			}
+
+			/* Cache link */
+			hdr->prev_cache_entry_lsn = LSN(prev_page_image);
 		}
 	}
 

@@ -49,7 +49,7 @@ int __mempv_init(dbenv, size)
 	mpv->size = size;
 	dbenv->mempv = mpv;
 	Pthread_mutex_init(&mpv->mempv_mutexp, NULL);
-	listc_init(&mpv->lru, offsetof(MEMPV_PAGE_CACHE, lrulnk));
+	listc_init(&mpv->lru, offsetof(MEMPV_PAGE_HEADER, lrulnk));
 	
 done:
 	return ret;
@@ -75,15 +75,17 @@ static int __mempv_create_page_cache(DB *dbp, db_pgno_t pgno, MEMPV_PAGE_CACHE *
 	ret = 0;
 
 	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_PAGE_CACHE), &pc);
-	if (ret)
+	if (ret) {
 		goto done;
+	}
 
 	pc->key.pgno = pgno;
 	memcpy(pc->key.ufid, dbp->mpf->fileid, DB_FILE_ID_LEN);
 	listc_init(&pc->pages, offsetof(MEMPV_PAGE_HEADER, commit_order));
 	pc->new_version = 0;
 	*page_cache = pc;
-	hash_add(dbp->dbenv->mempv->pages, pc);
+
+	ret = hash_add(dbp->dbenv->mempv->pages, pc);
 
 done:
 	return ret;
@@ -354,24 +356,40 @@ done:
 static int __mempv_evict_page_cache(mempv)
 	DB_MEMPV *mempv;
 {
-	MEMPV_PAGE_CACHE *lru;
+	MEMPV_PAGE_HEADER *lru;
+	MEMPV_PAGE_CACHE *owner_cache;
 
 	int eviction = 0;
 	while (!eviction) {
+		// TODO: prevent infinite loop when all pages are pinned.
 		lru = listc_rtl(&mempv->lru);
 		if (lru == NULL) {
+			printf("%s: LRU list is empty\n", __func__);
 			return 1;
 		}
-		if (lru->pin == 1) {
+		if (lru->ref == 1 || lru->pin == 1) {
+			printf("%s: Wiping referened bit on page\n", __func__);
+			lru->ref = 0;
 			listc_abl(&mempv->lru, lru);
 			continue;
 		}
 
-		hash_del(mempv->pages, lru);
-		// destroy_pagelist(dbenv, lru);
+		owner_cache = lru->pagecache;
+
+		if (lru->commit_order.next) {
+			lru->commit_order.next->prev_cache_entry_lsn = lru->prev_cache_entry_lsn;
+		}
+		listc_rfl(&owner_cache->pages, lru);
 		mspace_free(mempv->msp, lru);
-		if (DEBUG_PAGES) {
+
+		if (DEBUG_PAGES)
 			printf("%s: Evicted page from cache\n", __func__);
+
+		if (listc_size(&owner_cache->pages) == 0) {
+			mspace_free(mempv->msp, owner_cache);
+
+			if (DEBUG_PAGES)
+				printf("%s: Freed empty cache\n", __func__);
 		}
 		eviction = 1;
 	}
@@ -379,34 +397,35 @@ static int __mempv_evict_page_cache(mempv)
 	return 0;
 }
 
-int __mempv_add_page_header(mpf, dbp, hdr, pages)
+MEMPV_PAGE_HEADER * __mempv_add_page_header(mpf, dbp, pages)
 	DB_MPOOLFILE *mpf;
 	DB *dbp;
-	MEMPV_PAGE_HEADER **hdr;
 	MEMPV_PAGE_CACHE *pages;
 {
 	DB_ENV *dbenv;
+	MEMPV_PAGE_HEADER *allocd_hdr;
 	int ret;
 
 	dbenv = mpf->dbenv;
 	ret = 0;
 
-	*hdr = mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
-	while (*hdr == NULL) {
+	allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+	while (allocd_hdr == NULL) {
 		if (DEBUG_PAGES) {
 			printf("%s: New hdr was null. Evicting page\n", __func__);
 		}
 		ret = __mempv_evict_page_cache(dbenv->mempv);
 		if (ret) { goto done; }
-		*hdr = mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+		allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
 	}
 
-	(*hdr)->pagecache = pages;
-	(*hdr)->commit_order.next = (*hdr)->commit_order.prev = NULL;
-	LSN_NOT_LOGGED((*hdr)->prev_cache_entry_lsn);
+	allocd_hdr->pagecache = pages;
+	allocd_hdr->commit_order.next = allocd_hdr->commit_order.prev = NULL;
+	LSN_NOT_LOGGED(allocd_hdr->prev_cache_entry_lsn);
+	listc_abl(&dbenv->mempv->lru, allocd_hdr);
 
 done:
-	return ret;
+	return allocd_hdr;
 }
 
 static void __mempv_print_page_cache(pages)
@@ -453,7 +472,6 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 	int firstItr, ret;
 
 	hdr = pages->pages.top;
-	pages->pin = 1; // TODO: ?
 	firstItr = 1;
 	ret = 0;
 
@@ -493,6 +511,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 
 			// No holes. We found our target!
 			// *(void **)ret_page = (void *) page_image;
+			hdr->pin = 1;
 			*found = 1;
 			if (DEBUG_PAGES) {
 				printf("%s: Found correct page version in cache. Version lsn %d:%d. Target lsn %d:%d\n", __func__, commit_lsn.file, commit_lsn.offset, target_lsn.file, target_lsn.offset);
@@ -544,6 +563,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	void *data_t;
 
 	DBT dbt = {0};
+	dbt.data = NULL;
 	dbt.flags = DB_DBT_MALLOC;
 	ret = 0;
 	found = 0;
@@ -561,15 +581,15 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 	dbmp = dbenv->mp_handle;
 
-	printf("dbmp %p dbenv %p mempv %p\n", dbmp, dbenv, mempv);
+	printf("dbmp %p dbenv %p mempv %p dbt data %p \n", dbmp, dbenv, mempv, dbt.data);
 
 	// Get cached page versions. If DNE, create list of versions for this page.
 	key.pgno = pgno;
-	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
+	memcpy(key.ufid, dbp->mpf->fileid, DB_FILE_ID_LEN);
 	Pthread_mutex_lock(&mempv->mempv_mutexp);
 	pages = hash_find(mempv->pages, &key);
-	int alloc_new_page_cache;
-	if ((alloc_new_page_cache = pages == NULL)) {
+	int alloc_new_page_cache = pages == NULL;
+	if (alloc_new_page_cache) {
 		if (DEBUG_PAGES) {
 			printf("%s: Creating page cache for key pgno %d ufid %s \n", __func__, pgno, key.ufid);
 		}
@@ -588,9 +608,11 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	// If we are here then we are doing a rollback.
 	// We either start from the page preceding a hole, or we start from the newest page (retrieved from memp_fget).
 
+
 	if (fetch_newest_version || alloc_new_page_cache) {
 		// Start from newest page.
-		ret = __mempv_add_page_header(mpf, dbp, &hdr, pages);
+		hdr = __mempv_add_page_header(mpf, dbp, pages);
+
 		if (ret) {
 			goto done;
 		}
@@ -633,7 +655,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		// assert((alloc_new_page_cache == 1) || (fetch_newest_version == 1));
 
 		if (DEBUG_PAGES) {
-			printf("%s: Original page has unlogged LSN\n", __func__);
+			printf("%s: Original page has unlogged LSN dbt data %p\n", __func__, dbt.data);
 		}
 		LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
 		found = 1;
@@ -725,8 +747,8 @@ rollback:
 		prev_page_image = page_image;
 		curPageLsn = LSN(prev_page_image); // TODO: rename 'curPageLsn'
 
-		ret = __mempv_add_page_header(mpf, dbp, &hdr, pages);
-		if (ret) {
+		hdr = __mempv_add_page_header(mpf, dbp, pages);
+		if (hdr == NULL) {
 			goto done;
 		}
 
@@ -759,28 +781,15 @@ rollback:
 			end_of_hole->prev_cache_entry_lsn = LSN(prev_page_image);
 
 			// Throw out newly created header.
+			listc_rfl(&mempv->lru, hdr);
 			mspace_free(mempv->msp, hdr);
 
 			found = 1;
 		} else {
 			// Not end of a hole. Link in new header and continue scan.
 
-			if (pages->pages.bot == prev_hdr) {
-				// Add header to the bottom of the list.
-
-				/* List link */
-				listc_abl(&pages->pages, hdr);
-			} else {
-				// Add header somewhere within the list.
-				assert (end_of_hole != NULL);
-
-				/* List links */
-				hdr->commit_order.next = end_of_hole;
-				end_of_hole->commit_order.prev = hdr;
-
-				hdr->commit_order.prev = prev_hdr;
-				prev_hdr->commit_order.next = hdr;
-			}
+			/* List link */
+			listc_add_after(&pages->pages, hdr, prev_hdr);
 
 			/* Cache link */
 			hdr->prev_cache_entry_lsn = LSN(prev_page_image);
@@ -788,16 +797,17 @@ rollback:
 	}
 
 	*(void **)ret_page = (void *) page_image;
+	if (hdr != NULL) 
+		hdr->pin = 1;
 	printf("fget pgno %d\n", PGNO(page_image));
 done:
 	if (logc)
 		logc->close(logc, 0);
 	if (dbt.data)
 		__os_free(dbenv, dbt.data);
-	if (ret) {
-		pages->pin = 0;
-	}
+	// TODO: if alloc'd new hdr del hdr
 	Pthread_mutex_unlock(&mempv->mempv_mutexp);
+	printf("Returning %d\n", ret);
 	return ret;
 }
 
@@ -817,6 +827,9 @@ int __mempv_fput(mpf, page)
 	MEMPV_KEY key;
 	DB_MEMPV *mempv;
 	MEMPV_PAGE_CACHE *pages;
+	MEMPV_PAGE_HEADER *hdr;
+	PAGE * page_image;
+	int ret;
 
 	if (page == NULL) { return 0; }
 
@@ -827,10 +840,24 @@ int __mempv_fput(mpf, page)
 	Pthread_mutex_lock(&mempv->mempv_mutexp);
 	pages = hash_find(mempv->pages, &key);
 
-	if (DEBUG_PAGES)
-		printf("Unpinning pgno %d ufid %s\n", key.pgno, key.ufid);
-	pages->pin = 0;
+	LISTC_FOR_EACH(&pages->pages, hdr, commit_order) {
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
+		if (page_image == page) {
+			if (DEBUG_PAGES)
+				printf("Unpinning pgno %d ufid %s\n", key.pgno, key.ufid);
+
+			hdr->pin = 1;
+			hdr->ref = 1;
+			ret = 0;
+			goto done;
+		}
+		
+	}
+
+	ret = 1;
+done:
 	Pthread_mutex_unlock(&mempv->mempv_mutexp);
-	return 0;
+	return ret;
 }

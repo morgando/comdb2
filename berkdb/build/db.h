@@ -2794,17 +2794,18 @@ struct __mempv_page_header {
 	DB_LSN commit_lsn;
 	DB_LSN prev_cache_entry_lsn;
 	MEMPV_PAGE_CACHE *pagecache;
+	u_int16_t pin;
+	u_int16_t ref;
 	LINKC_T(struct __mempv_page_header) commit_order;
+	LINKC_T(struct __mempv_page_header) lrulnk;
 	char page[1];
 };
 
 struct __mempv_page_cache {
 	MEMPV_KEY key;
-	u_int16_t pin;
 	u_int16_t new_version;
 	DB_LSN newest_lsn;
 	LISTC_T(struct __mempv_page_header) pages;
-	LINKC_T(struct __mempv_page_cache) lrulnk;
 };
 
 struct __mempv {

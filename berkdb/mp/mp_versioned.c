@@ -379,10 +379,11 @@ static int __mempv_evict_page_cache(mempv)
 	return 0;
 }
 
-int __mempv_add_page_header(mpf, dbp, hdr)
+int __mempv_add_page_header(mpf, dbp, hdr, pages)
 	DB_MPOOLFILE *mpf;
 	DB *dbp;
 	MEMPV_PAGE_HEADER **hdr;
+	MEMPV_PAGE_CACHE *pages;
 {
 	DB_ENV *dbenv;
 	int ret;
@@ -399,6 +400,10 @@ int __mempv_add_page_header(mpf, dbp, hdr)
 		if (ret) { goto done; }
 		*hdr = mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
 	}
+
+	(*hdr)->pagecache = pages;
+	(*hdr)->commit_order.next = (*hdr)->commit_order.prev = NULL;
+	LSN_NOT_LOGGED((*hdr)->prev_cache_entry_lsn);
 
 done:
 	return ret;
@@ -452,7 +457,7 @@ static int __mempv_check_cache_for_version(pages, start_of_hole, end_of_hole, fo
 	firstItr = 1;
 	ret = 0;
 
-	__mempv_print_page_cache(pages);
+	// __mempv_print_page_cache(pages);
 
 	while (hdr) {
 		if (DEBUG_PAGES) {
@@ -585,13 +590,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 	if (fetch_newest_version || alloc_new_page_cache) {
 		// Start from newest page.
-		ret = __mempv_add_page_header(mpf, dbp, &hdr);
+		ret = __mempv_add_page_header(mpf, dbp, &hdr, pages);
 		if (ret) {
 			goto done;
 		}
-
-		hdr->pagecache = pages;
-		hdr->commit_order.next = hdr->commit_order.prev = NULL;
 
 		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
 		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
@@ -711,18 +713,19 @@ rollback:
 			break;
 		}
 
-		// create a new cache hdr for next page version.
+		// This will overwrite commit lsn of start_of_hole. Okay because it must have the same value.
 		if (ret) {
 			LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
 		} else {
 			hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
 		}
+		// create a new cache hdr for next page version.
 		prev_hdr = hdr;
 		prev_bhp = bhp;
 		prev_page_image = page_image;
 		curPageLsn = LSN(prev_page_image); // TODO: rename 'curPageLsn'
 
-		ret = __mempv_add_page_header(mpf, dbp, &hdr);
+		ret = __mempv_add_page_header(mpf, dbp, &hdr, pages);
 		if (ret) {
 			goto done;
 		}
@@ -745,13 +748,12 @@ rollback:
 		if ((end_of_hole != NULL) && (log_compare(&LSN(page_image), &LSN(end_of_hole->page + offsetof(BH, buf))) == 0)) {
 			// We scanned a hole and did not find a newer version. Return end of hole. Throw out newly created header.
 
-			printf("%s: Closing hole\n", __func__);
-			
-			// Close the hole.
+			assert (prev_hdr->commit_order.next == end_of_hole);
+			assert (end_of_hole->commit_order.prev == prev_hdr);
 
-			/* List link */
-			prev_hdr->commit_order.next = end_of_hole;
-			end_of_hole->commit_order.prev = prev_hdr;
+			printf("%s: Closing hole\n", __func__);
+
+			// Close the hole.
 
 			/* Cache link */
 			end_of_hole->prev_cache_entry_lsn = LSN(prev_page_image);
@@ -763,7 +765,6 @@ rollback:
 		} else {
 			// Not end of a hole. Link in new header and continue scan.
 
-			hdr->pagecache = pages;
 			if (pages->pages.bot == prev_hdr) {
 				// Add header to the bottom of the list.
 
@@ -771,9 +772,12 @@ rollback:
 				listc_abl(&pages->pages, hdr);
 			} else {
 				// Add header somewhere within the list.
+				assert (end_of_hole != NULL);
 
-				/* List link */
-				hdr->commit_order.next = NULL;
+				/* List links */
+				hdr->commit_order.next = end_of_hole;
+				end_of_hole->commit_order.prev = hdr;
+
 				hdr->commit_order.prev = prev_hdr;
 				prev_hdr->commit_order.next = hdr;
 			}

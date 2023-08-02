@@ -387,6 +387,7 @@ static int __mempv_evict_page_cache(dbenv, mempv)
 			printf("%s: Evicted page from cache\n", __func__);
 
 		if (listc_size(&owner_cache->pages) == 0) {
+			hash_del(mempv->pages, owner_cache);
 			__os_free(dbenv, owner_cache);
 
 			if (DEBUG_PAGES)

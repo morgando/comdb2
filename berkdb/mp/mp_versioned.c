@@ -353,6 +353,9 @@ done:
 	return ret;
 }
 
+static int new_cache_space = 0;
+pthread_cond_t  cond  = PTHREAD_COND_INITIALIZER;
+
 static int __mempv_evict_page_cache(dbenv, mempv)
 	DB_ENV *dbenv;
 	DB_MEMPV *mempv;
@@ -360,9 +363,18 @@ static int __mempv_evict_page_cache(dbenv, mempv)
 	MEMPV_PAGE_HEADER *lru;
 	MEMPV_PAGE_CACHE *owner_cache;
 
+    int itr = 0;
+    int size = listc_size(&mempv->lru);
 	int eviction = 0;
+    int evictable_page = 0;
 	while (!eviction) {
 		// TODO: prevent infinite loop when all pages are pinned.
+        if (itr == size && !evictable_page) {
+            new_cache_space = 0;
+
+            while (!new_cache_space)
+                pthread_cond_wait( &cond, &mempv->mempv_mutexp);
+        }
 		lru = listc_rtl(&mempv->lru);
 		if (lru == NULL) {
 			printf("%s: LRU list is empty\n", __func__);
@@ -371,6 +383,9 @@ static int __mempv_evict_page_cache(dbenv, mempv)
 		if (lru->ref == 1 || lru->pin == 1) {
 			printf("%s: Wiping referened bit on page\n", __func__);
 			lru->ref = 0;
+            if (lru->pin == 0) {
+                evictable_page = 1;
+            }
 			listc_abl(&mempv->lru, lru);
 			continue;
 		}
@@ -393,6 +408,7 @@ static int __mempv_evict_page_cache(dbenv, mempv)
 				printf("%s: Freed empty cache\n", __func__);
 		}
 		eviction = 1;
+        ++itr;
 	}
 
 	return 0;
@@ -813,7 +829,7 @@ rollback:
 
 	*(void **)ret_page = (void *) page_image;
 	if (hdr != NULL)  {
-		hdr->pin = 1;
+		hdr->pin++;
 		hdr->ref = 1;
 	}
 	printf("fget pgno %d\n", PGNO(page_image));
@@ -867,7 +883,10 @@ int __mempv_fput(mpf, page)
 			if (DEBUG_PAGES)
 				printf("Unpinning pgno %d ufid %s\n", key.pgno, key.ufid);
 
-			hdr->pin = 0;
+			hdr->pin--;
+            if (hdr->pin == 0) {
+                cond.signal();
+            }
 			ret = 0;
 			goto done;
 		}

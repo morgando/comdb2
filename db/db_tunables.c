@@ -138,6 +138,11 @@ extern int reqltruncate;
 extern int analyze_max_comp_threads;
 extern int analyze_max_table_threads;
 extern int gbl_block_set_commit_genid_trace;
+extern int gbl_random_prepare_commit;
+extern int gbl_all_prepare_commit;
+extern int gbl_all_prepare_abort;
+extern int gbl_all_prepare_leak;
+extern int gbl_flush_on_prepare;
 extern int gbl_abort_on_unset_ha_flag;
 extern int gbl_write_dummy_trace;
 extern int gbl_abort_on_incorrect_upgrade;
@@ -232,19 +237,13 @@ extern int gbl_random_sql_work_rejected;
 extern int gbl_instrument_dblist;
 extern int gbl_replicated_truncate_timeout;
 extern int gbl_match_on_ckp;
-extern int gbl_verbose_physrep;
-extern int gbl_physrep_exit_on_invalid_logstream;
-extern int gbl_blocking_physrep;
 extern int gbl_verbose_set_sc_in_progress;
 extern int gbl_send_failed_dispatch_message;
-extern int gbl_physrep_reconnect_penalty;
-extern int gbl_physrep_register_interval;
 extern int gbl_logdelete_lock_trace;
 extern int gbl_flush_log_at_checkpoint;
 extern int gbl_online_recovery;
 extern int gbl_forbid_remote_admin;
 extern int gbl_abort_on_dta_lookup_error;
-extern int gbl_osql_snap_info_hashcheck;
 extern int gbl_debug_children_lock;
 extern int gbl_serialize_reads_like_writes;
 extern int gbl_long_log_truncation_warn_thresh_sec;
@@ -281,6 +280,7 @@ extern int gbl_abort_on_missing_ufid;
 extern int gbl_ufid_dbreg_test;
 extern int gbl_debug_add_replication_latency;
 extern int gbl_javasp_early_release;
+extern int gbl_debug_drop_nth_rep_message;
 
 extern long long sampling_threshold;
 
@@ -402,6 +402,37 @@ extern int gbl_pgcomp_dryrun;
 extern int gbl_pgcomp_dbg_stdout;
 extern int gbl_pgcomp_dbg_ctrace;
 extern int gbl_warn_on_equiv_type_mismatch;
+extern int gbl_warn_on_equiv_types;
+extern int gbl_fdb_incoherence_percentage;
+extern int gbl_fdb_io_error_retries;
+
+/* Physical replication */
+extern int gbl_blocking_physrep;
+extern int gbl_physrep_check_minlog_freq_sec;
+extern int gbl_physrep_debug;
+extern int gbl_physrep_exit_on_invalid_logstream;
+extern int gbl_physrep_fanout;
+extern int gbl_physrep_hung_replicant_check_freq_sec;
+extern int gbl_physrep_hung_replicant_threshold;
+extern int gbl_physrep_i_am_metadb;
+extern int gbl_physrep_keepalive_freq_sec;
+extern int gbl_physrep_max_candidates;
+extern int gbl_physrep_max_pending_replicants;
+extern int gbl_physrep_reconnect_penalty;
+extern int gbl_physrep_register_interval;
+extern int gbl_physrep_shuffle_host_list;
+
+extern char *gbl_physrep_source_dbname;
+extern char *gbl_physrep_source_host;
+extern char *gbl_physrep_metadb_name;
+extern char *gbl_physrep_metadb_host;
+
+/* Reversql connection/sql */
+extern int gbl_revsql_allow_command_exec;
+extern int gbl_revsql_debug;
+extern int gbl_revsql_cdb2_debug;
+extern int gbl_revsql_host_refresh_freq_sec;
+extern int gbl_revsql_connect_freq_sec;
 
 int gbl_debug_tmptbl_corrupt_mem;
 int gbl_group_concat_mem_limit; /* 0 implies allow upto SQLITE_MAX_LENGTH,
@@ -421,6 +452,10 @@ extern int gbl_force_direct_io;
 extern int gbl_seekscan_maxsteps;
 extern int gbl_wal_osync;
 extern uint64_t gbl_sc_headroom;
+
+extern int gbl_unexpected_last_type_warn;
+extern int gbl_unexpected_last_type_abort;
+extern int gbl_pstack_self;
 
 /*
   =========================================================
@@ -1351,8 +1386,10 @@ static int parse_bool(const char *value, int *num)
 
 /* Grab the next token and store it into a buffer. */
 #define PARSE_RAW                                                              \
-    tok = segtok2((char *)value, value_len, &st, &ltok);                       \
+    tok = (char*)value;                                                        \
+    ltok = strlen(tok) + 1;                                                    \
     tokcpy0(tok, ltok, buf, MAX_TUNABLE_VALUE_SIZE);
+
 
 /* Use the custom verify function if one's provided. */
 #define DO_VERIFY(t, value)                                                    \

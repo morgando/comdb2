@@ -1297,7 +1297,11 @@ __get_page_latch(lt, locker, flags, obj, lock_mode, lock)
 	return ret;
 }
 
-
+static inline int
+is_tablelock(DB_LOCKOBJ *sh_obj)
+{
+	return (sh_obj->lockobj.size == 32);
+}
 
 /*
  * __lock_vec --
@@ -1330,10 +1334,10 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 	DBT *objlist, *np;
 	struct __db_lockobj_lsn *lklsnp;
 	u_int32_t lndx, ndx;
-	u_int32_t nwrites = 0, nwritelatches = 0, countwl = 0, counttot = 0;
+	u_int32_t nwrites = 0, nwritelatches = 0, countwl = 0, counttot = 0, ntable = 0;
 	u_int32_t partition;
 	u_int32_t run_dd;
-	int i, ret, rc, upgrade, writes, has_pglk_lsn = 0;
+	int i, ret, rc, upgrade, writes, prepare, has_pglk_lsn = 0;
 
 	/* Check if locks have been globally turned off. */
 	if (F_ISSET(dbenv, DB_ENV_NOLOCKING))
@@ -1362,6 +1366,7 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 			break;
 		case DB_LOCK_PUT_ALL:
 		case DB_LOCK_PUT_READ:
+		case DB_LOCK_PREPARE:
 		case DB_LOCK_UPGRADE_WRITE:
 #ifdef VERBOSE_LATCH
 			printf("Calling %s for lockerid %u line %d\n",
@@ -1410,7 +1415,12 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 
 			upgrade = 0;
 			writes = 1;
-			if (list[i].op == DB_LOCK_PUT_READ)
+			prepare = 0;
+			if (list[i].op == DB_LOCK_PREPARE) {
+				writes = 0;
+				prepare = 1;
+			}
+			else if (list[i].op == DB_LOCK_PUT_READ)
 				writes = 0;
 			else if (list[i].op == DB_LOCK_UPGRADE_WRITE) {
 				assert(!F_ISSET(sh_locker, DB_LOCKER_DIRTY));
@@ -1477,7 +1487,7 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 				np = NULL;
 			}
 
-			if (sh_locker)
+			if (list[i].op != DB_LOCK_PREPARE && sh_locker)
 				F_SET(sh_locker, DB_LOCKER_DELETED);
 
 			/* Now traverse the locks, releasing each one. */
@@ -1487,8 +1497,9 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 				next_lock = SH_LIST_NEXT(lp,
 				    locker_links, __db_lock);
 				if (writes == 1 ||
-				    lp->mode == DB_LOCK_READ ||
-				    lp->mode == DB_LOCK_DIRTY) {
+   					(lp->mode == DB_LOCK_READ &&
+						((!prepare) || (!is_tablelock(sh_obj)))) ||
+					lp->mode == DB_LOCK_DIRTY) {
 					SH_LIST_REMOVE(lp,
 					    locker_links, __db_lock);
 					sh_obj = lp->lockobj;
@@ -1521,35 +1532,41 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 				}
 				if (objlist != NULL) {
 					counttot++;
-					if (has_pglk_lsn) {
-						DB_ASSERT((char *)lklsnp <
-						    (char *)objlist->data +
-						    objlist->size);
-						SH_LIST_INIT(&lklsnp->lsns);
-						Pthread_mutex_lock(&lp->
-						    lsns_mtx);
-						lklsnp->nlsns = lp->nlsns;
-						SH_LIST_FIRST(&(lklsnp->lsns),
-						    __db_lock_lsn) =
-						    SH_LIST_FIRST(&lp->lsns,
-						    __db_lock_lsn);
-						SH_LIST_INIT(&lp->lsns);
-						lp->nlsns = 0;
-						Pthread_mutex_unlock(&lp->
-						    lsns_mtx);
-
-						lklsnp->data =
-						    sh_obj->lockobj.data;
-						lklsnp->size =
-						    sh_obj->lockobj.size;
-						lklsnp++;
+					/* Tablelocks are readlocks, dont include them  */
+					if (prepare && lp->mode == DB_LOCK_READ) {
+						assert(is_tablelock(lp->lockobj));
+						ntable++;
 					} else {
-						DB_ASSERT((char *)np <
-						    (char *)objlist->data +
-						    objlist->size);
-						np->data = sh_obj->lockobj.data;
-						np->size = sh_obj->lockobj.size;
-						np++;
+						if (has_pglk_lsn) {
+							DB_ASSERT((char *)lklsnp <
+									(char *)objlist->data +
+									objlist->size);
+							SH_LIST_INIT(&lklsnp->lsns);
+							Pthread_mutex_lock(&lp->
+									lsns_mtx);
+							lklsnp->nlsns = lp->nlsns;
+							SH_LIST_FIRST(&(lklsnp->lsns),
+									__db_lock_lsn) =
+								SH_LIST_FIRST(&lp->lsns,
+										__db_lock_lsn);
+							SH_LIST_INIT(&lp->lsns);
+							lp->nlsns = 0;
+							Pthread_mutex_unlock(&lp->
+									lsns_mtx);
+
+							lklsnp->data =
+								sh_obj->lockobj.data;
+							lklsnp->size =
+								sh_obj->lockobj.size;
+							lklsnp++;
+						} else {
+							DB_ASSERT((char *)np <
+									(char *)objlist->data +
+									objlist->size);
+							np->data = sh_obj->lockobj.data;
+							np->size = sh_obj->lockobj.size;
+							np++;
+						}
 					}
 				}
 			}
@@ -1657,7 +1674,7 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 			}
 
 			if (objlist != NULL) {
-				assert(counttot == nwrites);
+				assert(counttot - ntable == nwrites);
 				assert(countwl == nwritelatches);
 
 				if ((ret = __lock_fix_list(dbenv,
@@ -2050,12 +2067,14 @@ void comdb2_dump_blockers(DB_ENV *dbenv)
 		return;
 	}
 
+	if (SH_TAILQ_FIRST(&obj->holders, __db_lock)) {
+		logmsg(LOGMSG_USER, "SQL statements currently blocking the replication thread:\n");
+	}
 	for (hlp = SH_TAILQ_FIRST(&obj->holders, __db_lock);
 		hlp != NULL; hlp = SH_TAILQ_NEXT(hlp, links, __db_lock))
 	{
 		comdb2_dump_blocker(hlp->holderp->id);
 	}
-
 	unlock_obj_partition(region, partition);
 }
 
@@ -2102,10 +2121,10 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 	uint64_t x1 = 0, x2;
 	struct __db_lock *newl, *lp, *firstlp, *wwrite;
 	DB_ENV *dbenv;
-	DB_LOCKER *sh_locker, *master_locker;
+	DB_LOCKER *sh_locker;
 	DB_LOCKOBJ *sh_obj;
 	DB_LOCKREGION *region;
-	u_int32_t holder, obj_ndx, ihold, *holdarr, holdix, holdsz;
+	u_int32_t holder, obj_ndx, ihold, *holdarr = NULL, holdix, holdsz;
 	extern int gbl_lock_get_verbose_waiter;
 	int verbose_waiter = gbl_lock_get_verbose_waiter;;
 	int grant_dirty, no_dd, ret, t_ret;
@@ -2624,6 +2643,14 @@ upgrade:
 	case GRANT:
 		newl->status = DB_LSTAT_HELD;
 		SH_TAILQ_INSERT_TAIL(&sh_obj->holders, newl, links);
+		if (gbl_bb_berkdb_enable_thread_stats) {
+			struct berkdb_thread_stats *t;
+			struct berkdb_thread_stats *p;
+			t = bb_berkdb_get_thread_stats();
+			p = bb_berkdb_get_process_stats();
+			p->n_locks++;
+			t->n_locks++;
+		}
 		break;
 	case HEAD:
 	case TAIL:
@@ -2739,9 +2766,10 @@ upgrade:
 
 		/* set waiting status for master_locker */
 		if (sh_locker->master_locker == INVALID_ROFF)
-			master_locker = sh_locker;
+			sh_locker->wstatus = 1;
 		else
-			master_locker = ((DB_LOCKER *)R_ADDR(&lt->reginfo, sh_locker->master_locker));
+			((DB_LOCKER *)R_ADDR(&lt->reginfo,
+				sh_locker->master_locker))->wstatus = 1;
 
 		unlock_locker_partition(region, lpartition);
 
@@ -2793,16 +2821,6 @@ upgrade:
 			holdarr = NULL;
 		}
 
-		/* Add the locker to the waiting list before calling the deadlock detector. */
-		if (!master_locker->dd_in_wlockers) {
-			lock_detector(region);
-			if (!master_locker->dd_in_wlockers) {
-				SH_TAILQ_INSERT_HEAD(&region->wlockers, master_locker, wlinks, __db_locker);
-				master_locker->dd_in_wlockers = 1;
-			}
-			unlock_detector(region);
-		}
-
 		/*
 		 * We are about to wait; before waiting, see if the deadlock
 		 * detector should be run.
@@ -2834,6 +2852,8 @@ upgrade:
 			if (t->worst_lock_wait_time_us < d)
 				t->worst_lock_wait_time_us = d;
 			t->n_lock_waits++;
+			t->n_locks++;
+			p->n_locks++;
 
 			if (gbl_bb_log_lock_waits_fn) {
 				/* We had to wait on this lock - call our
@@ -2913,18 +2933,10 @@ expired:			obj_ndx = sh_obj->index;
 
 	/* clear waiting status for master_locker */
 	if (sh_locker->master_locker == INVALID_ROFF)
-		master_locker = sh_locker;
+		sh_locker->wstatus = 0;
 	else
-		master_locker = ((DB_LOCKER *)R_ADDR(&lt->reginfo, sh_locker->master_locker));
-
-	if (master_locker->dd_in_wlockers) {
-		lock_detector(region);
-		if (master_locker->dd_in_wlockers) {
-			SH_TAILQ_REMOVE(&region->wlockers, master_locker, wlinks, __db_locker);
-			master_locker->dd_in_wlockers = 0;
-		}
-		unlock_detector(region);
-	}
+		((DB_LOCKER *)R_ADDR(&lt->reginfo,
+			sh_locker->master_locker))->wstatus = 0;
 
 	if (is_pagelock(sh_obj))
 		sh_locker->npagelocks++;
@@ -3796,6 +3808,9 @@ __lock_freefamilylocker(lt, locker)
 		unlock_locker_partition(region, partition);
 		unlock_lockers(region);
 		__db_err(dbenv, "Freeing locker with locks");
+#if defined (DEBUG_PREPARE)
+        abort();
+#endif
 		return EINVAL;
 	}
 
@@ -3840,16 +3855,6 @@ __lock_freelocker(lt, region, sh_locker, indx)
 	SH_TAILQ_INSERT_HEAD(&region->free_lockers[partition], sh_locker, links,
 	    __db_locker);
 	SH_TAILQ_REMOVE(&region->lockers, sh_locker, ulinks, __db_locker);
-
-	if (sh_locker->dd_in_wlockers) {
-		lock_detector(region);
-		if (sh_locker->dd_in_wlockers) {
-			SH_TAILQ_REMOVE(&region->wlockers, sh_locker, wlinks, __db_locker);
-			sh_locker->dd_in_wlockers = 0;
-		}
-		unlock_detector(region);
-	}
-
 	region->stat.st_nlockers--;
 }
 
@@ -4063,7 +4068,7 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 		SH_TAILQ_REMOVE(&region->free_lockers[partition],
 		    sh_locker, links, __db_locker);
 		sh_locker->id = locker;
-		sh_locker->dd_id = -1;
+		sh_locker->dd_id = 0;
 		sh_locker->master_locker = INVALID_ROFF;
 		sh_locker->parent_locker = INVALID_ROFF;
 		SH_LIST_INIT(&sh_locker->child_locker);
@@ -4078,8 +4083,6 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 		sh_locker->num_retries = prop ? prop->retries : 0;
 		if (prop && prop->flags & DB_LOCK_ID_LOWPRI)
 			F_SET(sh_locker, DB_LOCKER_KILLME);
-		sh_locker->dd_gen = 0;
-		sh_locker->dd_in_wlockers = 0;
 #if TEST_DEADLOCKS
 		printf("%p %s:%d lockerid %x setting priority to %d\n",
 		    (void*)pthread_self(), __FILE__, __LINE__, sh_locker->id, sh_locker->priority);
@@ -5694,6 +5697,9 @@ ilock_type_str(int type)
 	}
 }
 
+#include "cdb2_constants.h"
+void form_tablelock_keyname(const char *name, char *keynamebuf, DBT *dbt_out);
+
 static int
 __lock_list_parse_pglogs_int(dbenv, locker, flags, lock_mode, list, maxlsn,
     pglogs, keycnt, get_lock, ret_dp, fp)
@@ -5768,21 +5774,53 @@ __lock_list_parse_pglogs_int(dbenv, locker, flags, lock_mode, list, maxlsn,
 		save_pgno = lock->pgno;
 		obj_dbt.data = dp;
 		obj_dbt.size = size;
+		int first_fid = 1;
 		dp = ((u_int8_t *)dp) + ALIGN(size, sizeof(u_int32_t));
 		do {
 			if (LF_ISSET(LOCK_GET_LIST_GETLOCK)) {
 				uint32_t lflags =
-				    (flags & (~(LOCK_GET_LIST_GETLOCK |
-					    LOCK_GET_LIST_PRINTLOCK)));
+					(flags & (~(LOCK_GET_LIST_GETLOCK |
+						LOCK_GET_LIST_PRINTLOCK | LOCK_GET_LIST_PREPARE)));
 				if (get_lock &&
-				    (ret =
+					(ret =
 					__lock_get_internal(lt, locker,
-					    sh_locker, lflags, &obj_dbt,
-					    lock_mode, 0, &ret_lock)) != 0) {
+						sh_locker, lflags, &obj_dbt,
+						lock_mode, 0, &ret_lock)) != 0) {
 					lock->pgno = save_pgno;
 					goto err;
 				}
+				if (get_lock && LF_ISSET(LOCK_GET_LIST_PREPARE) && obj_dbt.size == 
+					sizeof(struct __db_ilock) && first_fid) {
+					char *filename = NULL;
+					if ((__ufid_to_fname(dbenv, &filename, lock->fileid)) != 0) {
+						/* Maybe ufid logging not enabled? */
+						char fid_str[(DB_FILE_ID_LEN * 2) + 1] = {0};
+						fileid_str(lock->fileid, fid_str);
+						logmsg(LOGMSG_ERROR, "Error resolving btree from ufid %s\n", fid_str);
+					} else {
+						char *start = (char *)&filename[4];
+						char *end = (char *)&filename[strlen(filename) - 1];
+						while (end > start && *end != '\0' && *end != '.') {
+							end--;
+						}
+						end -= 17;
+						if (end <= start) {
+							logmsg(LOGMSG_ERROR, "%s: unrecognized file format for %s\n", __func__, filename);
+							return 0;
+						}
+						char t[MAXTABLELEN + 1] = {0};
+						memcpy(t, start, (end - start));
+						char name[32]; /* TABLELOCK_KEY_SIZE */
+						DBT lk = {0};
+						form_tablelock_keyname(t, name, &lk);
+						if ((ret = __lock_get_internal(lt, locker, sh_locker, lflags, &lk,
+								DB_LOCK_READ, 0, &ret_lock)) != 0) {
+							goto err;
+						}
+					}
+				}
 			}
+			first_fid = 0;
 
 			GET_LSNCOUNT(dp, nlsns);
 			if (LF_ISSET(LOCK_GET_LIST_PRINTLOCK)) {
@@ -5955,31 +5993,63 @@ __lock_get_list_int_int(dbenv, locker, flags, lock_mode, list, pcontext, maxlsn,
 			save_pgno = lock->pgno;
 			obj_dbt.data = dp;
 			obj_dbt.size = size;
+			int first_fid = 1;
 			dp = ((u_int8_t *)dp) + ALIGN(size, sizeof(u_int32_t));
-            /* 
-             * Comdb2 early locking in replication does not support 
-             * handle locks in write mode for opened file.  We rely
-             * on table locks instead.
-             *
-             */
-            if (size == sizeof(DB_LOCK_ILOCK) && 
-                    IS_WRITELOCK(lock_mode) &&
-                    ((DB_LOCK_ILOCK*)obj_dbt.data)->type == DB_HANDLE_LOCK) {
-                continue;
-            }
+			/* 
+			 * Comdb2 early locking in replication does not support 
+			 * handle locks in write mode for opened file.  We rely
+			 * on table locks instead.
+			 *
+			 */
+			if (size == sizeof(DB_LOCK_ILOCK) && 
+					IS_WRITELOCK(lock_mode) &&
+					((DB_LOCK_ILOCK*)obj_dbt.data)->type == DB_HANDLE_LOCK) {
+				continue;
+			}
 			do {
 				if (LF_ISSET(LOCK_GET_LIST_GETLOCK)) {
 					uint32_t lflags =
-					    (flags & (~(LOCK_GET_LIST_GETLOCK |
-						    LOCK_GET_LIST_PRINTLOCK)));
+						(flags & (~(LOCK_GET_LIST_GETLOCK |
+							LOCK_GET_LIST_PRINTLOCK | LOCK_GET_LIST_PREPARE)));
 					if ((ret =
 						__lock_get_internal(lt, locker,
-						    sh_locker, lflags, &obj_dbt,
-						    lock_mode, 0,
-						    &ret_lock)) != 0) {
+							sh_locker, lflags, &obj_dbt,
+							lock_mode, 0,
+							&ret_lock)) != 0) {
 						lock->pgno = save_pgno;
 						goto err;
 					}
+					if (LF_ISSET(LOCK_GET_LIST_PREPARE) && obj_dbt.size == 
+						sizeof(struct __db_ilock) && first_fid) {
+						char *filename = NULL;
+						if ((__ufid_to_fname(dbenv, &filename, lock->fileid)) != 0) {
+							/* Maybe ufid logging not enabled? */
+							char fid_str[(DB_FILE_ID_LEN * 2) + 1] = {0};
+							fileid_str(lock->fileid, fid_str);
+							logmsg(LOGMSG_ERROR, "Error resolving btree from ufid %s\n", fid_str);
+						} else {
+							char *start = (char *)&filename[4];
+							char *end = (char *)&filename[strlen(filename) - 1];
+							while (end > start && *end != '\0' && *end != '.') {
+								end--;
+							}
+							end -= 17;
+							if (end <= start) {
+								logmsg(LOGMSG_ERROR, "%s: unrecognized file format for %s\n", __func__, filename);
+								return 0;
+							}
+							char t[MAXTABLELEN + 1] = {0};
+							memcpy(t, start, (end - start));
+							char name[32]; /* TABLELOCK_KEY_SIZE */
+							DBT lk = {0};
+							form_tablelock_keyname(t, name, &lk);
+							if ((ret = __lock_get_internal(lt, locker, sh_locker, lflags, &lk,
+											DB_LOCK_READ, 0, &ret_lock)) != 0) {
+								goto err;
+							}
+						}
+					}
+					first_fid = 0;
 				}
 				if (LF_ISSET(LOCK_GET_LIST_PRINTLOCK)) {
 					switch(obj_dbt.size) {
@@ -6285,9 +6355,8 @@ __lock_to_dbt(dbenv, lock, dbt)
 	return rc;
 }
 
-
 static int
-__lock_abort_logical_waiters(dbenv, locker, flags)
+__lock_abort_waiters(dbenv, locker, flags)
 	DB_ENV *dbenv;
 	u_int32_t locker;
 	u_int32_t flags;
@@ -6349,7 +6418,7 @@ __lock_abort_logical_waiters(dbenv, locker, flags)
 		lock_obj_partition(region, part);
 
 		/* Abort anything blocked on its rowlocks */
-		if (is_comdb2_rowlock(lockobj->lockobj.size)) {
+		if (!LF_ISSET(DB_LOCK_ABORT_LOGICAL) || is_comdb2_rowlock(lockobj->lockobj.size)) {
 			/* This releases the lockobj */
 			if ((ret = __dd_abort_waiters(dbenv, lockobj)) != 0) {
 				__db_err(dbenv, "Error aborting waiters\n");
@@ -6367,9 +6436,9 @@ err:
 }
 
 
-// PUBLIC: int __lock_abort_logical_waiters_pp __P((DB_ENV *, u_int32_t, u_int32_t));
+// PUBLIC: int __lock_abort_waiters_pp __P((DB_ENV *, u_int32_t, u_int32_t));
 int
-__lock_abort_logical_waiters_pp(dbenv, locker, flags)
+__lock_abort_waiters_pp(dbenv, locker, flags)
 	DB_ENV *dbenv;
 	u_int32_t locker;
 	u_int32_t flags;
@@ -6378,11 +6447,11 @@ __lock_abort_logical_waiters_pp(dbenv, locker, flags)
 
 	PANIC_CHECK(dbenv);
 	ENV_REQUIRES_CONFIG(dbenv,
-	    dbenv->lk_handle, "DB_ENV->lock_abort_logical_waiters",
+	    dbenv->lk_handle, "DB_ENV->lock_abort_waiters",
 	    DB_INIT_LOCK);
 
 	LOCKREGION(dbenv, (DB_LOCKTAB *)dbenv->lk_handle);
-	ret = __lock_abort_logical_waiters(dbenv, locker, flags);
+	ret = __lock_abort_waiters(dbenv, locker, flags);
 	UNLOCKREGION(dbenv, (DB_LOCKTAB *)dbenv->lk_handle);
 	return (ret);
 }

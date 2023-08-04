@@ -605,7 +605,7 @@ static void ssl_accept_evbuffer(int dummyfd, short what, void *arg)
         event_base_once(appdata->base, appdata->fd, EV_READ, ssl_accept_evbuffer, appdata, NULL);
         return;
     case SSL_ERROR_WANT_WRITE:
-        event_base_once(appdata->base, appdata->fd, EV_READ, ssl_accept_evbuffer, appdata, NULL);
+        event_base_once(appdata->base, appdata->fd, EV_WRITE, ssl_accept_evbuffer, appdata, NULL);
         return;
     case SSL_ERROR_SYSCALL:
         logmsg(LOGMSG_ERROR, "%s:%d SSL_do_handshake rc:%d err:%d errno:%d [%s]\n",
@@ -980,6 +980,7 @@ static void newsql_setup_clnt_evbuffer(struct appsock_handler_arg *arg, int admi
     plugin_set_callbacks_newsql(evbuffer);
 
     clnt->admin = admin;
+    clnt->force_readonly = arg->is_readonly;
     appdata->base = arg->base;
     appdata->initial = 1;
     appdata->local = local;

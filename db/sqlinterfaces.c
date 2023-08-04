@@ -761,6 +761,18 @@ static void record_locked_vtable(struct sql_authorizer_state *pAuthState, const 
     if (table != NULL && (strcmp(table, "comdb2_triggers") == 0)) {
         pAuthState->flags |= PREPARE_ACQUIRE_SPLOCK;
     }
+    if (table != NULL && (strncasecmp(table, "comdb2_", 7) == 0)) {
+        table += 7;
+        if (strcasecmp(table, "tables") == 0 ||
+            strcasecmp(table, "columns") == 0 ||
+            strcasecmp(table, "keys") == 0 ||
+            strcasecmp(table, "keycomponents") == 0 ||
+            strcasecmp(table, "timepartitions") == 0 ||
+            strcasecmp(table, "timepartshards") == 0 ||
+            strcasecmp(table, "timepartevents") == 0) {
+            pAuthState->flags |= PREPARE_ACQUIRE_VIEWSLK;
+        }
+    }
     if (vtable_lock && !vtable_search(pAuthState->vTableLocks, pAuthState->numVTableLocks, vtable_lock)) {
         pAuthState->vTableLocks =
             (char **)realloc(pAuthState->vTableLocks, sizeof(char *) * (pAuthState->numVTableLocks + 1));
@@ -2941,7 +2953,7 @@ static void free_normalized_sql(
   }
 }
 
-static void free_original_normalized_sql(
+void free_original_normalized_sql(
   struct sqlclntstate *clnt
 ){
   if (clnt->work.zOrigNormSql) {
@@ -3136,7 +3148,7 @@ static int get_prepared_stmt_int(struct sqlthdstate *thd,
         }
 
         if (rec->stmt) {
-            stmt_set_vlock_tables(rec->stmt, thd->authState.vTableLocks, thd->authState.numVTableLocks);
+            stmt_set_vlock_tables(rec->stmt, thd->authState.vTableLocks, thd->authState.numVTableLocks, thd->authState.flags);
             thd->authState.numVTableLocks = 0;
             thd->authState.vTableLocks = NULL;
         } else {
@@ -4436,6 +4448,15 @@ int done_cb_evbuffer(struct sqlclntstate *clnt)
 
 void signal_clnt_as_done(struct sqlclntstate *clnt)
 {
+    struct sql_thread *thd = (clnt->thd && clnt->thd->sqlthd) ? clnt->thd->sqlthd : NULL;
+
+    /* Clear the client from the sql thread, so that sql-dump won't see it. */
+    if (thd) {
+        Pthread_mutex_lock(&gbl_sql_lock);
+        thd->clnt = NULL;
+        Pthread_mutex_unlock(&gbl_sql_lock);
+    }
+
     if (clnt->done_cb) {
         clnt->done_cb(clnt); /* newsql_done_cb */
     } else {
@@ -4503,16 +4524,13 @@ static void sqlengine_work_lua_thread(void *thddata, void *work)
     debug_close_clnt(clnt);
     signal_clnt_as_done(clnt);
 
-    sql_reset_sqlthread(thd->sqlthd);
-
     thrman_setid(thrman_self(), "[done]");
 }
 
 int gbl_debug_sqlthd_failures;
 int gbl_enable_internal_sql_stmt_caching = 1;
 
-static int execute_verify_indexes(struct sqlthdstate *thd,
-                                  struct sqlclntstate *clnt)
+static int execute_verify_indexes(struct sqlthdstate *thd, struct sqlclntstate *clnt)
 {
     int rc;
     stmt_cache_entry_t *cached_entry = NULL;
@@ -4821,7 +4839,6 @@ void sqlengine_work_appsock(struct sqlthdstate *thd, struct sqlclntstate *clnt)
     clnt_change_state(clnt, CONNECTION_IDLE);
     debug_close_clnt(clnt);
     signal_clnt_as_done(clnt);
-    sql_reset_sqlthread(sqlthd);
 
     thrman_setid(thrman_self(), "[done]");
 }
@@ -4908,6 +4925,12 @@ static int enqueue_sql_query(struct sqlclntstate *clnt)
     clnt->deadlock_recovered = 0;
 
     Pthread_mutex_lock(&clnt_lk);
+    /* Reset clnt->thd: there's no guarantee that this clnt is going to be
+       dispatched to the same sql thread it previously ran under; Also, that
+       thread may not even exist any more (eg aged out), causing
+       reqlog_long_running_clnt() to segfault when reading clnt->thd, which is
+       alloca'd on the stack by the sql thread */
+    clnt->thd = NULL;
     clnt->done = 0;
     if (clnt->statement_timedout)
         fail_dispatch = 1;
@@ -5253,6 +5276,9 @@ void cleanup_clnt(struct sqlclntstate *clnt)
     Pthread_mutex_destroy(&clnt->sql_lk);
 }
 
+int gbl_unexpected_last_type_warn = 1;
+int gbl_unexpected_last_type_abort = 0;
+
 void reset_clnt(struct sqlclntstate *clnt, int initial)
 {
     if (initial) {
@@ -5272,6 +5298,13 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
        clnt->last_reset_time = comdb2_time_epoch();
        clnt_change_state(clnt, CONNECTION_RESET);
        clnt->plugin.set_timeout(clnt, gbl_sqlwrtimeoutms);
+       if (clnt->lastresptype != RESPONSE_TYPE__LAST_ROW && clnt->lastresptype != 0) {
+           if (gbl_unexpected_last_type_warn)
+               logmsg(LOGMSG_ERROR, "Unexpected previous response type %d origin %s task %s\n",
+                      clnt->lastresptype, clnt->origin, clnt->argv0);
+           if (gbl_unexpected_last_type_abort)
+               abort();
+       }
     }
 
     clnt->pPool = NULL; /* REDUNDANT? */
@@ -6172,17 +6205,6 @@ void clnt_change_state(struct sqlclntstate *clnt, enum connection_state state) {
     Pthread_mutex_unlock(&clnt->state_lk);
 }
 
-/* we have to clear
-      - sqlclntstate (key, pointers in Bt, thd)
-      - thd->tran and mode (this is actually done in Commit/Rollback)
- */
-void sql_reset_sqlthread(struct sql_thread *thd)
-{
-    if (thd) {
-        thd->clnt = NULL;
-    }
-}
-
 /**
  * Resets sqlite engine to retrieve the error code
  */
@@ -6370,6 +6392,9 @@ int blockproc2sql_error(int rc, const char *func, int line)
 
     case ERR_CONSTR:
         return CDB2ERR_CONSTRAINTS;
+
+    case ERR_DIST_ABORT:
+        return CDB2ERR_DIST_ABORT;
 
     case ERR_NULL_CONSTRAINT:
         return CDB2ERR_NULL_CONSTRAINT;

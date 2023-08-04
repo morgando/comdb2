@@ -356,6 +356,7 @@ enum RCODES {
     ERR_INDEX_CONFLICT = 330,
     ERR_UNCOMMITABLE_TXN = 404, /* txn is uncommitable, returns ERR_VERIFY
                                    rather than retry */
+    ERR_DIST_ABORT = 430,       /* Prepared txn has been aborted */
     ERR_QUERY_REJECTED = 451,
     ERR_INCOHERENT = 996, /* prox2 understands it should retry another
                              node for 996 */
@@ -507,6 +508,7 @@ struct summary_nodestats {
     char *task;
     char *stack;
     int ref;
+    int is_ssl;
 
     unsigned finds;
     unsigned rngexts;
@@ -982,7 +984,7 @@ struct dbenv {
 extern struct dbenv *thedb;
 extern comdb2_tunables *gbl_tunables;
 
-extern pthread_key_t unique_tag_key;
+extern pthread_key_t thd_info_key;
 extern pthread_key_t query_info_key;
 
 struct req_hdr {
@@ -1378,6 +1380,7 @@ struct ireq {
     uint32_t sc_host;
 
     uint64_t txnsize;
+    uint64_t total_txnsize;
     unsigned long long last_genid;
     uint64_t txn_ttl_ms; /* txn time to live -- abort after this time */
 
@@ -1539,6 +1542,9 @@ typedef struct {
 extern int gbl_sc_timeoutms;
 extern int gbl_trigger_timepart;
 
+extern int64_t gbl_num_auth_allowed;
+extern int64_t gbl_num_auth_denied;
+
 extern const char *const gbl_db_git_version_sha;
 extern const char gbl_db_version[];
 extern const char gbl_db_semver[];
@@ -1565,6 +1571,7 @@ extern int gbl_identity_cache_max;
 extern int gbl_uses_accesscontrol_tableXnode;
 extern char* gbl_foreign_metadb;
 extern char* gbl_foreign_metadb_class;
+extern char* gbl_foreign_metadb_config;
 
 
 extern int gbl_upd_key;
@@ -1701,6 +1708,7 @@ extern uint32_t gbl_nsql;
 extern long long gbl_nsql_steps;
 
 extern unsigned int gbl_nnewsql;
+extern unsigned int gbl_nnewsql_ssl;
 extern long long gbl_nnewsql_steps;
 
 extern unsigned int gbl_masterrejects;
@@ -2383,8 +2391,8 @@ int add_queue_to_environment(char *table, int avgitemsz, int pagesize);
 void stop_threads(struct dbenv *env);
 void resume_threads(struct dbenv *env);
 void replace_db_idx(struct dbtable *p_db, int idx);
-int add_db(struct dbtable *db);
-void delete_db(char *db_name);
+int add_dbtable_to_thedb_dbs(dbtable *table);
+void rem_dbtable_from_thedb_dbs(dbtable *table);
 void hash_sqlalias_db(dbtable *db, const char *newname);
 int rename_db(struct dbtable *db, const char *newname);
 int ix_find_rnum_by_recnum(struct ireq *iq, int recnum_in, int ixnum,
@@ -2618,14 +2626,14 @@ int process_allow_command(char *line, int lline);
 /* blob caching to support find requests */
 int gather_blob_data(struct ireq *iq, const char *tag, blob_status_t *b,
                      const char *to_tag);
-int gather_blob_data_byname(const char *dbname, const char *tag,
+int gather_blob_data_byname(struct dbtable *table, const char *tag,
                             blob_status_t *b, struct schema *pd);
-int check_one_blob_consistency(struct ireq *iq, const char *table,
+int check_one_blob_consistency(struct ireq *iq, struct dbtable *table,
                                const char *tag, blob_status_t *b, void *record,
                                int blob_index, int cblob, struct schema *pd);
-int check_blob_consistency(struct ireq *iq, const char *table, const char *tag,
+int check_blob_consistency(struct ireq *iq, struct dbtable *table, const char *tag,
                            blob_status_t *b, const void *record);
-int check_and_repair_blob_consistency(struct ireq *iq, const char *table,
+int check_and_repair_blob_consistency(struct ireq *iq, struct dbtable *table,
                                       const char *tag, blob_status_t *b,
                                       const void *record);
 void free_blob_status_data(blob_status_t *b);
@@ -2645,7 +2653,7 @@ int getdefaultkeysize(const struct dbtable *tbl, int ixnum);
 int getdefaultdatsize(const struct dbtable *tbl);
 int update_sqlite_stats(struct ireq *iq, void *trans, void *dta);
 void *do_verify(void *);
-void dump_tagged_buf(const char *table, const char *tag,
+void dump_tagged_buf(struct dbtable *table, const char *tag,
                      const unsigned char *buf);
 int ix_find_by_rrn_and_genid_get_curgenid(struct ireq *iq, int rrn,
                                           unsigned long long genid,
@@ -2895,7 +2903,7 @@ void nodestats_report(FILE *fh, const char *prefix, int disp_rates);
 void nodestats_node_report(FILE *fh, const char *prefix, int disp_rates,
                            char *host);
 struct rawnodestats *get_raw_node_stats(const char *task, const char *stack,
-                                        char *host, int fd);
+                                        char *host, int fd, int is_ssl);
 int release_node_stats(const char *task, const char *stack, char *host);
 struct summary_nodestats *get_nodestats_summary(unsigned *nodes_cnt,
                                                 int disp_rates);

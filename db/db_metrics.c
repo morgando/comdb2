@@ -53,6 +53,7 @@ struct comdb2_metrics_store {
     int64_t retries;
     int64_t sql_cost;
     int64_t sql_count;
+    int64_t sql_ssl_count;
     int64_t start_time;
     int64_t threads;
     int64_t current_connections;
@@ -102,6 +103,8 @@ struct comdb2_metrics_store {
     int64_t nsslpartialhandshakes;
     double weighted_queue_depth;
     int64_t weighted_standing_queue_time;
+    int64_t auth_allowed;
+    int64_t auth_denied;
 };
 
 static struct comdb2_metrics_store stats;
@@ -129,9 +132,11 @@ comdb2_metric gbl_metrics[] = {
      STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.connections, NULL},
     {"connection_timeouts", "Timed out connection attempts", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.connection_timeouts, NULL},
-    {"connection_to_sql_ratio", "Ratio of total number of connections to sql "
-     "(and nonsql) request counts", STATISTIC_DOUBLE,
-     STATISTIC_COLLECTION_TYPE_LATEST, &stats.connection_to_sql_ratio, NULL},
+    {"connection_to_sql_ratio",
+     "Ratio of total number of connections to sql "
+     "(and nonsql) request counts",
+     STATISTIC_DOUBLE, STATISTIC_COLLECTION_TYPE_LATEST,
+     &stats.connection_to_sql_ratio, NULL},
     {"cpu_percent", "Database CPU time over last 5 seconds", STATISTIC_DOUBLE,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.cpu_percent, NULL},
     {"current_connections", "Number of current connections", STATISTIC_INTEGER,
@@ -170,6 +175,8 @@ comdb2_metric gbl_metrics[] = {
      STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.sql_cost, NULL},
     {"sql_count", "Number of sql queries executed", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.sql_count, NULL},
+    {"sql_ssl_count", "Number of sql queries executed, via SSL", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.sql_ssl_count, NULL},
     {"start_time", "Server start time", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.start_time, NULL},
     {"threads", "Number of threads", STATISTIC_INTEGER,
@@ -250,9 +257,8 @@ comdb2_metric gbl_metrics[] = {
     {"standing_queue_time", "How long the database has had a standing queue",
      STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_LATEST,
      &stats.standing_queue_time, NULL},
-    {"nonsql", "Number of non-sql requests (eg: tagged)", 
-     STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_CUMULATIVE,
-     &stats.nonsql, NULL},
+    {"nonsql", "Number of non-sql requests (eg: tagged)", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.nonsql, NULL},
 #if 0
     {"minimum_truncation_file", "Minimum truncation file", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.minimum_truncation_file, NULL},
@@ -264,20 +270,27 @@ comdb2_metric gbl_metrics[] = {
      &stats.minimum_truncation_timestamp, NULL},
 #endif
     {"reprepares", "Number of times statements are reprepared by sqlitex",
-      STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.reprepares,
-      NULL},
-    {"verify_replays", "Number of replays on verify errors",
-      STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.vreplays,
-      NULL},
+     STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.reprepares,
+     NULL},
+    {"verify_replays", "Number of replays on verify errors", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.vreplays, NULL},
     {"nsslfullhandshakes", "Number of SSL full handshakes", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.nsslfullhandshakes, NULL},
-    {"nsslpartialhandshakes", "Number of SSL partial handshakes", STATISTIC_INTEGER,
-     STATISTIC_COLLECTION_TYPE_CUMULATIVE, &stats.nsslpartialhandshakes, NULL},
+    {"nsslpartialhandshakes", "Number of SSL partial handshakes",
+     STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_CUMULATIVE,
+     &stats.nsslpartialhandshakes, NULL},
     {"weighted_queue_depth", "Weighted queue depth", STATISTIC_DOUBLE,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.weighted_queue_depth, NULL},
-    {"weighted_standing_queue_time", "How long the database has had a weighted standing queue",
+    {"weighted_standing_queue_time",
+     "How long the database has had a weighted standing queue",
      STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_LATEST,
      &stats.weighted_standing_queue_time, NULL},
+    {"auth_allowed", "Number of successful authentication requests",
+     STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_LATEST, &stats.auth_allowed,
+     NULL},
+    {"auth_denied", "Number of failed authentication requests",
+     STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_LATEST, &stats.auth_denied,
+     NULL},
 };
 
 const char *metric_collection_type_string(comdb2_collection_type t) {
@@ -409,6 +422,7 @@ int refresh_metrics(void)
     stats.retries = n_retries;
     stats.sql_cost = gbl_nsql_steps + gbl_nnewsql_steps;
     stats.sql_count = gbl_nsql + gbl_nnewsql;
+    stats.sql_ssl_count = gbl_nnewsql_ssl;
     stats.current_connections = net_get_num_current_non_appsock_accepts(thedb->handle_sibling) + active_appsock_conns;
 
     rc = bdb_get_lock_counters(thedb->bdb_env, &stats.deadlocks,
@@ -564,6 +578,8 @@ int refresh_metrics(void)
     stats.vreplays = gbl_verify_tran_replays;
     stats.nsslfullhandshakes = gbl_ssl_num_full_handshakes;
     stats.nsslpartialhandshakes = gbl_ssl_num_partial_handshakes;
+    stats.auth_allowed = gbl_num_auth_allowed;
+    stats.auth_denied = gbl_num_auth_denied;
     curtran_puttran(trans);
 
     return 0;

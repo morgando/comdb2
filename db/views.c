@@ -792,12 +792,16 @@ static int _generate_new_shard_name(const char *oldname, char *newname,
         /* get the length of the number sufix */
         suffix_len = _shard_suffix_str_len(maxshards);
 
-        snprintf(newname, newnamelen, "%s%.*d", oldname, suffix_len, nextnum);
+        if (snprintf(newname, newnamelen, "%s%.*d", oldname, suffix_len, nextnum) >= newnamelen) {
+            return VIEW_ERR_GENERIC;
+        }
     } else {
         char hash[128];
         len = snprintf(hash, sizeof(hash), "%u%s", nextnum, oldname);
         len = crc32c((uint8_t *)hash, len);
-        snprintf(newname, newnamelen, "$%u_%X", nextnum, len);
+        if (snprintf(newname, newnamelen, "$%u_%X", nextnum, len) >= newnamelen) {
+            return VIEW_ERR_GENERIC;
+        }
     }
     newname[newnamelen - 1] = '\0';
 

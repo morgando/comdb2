@@ -104,8 +104,10 @@
 #include <bdb_queuedb.h>
 #include <schema_lk.h>
 #include <tohex.h>
-#include <phys_rep_lsn.h>
 #include <timer_util.h>
+
+#include <phys_rep.h>
+#include <phys_rep_lsn.h>
 
 extern int gbl_bdblock_debug;
 extern int gbl_keycompr;
@@ -1641,6 +1643,9 @@ static int bdb_close_int(bdb_state_type *bdb_state, int envonly)
     /* force a checkpoint */
     rc = ll_checkpoint(bdb_state, 1);
 
+    /* discard recovered prepares */
+    bdb_state->dbenv->txn_discard_all_recovered(bdb_state->dbenv);
+
     /* if we were passed a child, find his parent */
     if (bdb_state->parent)
         bdb_state = bdb_state->parent;
@@ -2165,34 +2170,63 @@ static void bdb_appsock(netinfo_type *netinfo, SBUF2 *sb)
         (bdb_state->callback->appsock_rtn)(bdb_state, sb);
 }
 
+extern int gbl_pstack_self;
+void pstack_self(void)
+{
+    if (!gbl_pstack_self)
+        return;
+
+    char cmd[256];
+    char output[20] = "/tmp/pstack.XXXXXX";
+    int fd = mkstemp(output);
+    if (fd == -1) {
+        logmsg(LOGMSG_ERROR, "%s: open(%s) err:%s\n", __func__, output, strerror(errno));
+        return;
+    }
+    pid_t pid = getpid();
+#   if defined(COMDB2_BBCMAKE) && defined(_LINUX_SOURCE)
+    snprintf(cmd, sizeof(cmd), "/opt/bbinfra/bin/pstack %d > %s", pid, output);
+#   else
+    snprintf(cmd, sizeof(cmd), "pstack %d > %s", pid, output);
+#   endif
+    errno = 0;
+    int rc = system(cmd);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s:%d system(\"%s\") failed (rc = %d)\n", __func__, __LINE__, cmd, rc);
+        close(fd);
+        unlink(output);
+        return;
+    }
+
+    FILE *out = fdopen(fd, "r");
+    if (!out) {
+        logmsg(LOGMSG_ERROR, "%s: open(%s) err:%s\n", __func__, cmd, strerror(errno));
+        close(fd);
+        unlink(output);
+        return;
+    }
+    int old = gbl_logmsg_ctrace;
+    gbl_logmsg_ctrace = 1;
+    char line[LINE_MAX];
+    while (fgets(line, sizeof(line), out) == line) {
+        logmsg(LOGMSG_USER, "%s", line);
+    }
+    gbl_logmsg_ctrace = old;
+    fclose(out);
+    unlink(output);
+}
+
 static void panic_func(DB_ENV *dbenv, int errval)
 {
-    bdb_state_type *bdb_state;
-    char buf[100];
-    int len;
-    pid_t pid;
-
-    /* get a pointer back to our bdb_state */
-    bdb_state = (bdb_state_type *)dbenv->app_private;
-
-    if (bdb_state->parent)
-        bdb_state = bdb_state->parent;
+    bdb_state_type *bdb_state = dbenv->app_private;
+    if (bdb_state->parent) bdb_state = bdb_state->parent;
 
     Pthread_mutex_lock(&(bdb_state->exit_lock));
 
-    logmsg(LOGMSG_FATAL, "PANIC: comdb2 shutting down (first pstack).  error %d\n",
-            errval);
+    pstack_self();
+    logmsg(LOGMSG_FATAL, "PANIC: comdb2 shutting down error:%d\n", errval);
 
-    pid = getpid();
-    snprintf(buf, sizeof(buf), "pstack %d", pid);
-    int lrc = system(buf);
-    if (lrc) {
-        logmsg(LOGMSG_ERROR, "ERROR: %s:%d system() returns rc = %d\n",
-               __FILE__,__LINE__, lrc);
-    }
-
-    /* this code sometimes deadlocks.  install a timer - if it
-       fires, we
+    /* this code sometimes deadlocks.  install a timer - if it fires, we
        abort.  We don't lose much since we are about to exit anyway. */
     signal(SIGALRM, SIG_DFL);
     alarm(15);
@@ -2200,17 +2234,14 @@ static void panic_func(DB_ENV *dbenv, int errval)
     /* Take a full diagnostic snapshot.  Disable the panic logic for this
      * to work. */
     if (bdb_state->attr->panic_fulldiag) {
-        len = snprintf(buf, sizeof(buf), "f %s/panic_full_diag fulldiag",
-                       bdb_state->dir);
-        logmsg(LOGMSG_FATAL, "PANIC: running bdb '%s' command to grab diagnostics\n",
-                buf);
+        char buf[100];
+        int len = snprintf(buf, sizeof(buf), "f %s/panic_full_diag fulldiag", bdb_state->dir);
+        logmsg(LOGMSG_FATAL, "PANIC: running bdb '%s' command to grab diagnostics\n", buf);
         dbenv->set_flags(dbenv, DB_NOPANIC, 1);
         bdb_process_user_command(bdb_state, buf, len, 0);
         dbenv->set_flags(dbenv, DB_NOPANIC, 0);
     }
-
     alarm(0);
-
     abort();
 }
 
@@ -3562,6 +3593,8 @@ static void delete_log_files_int(bdb_state_type *bdb_state)
             }
         }
     }
+
+    physrep_update_low_file_num(&lowfilenum, &local_lowfilenum);
 
     /* debug: print filenums from other nodes */
 
@@ -5040,7 +5073,7 @@ void bdb_setmaster(bdb_state_type *bdb_state, char *host)
     whoismaster_rtn(bdb_state, 0);
 }
 
-static inline void bdb_set_read_only(bdb_state_type *bdb_state)
+void bdb_set_read_only(bdb_state_type *bdb_state)
 {
     bdb_state_type *child;
     int i;
@@ -5251,11 +5284,53 @@ enum { UPGRADE = 1, DOWNGRADE = 2, DOWNGRADE_NOELECT = 3, REOPEN = 4 };
 void *dummy_add_thread(void *arg);
 void bdb_all_incoherent(bdb_state_type *bdb_state);
 
+struct bdblock_state {
+    bdb_state_type *bdb_state;
+    pthread_mutex_t lk;
+};
+
+static void *bdb_abort_prepared_thd(void *arg)
+{
+    struct bdblock_state *b = (struct bdblock_state *)arg;
+    bdb_state_type *bdb_state = (bdb_state_type *)b->bdb_state;
+
+    /* Stop when we can acquire mutex */
+    while (pthread_mutex_trylock(&b->lk) != 0) {
+        if (bdb_lock_desired(bdb_state)) {
+            logmsg(LOGMSG_INFO, "%s aborting waiters on prepared txns\n", __func__);
+            bdb_state->dbenv->txn_abort_prepared_waiters(bdb_state->dbenv);
+        }
+        poll(0, 0, 100);
+    }
+    free(b);
+    return NULL;
+}
+
+/* Unresolved prepared transactions hold locks.  Other transactions can block on
+ * these locks.  We've been asked to downgrade, so we need to cancel these
+ * blocked transactions so that we can acquire the bdb-lock.
+ *
+ * TODO: think about how to downgrade normal prepared-transactions on the master */
+static struct bdblock_state *abort_prepared_waiters(bdb_state_type *bdb_state)
+{
+    struct bdblock_state *b = calloc(sizeof(struct bdblock_state), 1);
+    b->bdb_state = bdb_state;
+    Pthread_mutex_init(&b->lk, 0);
+    Pthread_mutex_lock(&b->lk);
+    pthread_t abort_prepared_td;
+    pthread_attr_t thd_attr;
+    Pthread_attr_init(&thd_attr);
+    Pthread_attr_setdetachstate(&thd_attr, PTHREAD_CREATE_DETACHED);
+    Pthread_create(&abort_prepared_td, &thd_attr, bdb_abort_prepared_thd, b);
+    return b;
+}
+
 static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
                                              int timeout, uint32_t newgen,
                                              int *done)
 {
     int rc = 0;
+    struct bdblock_state *lockstate = NULL;
     char *lock_str;
 
     if (done) {
@@ -5268,6 +5343,10 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
     }
 
     watchdog_set_alarm(timeout);
+
+    if (op == DOWNGRADE || op == DOWNGRADE_NOELECT) {
+        lockstate = abort_prepared_waiters(bdb_state);
+    }
 
     switch (op) {
     case DOWNGRADE:
@@ -5302,6 +5381,9 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
         logmsg(LOGMSG_FATAL, "%s unhandled %d\n", __func__, op);
         exit(1);
         break;
+    }
+    if (lockstate) {
+        Pthread_mutex_unlock(&lockstate->lk);
     }
 
     /* if we were passed a child, find his parent */

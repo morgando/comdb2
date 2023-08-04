@@ -77,7 +77,7 @@ static int reload_rename_table_alias(tran_type *tran, const char *name,
     return 0;
 }
 
-static int reload_stripe_info(tran_type *tran, uint8_t lid)
+static int reload_stripe_info(tran_type *tran, uint32_t lid)
 {
     int rc;
     int bdberr = 0;
@@ -288,7 +288,7 @@ int live_sc_post_update_delayed_key_adds_int(struct ireq *iq, void *trans,
         return 1;
     }
     struct convert_failure reason;
-    rc = stag_to_stag_buf_blobs(usedb->sc_to->tablename, ".ONDISK", od_dta,
+    rc = stag_to_stag_buf_blobs(usedb->sc_to, ".ONDISK", od_dta,
                                 ".NEW..ONDISK", new_dta, &reason, add_idx_blobs,
                                 add_idx_blobs ? MAXBLOBS : 0, 1);
     if (rc) {
@@ -360,7 +360,7 @@ int live_sc_post_add_record(struct ireq *iq, void *trans,
         return 1;
     }
     struct convert_failure reason;
-    rc = stag_to_stag_buf_blobs(usedb->sc_to->tablename, ".ONDISK",
+    rc = stag_to_stag_buf_blobs(usedb->sc_to, ".ONDISK",
                                 (const char *)od_dta, ".NEW..ONDISK", new_dta,
                                 &reason, blobs, maxblobs, 1);
     if (rc) {
@@ -580,7 +580,7 @@ static int delete_table_rep(char *table, void *tran)
         return -1;
     }
 
-    delete_db(table);
+    rem_dbtable_from_thedb_dbs(db);
     MEMORY_SYNC;
     delete_schema(table);
     return 0;
@@ -772,24 +772,19 @@ static int scdone_add(const char tablename[], void *arg, scdone_t type)
     logmsg(LOGMSG_INFO, "Replicant adding table:%s\n", tablename);
 
     rc = add_table_to_environment(table_copy, csc2text, NULL, NULL, tran,
-                                  timepart_is_next_shard(table_copy, NULL));
+                                  timepart_is_next_shard(table_copy, NULL), &db);
     if (rc) {
         logmsg(LOGMSG_FATAL, "%s: error adding table %s.\n", __func__,
                tablename);
         exit(1);
     }
 
+    add_dbtable_to_thedb_dbs(db);
+
     _master_recs(tran, tablename, type);
 
     free(table_copy);
     free(csc2text);
-
-    db = get_dbtable_by_name(tablename);
-    if (!db) {
-        logmsg(LOGMSG_FATAL, "%s: could not find newly created db: %s.\n",
-               __func__, tablename);
-        exit(1);
-    }
 
     set_odh_options_tran(db, tran);
     db->tableversion = table_version_select(db, tran);
@@ -799,7 +794,7 @@ static int scdone_add(const char tablename[], void *arg, scdone_t type)
         struct schema *ver_one;
         char tag[MAXTAGLEN];
 
-        ondisk_schema = find_tag_schema(db->tablename, ".ONDISK");
+        ondisk_schema = find_tag_schema(db, ".ONDISK");
         if (NULL == ondisk_schema) {
             logmsg(LOGMSG_FATAL, ".ONDISK not found in %s! PANIC!!\n",
                    db->tablename);

@@ -1,5 +1,5 @@
 /*
-   Copyright 2015, 2017, Bloomberg Finance L.P.
+   Copyright 2015, 2023, Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -62,6 +62,8 @@ extern int __berkdb_read_alarm_ms;
 #include "comdb2_ruleset.h"
 #include "osqluprec.h"
 #include "schemachange.h"
+#include "reverse_conn.h"
+#include "phys_rep.h"
 
 extern struct ruleset *gbl_ruleset;
 extern int gbl_exit_alarm_sec;
@@ -602,6 +604,8 @@ void *clean_exit_thd(void *unused)
     if (!gbl_ready)
         return NULL;
 
+    physrep_cleanup();
+
     Pthread_mutex_lock(&exiting_lock);
     if (gbl_exit) {
         Pthread_mutex_unlock(&exiting_lock);
@@ -815,6 +819,10 @@ clipper_usage:
         bdb_transfermaster(dbenv->static_table.handle);
     } else if (tokcmp(tok, ltok, "losemaster") == 0) {
         bdb_losemaster(dbenv->static_table.handle);
+    } else if (tokcmp(tok, ltok, "forceelect") == 0) {
+        call_for_election(thedb->bdb_env, __func__, __LINE__);
+    } else if (tokcmp(tok, ltok, "thedbmaster") == 0) {
+        logmsg(LOGMSG_USER, "%s\n", thedb->master);
     } else if (tokcmp(tok, ltok, "upgrade") == 0) {
         char *newmaster = 0;
         tok = segtok(line, lline, &st, &ltok);
@@ -860,8 +868,7 @@ clipper_usage:
         delete_log_files(thedb->bdb_env);
     } else if (tokcmp(tok, ltok, "pushnext") == 0) {
         push_next_log();
-    }
-    else if (tokcmp(tok, ltok, "netpoll") == 0) {
+    } else if (tokcmp(tok, ltok, "netpoll") == 0) {
         int pval;
         tok = segtok(line, lline, &st, &ltok);
         pval = toknum(tok, ltok);
@@ -1690,6 +1697,8 @@ clipper_usage:
             thdpool_print_stats(stdout, gbl_osqlpfault_thdpool);
             thdpool_print_stats(stdout, gbl_udppfault_thdpool);
             thdpool_print_stats(stdout, gbl_pgcompact_thdpool);
+        } else if (tokcmp(tok, ltok, "dumprevsql") == 0) {
+            dump_reverse_connection_host_list();
         } else if (tokcmp(tok, ltok, "dumpsql") == 0) {
             sql_dump_running_statements();
         } else if (tokcmp(tok, ltok, "rep") == 0) {
@@ -1830,6 +1839,7 @@ clipper_usage:
             logmsg(LOGMSG_USER, "readonly                %c\n", gbl_readonly ? 'Y' : 'N');
             logmsg(LOGMSG_USER, "num sql queries         %u\n", gbl_nsql);
             logmsg(LOGMSG_USER, "num new sql queries     %u\n", gbl_nnewsql);
+            logmsg(LOGMSG_USER, "num ssl sql queries     %u\n", gbl_nnewsql_ssl);
             logmsg(LOGMSG_USER, "num master rejects      %u\n",
                    gbl_masterrejects);
             logmsg(LOGMSG_USER, "sql ticks               %llu\n", gbl_sqltick);
@@ -3245,6 +3255,24 @@ clipper_usage:
             thdpool_process_message(gbl_verify_thdpool, line, lline, st);
         else
             logmsg(LOGMSG_WARN, "verifypool is not initialized\n");
+    } else if (tokcmp(tok, ltok, "disttxn") == 0) {
+        char dist_txnid[128] = {0};
+        int found = 0;
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok > 0) {
+            memcpy(dist_txnid, tok, ltok < sizeof(dist_txnid) ? ltok : sizeof(dist_txnid) - 1);
+            found = 1;
+        }
+        tok = segtok(line, lline, &st, &ltok);
+        if ((tokcmp(tok, ltok, "commit") == 0) && found) {
+            dbenv->bdb_env->dbenv->txn_commit_recovered(dbenv->bdb_env->dbenv, dist_txnid);
+        } else if ((tokcmp(tok, ltok, "abort") == 0) && found) {
+            dbenv->bdb_env->dbenv->txn_abort_recovered(dbenv->bdb_env->dbenv, dist_txnid);
+        } else if ((tokcmp(tok, ltok, "discard") == 0) && found) {
+            dbenv->bdb_env->dbenv->txn_discard_recovered(dbenv->bdb_env->dbenv, dist_txnid);
+        } else {
+            logmsg(LOGMSG_ERROR, "Expected <dist-txnid> 'commit', 'abort', or 'discard'\n");
+        }
     } else if (tokcmp(tok, ltok, "oldestgenids") == 0) {
         int i, stripe;
         void *buf = malloc(64 * 1024);
@@ -4929,6 +4957,28 @@ clipper_usage:
             Pthread_mutex_unlock(&testguard);
         } else if (tokcmp(tok, ltok, "bad_osql") == 0) {
             osql_send_test();
+        } else if (tokcmp(tok, ltok, "reversesql") == 0) {
+            char *dbname;
+            char *host;
+            char *query;
+
+            tok = segtok(line, lline, &st, &ltok);
+            if (ltok == 0) {
+                logmsg(LOGMSG_ERROR, "Need database name and host\n");
+                return -1;
+            }
+            dbname = tokdup(tok, ltok);
+
+            tok = segtok(line, lline, &st, &ltok);
+            if (ltok == 0) {
+                logmsg(LOGMSG_ERROR, "Need database name and host\n");
+                return -1;
+            }
+            host = tokdup(tok, ltok);
+
+            query = tok+ltok;
+
+            send_reversesql_request(dbname, host, query);
         } else if (tokcmp(tok, ltok, "rep") == 0) { // was testrep
             int nitems;
             int size;

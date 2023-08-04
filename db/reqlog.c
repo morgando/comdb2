@@ -1602,11 +1602,12 @@ static void log_header_ll(struct reqlogger *logger, struct output *out,
     if (logger->iq) {
         struct ireq *iq = logger->iq;
         if (iq->reptimems > 0) {
-            uint64_t rate = iq->txnsize / iq->reptimems;
+            uint64_t rate = iq->total_txnsize / iq->reptimems;
 
-            dumpf(logger, out,
-                  "  Committed %llu log bytes in %d ms rep time (%llu bytes/ms)\n",
-                  iq->txnsize, iq->reptimems, rate);
+            dumpf(logger, out, "  Wrote %llu log bytes in %d ms rep time (%llu bytes/ms)\n", iq->txnsize, iq->reptimems,
+                  rate);
+        } else {
+            dumpf(logger, out, "  Wrote %llu log bytes\n", iq->total_txnsize);
         }
 
         dumpf(logger, out, " nretries %d reply len %td\n", iq->retries,
@@ -2499,7 +2500,7 @@ static int release_clientstats(unsigned checksum, int node)
 }
 
 struct rawnodestats *get_raw_node_stats(const char *task, const char *stack,
-                                        char *host, int fd)
+                                        char *host, int fd, int is_ssl)
 {
     struct nodestats *nodestats = NULL;
     unsigned checksum;
@@ -2534,6 +2535,11 @@ struct rawnodestats *get_raw_node_stats(const char *task, const char *stack,
                 __func__, task, stack, node);
         }
     }
+
+    /* The same task name from the same node may switch from plaintext to SSL
+     * on a config change; it may also fall back from SSL to plaintext, on an SSL
+     * error. Always get its latest SSL status from clnt. */
+    nodestats->is_ssl = is_ssl;
 
     if (tmp && namelen >= 1024)
         free(tmp);
@@ -2741,6 +2747,7 @@ struct summary_nodestats *get_nodestats_summary(unsigned *nodes_cnt,
                                   ? strdup(nodestats->stack)
                                   : NULL;
         summaries[ii].ref = nodestats->ref;
+        summaries[ii].is_ssl = nodestats->is_ssl;
 
         summaries[ii].sql_queries = snap.sql_queries;
         summaries[ii].sql_steps = snap.sql_steps;

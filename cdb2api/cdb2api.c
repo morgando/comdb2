@@ -1,5 +1,5 @@
 /*
-   Copyright 2015, 2017, Bloomberg Finance L.P.
+   Copyright 2015, 2023, Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -166,6 +166,8 @@ static int _PID; /* ONE-TIME */
 static int _MACHINE_ID; /* ONE-TIME */
 static char *_ARGV0; /* ONE-TIME */
 
+static int iam_identity = 0;
+
 #define DB_TZNAME_DEFAULT "America/New_York"
 
 #define MAX_NODES 128
@@ -238,6 +240,12 @@ void (*cdb2_install)(void) = CDB2_INSTALL_LIBS;
 extern void CDB2_UNINSTALL_LIBS(void);
 #endif
 void (*cdb2_uninstall)(void) = CDB2_UNINSTALL_LIBS;
+
+#ifndef CDB2_IDENTITY_CALLBACKS
+    struct cdb2_identity *identity_cb = NULL;
+#else
+    struct cdb2_identity *identity_cb = CDB2_IDENTITY_CALLBACKS;
+#endif
 
 #ifndef WITH_DL_LIBS
 #define WITH_DL_LIBS 0
@@ -400,6 +408,19 @@ static char *ibm_getargv0(void)
 #define SQLCACHEHINT "/*+ RUNCOMDB2SQL "
 #define SQLCACHEHINTLENGTH 17
 
+static int value_on_off(const char *value) {
+    if (strcasecmp("on", value) == 0) {
+        return 1;
+    } else if (strcasecmp("off", value) == 0) {
+        return 0;
+    } else if (strcasecmp("no", value) == 0) {
+        return 0;
+    } else if (strcasecmp("yes", value) == 0) {
+        return 1;
+    }
+    return atoi(value);
+}
+
 static inline const char *cdb2_skipws(const char *str)
 {
     while (*str && isspace(*str))
@@ -421,8 +442,45 @@ char *cdb2_getargv0(void)
 #endif
 }
 
+static void atfork_prepare(void) {
+    pthread_mutex_lock(&cdb2_sockpool_mutex);
+    if (identity_cb)
+        identity_cb->resetIdentity_start();
+}
+
+static void atfork_me(void) {
+    if (identity_cb)
+        identity_cb->resetIdentity_end(1);
+    pthread_mutex_unlock(&cdb2_sockpool_mutex);
+}
+
+static void sockpool_close_all(void);
+static void atfork_child(void) {
+    sockpool_close_all();
+    _PID = getpid();
+    if (identity_cb)
+        identity_cb->resetIdentity_end(0);
+    pthread_mutex_unlock(&cdb2_sockpool_mutex);
+}
+
+static int init_once_has_run = 0;
+
 static void do_init_once(void)
 {
+    static pthread_mutex_t lk = PTHREAD_MUTEX_INITIALIZER;
+    if (init_once_has_run == 0) {
+        pthread_mutex_lock(&lk);
+        if (!init_once_has_run) {
+            srandom(time(0));
+            _PID = getpid();
+            _MACHINE_ID = gethostid();
+            _ARGV0 = cdb2_getargv0();
+            pthread_atfork(atfork_prepare, atfork_me, atfork_child);
+            init_once_has_run = 1;
+        }
+        pthread_mutex_unlock(&lk);
+    }
+
     char *do_log = getenv("CDB2_LOG_CALLS");
     if (do_log)
         log_calls = 1;
@@ -431,9 +489,6 @@ static void do_init_once(void)
         /* can't call back cdb2_set_comdb2db_config from do_init_once */
         strncpy(CDB2DBCONFIG_NOBBENV, config, 511);
     }
-    _PID = getpid();
-    _MACHINE_ID = gethostid();
-    _ARGV0 = cdb2_getargv0();
 }
 
 /* if sqlstr is a read stmt will return 1 otherwise return 0
@@ -1286,6 +1341,13 @@ static void read_comdb2db_cfg(cdb2_hndl_tp *hndl, SBUF2 *s, const char *comdb2db
                 tok = strtok_r(NULL, " :,", &last);
                 (*num_db_hosts)++;
             }
+        } else if (strcasecmp("comdb2_feature", tok) == 0) {
+            tok = strtok_r(NULL, " =:,", &last);
+            if ((strcasecmp("iam_identity_v6",tok) == 0)) {
+                tok = strtok_r(NULL, " =:,", &last);
+                if (tok)
+                    iam_identity = value_on_off(tok);
+            }
         } else if (strcasecmp("comdb2_config", tok) == 0) {
             tok = strtok_r(NULL, " =:,", &last);
             if (tok == NULL) continue;
@@ -1883,6 +1945,18 @@ static void sockpool_remove_fd(int fd)
     }
 }
 
+static void sockpool_close_all(void)
+{
+    for (int i = 0; i < sockpool_fd_count; i++) {
+        struct sockpool_fd_list *sp = &sockpool_fds[i];
+        if (sp->sockpool_fd != -1) {
+            close(sp->sockpool_fd);
+            sp->sockpool_fd = -1;
+            sp->in_use = 0;
+        }
+    }
+}
+
 // cdb2_socket_pool_get_ll: low-level
 static int cdb2_socket_pool_get_ll(const char *typestr, int dbnum, int *port)
 {
@@ -2181,10 +2255,12 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb)
 
     /* The node does not agree with dbinfo. This usually happens
        during the downgrade from SSL to non-SSL. */
-    if (rc == 'N') {
+    if (rc != 'Y') {
         if (SSL_IS_OPTIONAL(hndl->c_sslmode)) {
             hndl->c_sslmode = SSL_ALLOW;
-            return 0;
+            /* if server sends back 'N', reuse this plaintext connection;
+               force reconnecting for an unexpected byte */
+            return (rc == 'N') ? 0 : -1;
         }
 
         /* We reach here only if the server is mistakenly downgraded
@@ -2275,6 +2351,61 @@ static void get_host_and_port_from_fd(int fd, char *buf, size_t n, int *port)
         if (getnameinfo((struct sockaddr *)&addr, addr_size, buf, n, NULL, 0, NI_NOFQDN))
             buf[0] = '\0';
     }
+}
+
+static int newsql_connect_via_fd(cdb2_hndl_tp *hndl)
+{
+    int fd = -1;
+    int rc = 0;
+    SBUF2 *sb = NULL;
+    void *callbackrc;
+    int overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    /* Handle BEFRE_NEWSQL_CONNECT callbacks */
+    while ((e = cdb2_next_callback(hndl, CDB2_BEFORE_NEWSQL_CONNECT, e)) != NULL) {
+        callbackrc = cdb2_invoke_callback(hndl, e, 2, CDB2_HOSTNAME, NULL, CDB2_PORT, -1);
+        PROCESS_EVENT_CTRL_BEFORE(hndl, e, rc, callbackrc, overwrite_rc);
+    }
+    if (overwrite_rc)
+        goto after_callback;
+
+    char *endptr;
+    fd = strtol(hndl->type, &endptr, 10);
+    if ((errno == ERANGE && (fd == LONG_MAX || fd == LONG_MIN))
+        || (errno != 0 && fd == 0)) {
+        debugprint("ERROR: %s:%d invalid fd", __func__, __LINE__);
+    } else {
+        if ((sb = sbuf2open(fd, 0)) == 0) {
+            close(fd);
+            rc = -1;
+            goto after_callback;
+        }
+        sbuf2printf(sb, hndl->is_admin ? "@newsql\n" : "newsql\n");
+        sbuf2flush(sb);
+    }
+
+    sbuf2settimeout(sb, hndl->socket_timeout, hndl->socket_timeout);
+
+    if (try_ssl(hndl, sb) != 0) {
+        sbuf2close(sb);
+        rc = -1;
+        goto after_callback;
+    }
+
+    hndl->sb = sb;
+    hndl->num_set_commands_sent = 0;
+    hndl->sent_client_info = 0;
+    hndl->connected_host = 0;
+    hndl->hosts_connected[hndl->connected_host] = 1;
+    debugprint("connected_host=%s\n", hndl->hosts[hndl->connected_host]);
+
+after_callback:
+    while ((e = cdb2_next_callback(hndl, CDB2_AFTER_NEWSQL_CONNECT, e)) != NULL) {
+        callbackrc = cdb2_invoke_callback(hndl, e, 3, CDB2_HOSTNAME, NULL, CDB2_PORT, -1, CDB2_RETURN_VALUE, rc);
+        PROCESS_EVENT_CTRL_AFTER(hndl, e, rc, callbackrc);
+    }
+    return rc;
 }
 
 static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type, const char *remote_host, const char *app,
@@ -2397,10 +2528,11 @@ static void newsql_disconnect(cdb2_hndl_tp *hndl, SBUF2 *sb, int line)
         (hndl->firstresponse &&
          (!hndl->lastresponse ||
           (hndl->lastresponse->response_type != RESPONSE_TYPE__LAST_ROW))) ||
-        (!hndl->firstresponse) || hndl->in_trans) {
+        (!hndl->firstresponse) ||
+        (hndl->in_trans) ||
+        ((hndl->flags & CDB2_TYPE_IS_FD) != 0)) {
         sbuf2close(sb);
-    } else {
-        sbuf2free(sb);
+    } else if (sbuf2free(sb) == 0) {
         cdb2_socket_pool_donate_ext(hndl->newsql_typestr, fd, timeoutms / 1000,
                                     hndl->dbnum);
     }
@@ -2566,6 +2698,10 @@ static int getRandomExclude(int max, int exclude)
 
 static int cdb2_connect_sqlhost(cdb2_hndl_tp *hndl)
 {
+    if (hndl->flags & CDB2_TYPE_IS_FD) {
+        return newsql_connect_via_fd(hndl);
+    }
+
     if (hndl->sb) {
         newsql_disconnect(hndl, hndl->sb, __LINE__);
     }
@@ -2885,8 +3021,8 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
                            int retries_done, int do_append, int fromline)
 {
     int rc = 0;
-
     void *callbackrc;
+    CDB2SQLQUERY__IdentityBlob *id_blob = NULL;
     int overwrite_rc = 0;
     cdb2_event *e = NULL;
 
@@ -2940,8 +3076,12 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
     sqlquery.tzname = (hndl) ? hndl->env_tz : DB_TZNAME_DEFAULT;
     sqlquery.mach_class = cdb2_default_cluster;
 
-
-    
+    if (iam_identity && identity_cb) {
+        id_blob = identity_cb->getIdentity();
+        if (id_blob->data.data) {
+            sqlquery.identity = id_blob;
+        }
+    }
 
     query.sqlquery = &sqlquery;
 
@@ -3063,7 +3203,7 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
         goto after_callback;
     }
 
-    if (trans_append) {
+    if (trans_append && hndl->snapshot_file > 0) {
         /* Retry number of transaction is different from that of query.*/
         cdb2_query_list *item = malloc(sizeof(cdb2_query_list));
         item->buf = buf;
@@ -3086,6 +3226,13 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
     rc = 0;
 
 after_callback:
+    if (iam_identity && identity_cb && id_blob) {
+        if (id_blob->principal)
+            free(id_blob->principal);
+        if (id_blob->data.data)
+            free(id_blob->data.data);
+        free(id_blob);
+    }
     while ((e = cdb2_next_callback(event_hndl, CDB2_AFTER_SEND_QUERY, e)) !=
            NULL) {
         callbackrc = cdb2_invoke_callback(event_hndl, e, 2, CDB2_SQL, sql,
@@ -5414,9 +5561,8 @@ free_vars:
     cdb2__sqlresponse__free_unpacked(sqlresponse, NULL);
     free(p);
     int timeoutms = 10 * 1000;
-    sbuf2free(ss);
-    cdb2_socket_pool_donate_ext(newsql_typestr, fd, timeoutms / 1000,
-                                comdb2db_num);
+    if (sbuf2free(ss) == 0)
+        cdb2_socket_pool_donate_ext(newsql_typestr, fd, timeoutms / 1000, comdb2db_num);
     free_events(&tmp);
     return 0;
 }
@@ -5586,8 +5732,8 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type, const char *d
 
     int timeoutms = 10 * 1000;
 
-    sbuf2free(sb);
-    cdb2_socket_pool_donate_ext(newsql_typestr, fd, timeoutms / 1000, dbnum);
+    if (sbuf2free(sb) == 0)
+        cdb2_socket_pool_donate_ext(newsql_typestr, fd, timeoutms / 1000, dbnum);
 
     rc = (*num_valid_hosts > 0) ? 0 : -1;
 

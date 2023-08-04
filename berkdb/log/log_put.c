@@ -90,6 +90,8 @@ int gbl_abort_on_illegal_log_put = 0;
 
 extern int gbl_wal_osync;
 
+extern char *gbl_physrep_source_dbname;
+
 /*
  * __log_put_pp --
  *	DB_ENV->log_put pre/post processing.
@@ -144,6 +146,7 @@ static inline int is_commit_record(int rectype) {
         /* regop regop_gen regop_rowlocks */
         case (DB___txn_regop): 
         case (DB___txn_regop_gen):
+        case (DB___txn_dist_commit):
         case (DB___txn_regop_rowlocks):
             return 1;
             break;
@@ -719,7 +722,7 @@ __log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, 
 		int pushlog = 1;
 
 		assert(rectype == DB___txn_regop || rectype == DB___txn_regop_gen ||
-				rectype == DB___txn_regop_rowlocks);
+				rectype == DB___txn_regop_rowlocks || rectype == DB___txn_dist_commit);
 
 		if (rectype == DB___txn_regop_rowlocks)
 		{
@@ -733,6 +736,12 @@ __log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, 
 		{
 			/* rectype(4)+txn_num(4)+db_lsn(8)+txn_unum(8)+opcode(4)+GENERATION(4) */
 			LOGCOPY_32( &generation, &pp[ 4 + 4 + 8 + (utxnid_logged ? 8 : 0) + 4] );
+		}
+
+		if (rectype == DB___txn_dist_commit)
+		{
+			/* rectype(4)+txn_num(4)+db_lsn(8)+GENERATION(4)*/
+			LOGCOPY_32( &generation, &pp[ 4 + 4 + 8 + 4] );
 		}
 
 		bdb_push_pglogs_commit(dbenv->app_private, *lsn, generation, *ltranid, pushlog);
@@ -2293,6 +2302,79 @@ __log_rep_put(dbenv, lsnp, rec)
 
 	DB_ASSERT(log_compare(lsnp, &lp->lsn) == 0);
 	ret = __log_putr(dblp, lsnp, dbt, lp->lsn.offset - lp->len, &hdr);
+
+        /* Physical replication:
+
+           In a 'physical replication cluster', it is the leader node's job to
+           read changes from the source, apply them locally and also transmit
+           the changes to other nodes in the cluster. The following code
+           enables the replication of logs to other nodes in the cluster.
+        */
+	if (IS_REP_MASTER(dbenv)) {
+                assert(gbl_physrep_source_dbname != NULL);
+		/*
+		 * If we are not a rep application, but are sharing a
+		 * master rep env, we should not be writing log records.
+		 */
+		if (dbenv->rep_send == NULL) {
+			__db_err(dbenv, "%s %s",
+			    "Non-replication DB_ENV handle attempting",
+			    "to modify a replicated environment");
+			ret = EINVAL;
+			goto err;
+		}
+
+                /* There is no need to send REP_NEWFILE here (unlike done in
+                 * __log_put_int_int()) as the physrep worker thread running
+                 * on this (master) node automatically detects and sends
+                 * REP_NEWFILE on log file change.
+                 */
+
+		/*
+		 * Then send the log record itself on to our clients.
+		 *
+		 * If the send fails and we're a commit or checkpoint,
+		 * there's nothing we can do;  the record's in the log.
+		 * Flush it, even if we're running with TXN_NOSYNC, on the
+		 * grounds that it should be in durable form somewhere.
+		 */
+		/*
+		 * !!!
+		 * In the crypto case, we MUST send the udbt, not the
+		 * now-encrypted dbt.  Clients have no way to decrypt
+		 * without the header.
+		 */
+		/* COMDB2 MODIFICATION
+		 *
+		 * We want to be able to throttle log propagation to
+		 * avoid filling the net queue; this will allow signal
+		 * messages and catching up log replies to be
+		 * transferred even though the database is under heavy
+		 * load.  Problem is, in berkdb_send_rtn both regular
+		 * log messages and catching up log replies are coming
+		 * as REP_LOG In __log_push we replace REP_LOG with
+		 * REP_LOG_LOGPUT so we know that this must be
+		 * throttled; we revert to REP_LOG in the same routine
+		 * before sending the message
+		 */
+                DB_LSN lsn;
+                lsn = *lsnp;
+
+                int flags = 0;
+                u_int32_t rectype = 0;
+
+                LOGCOPY_32(&rectype, rec->data);
+                normalize_rectype(&rectype);
+                if (is_commit_record(rectype)) {
+                    flags = DB_REP_FLUSH|DB_LOG_PERM;
+                }
+
+		if ((__rep_send_message(dbenv,
+			    db_eid_broadcast, REP_LOG, &lsn, rec, flags,
+			    NULL) != 0) && LF_ISSET(DB_LOG_PERM))
+			 LF_SET(DB_FLUSH);
+	}
+
 err:
 	/*
 	 * !!! Assume caller holds db_rep->db_mutex to modify ready_lsn.

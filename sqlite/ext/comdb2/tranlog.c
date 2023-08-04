@@ -42,6 +42,7 @@
 #define TRANLOG_COLUMN_LSN_FILE     12 /* Useful for sorting records by LSN */
 #define TRANLOG_COLUMN_LSN_OFFSET   13
 
+extern int gbl_apprec_gen;
 
 /* Modeled after generate_series */
 typedef struct tranlog_cursor tranlog_cursor;
@@ -59,6 +60,7 @@ struct tranlog_cursor {
   int hitLast;
   int notDurable;
   int openCursor;
+  int startAppRecGen;
   DB_LOGC *logc;             /* Log Cursor */
   DBT data;
 };
@@ -94,6 +96,7 @@ static int tranlogOpen(sqlite3_vtab *p, sqlite3_vtab_cursor **ppCursor){
   pCur = sqlite3_malloc( sizeof(*pCur) );
   if( pCur==0 ) return SQLITE_NOMEM;
   memset(pCur, 0, sizeof(*pCur));
+  pCur->startAppRecGen = gbl_apprec_gen;
   *ppCursor = &pCur->base;
   return SQLITE_OK;
 }
@@ -224,6 +227,11 @@ static int tranlogNext(sqlite3_vtab_cursor *cur){
               if ((rc = comdb2_sql_tick()) != 0)
                   return rc;
 
+              if (db_is_exiting() || pCur->startAppRecGen != gbl_apprec_gen) {
+                    pCur->hitLast = 1;
+                    return SQLITE_OK;
+              }
+
               struct timespec ts;
               clock_gettime(CLOCK_REALTIME, &ts);
               ts.tv_nsec += (200 * 1000000);
@@ -302,6 +310,58 @@ static u_int32_t get_generation_from_regop_gen_record(char *data)
         LOGCOPY_32( &generation, &data[ 4 + 4 + 8 + 4] );
     }
     return generation;
+}
+
+static u_int32_t get_generation_from_dist_commit_record(char *data)
+{
+    u_int32_t generation;
+    u_int32_t rectype;
+    LOGCOPY_32(&rectype, data); 
+    if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
+        LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8] );
+    } else {
+        LOGCOPY_32( &generation, &data[4 + 4 + 8] );
+    }
+    return generation;
+}
+
+static u_int32_t get_timestamp_from_dist_commit_record(char *data)
+{
+    u_int64_t timestamp;
+    u_int32_t rectype;
+    LOGCOPY_32(&rectype, data); 
+    if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
+        LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4 + 8 + 8] );
+    } else {
+        LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4 + 8] );
+    }
+    return timestamp;
+}
+
+static u_int32_t get_generation_from_dist_abort_record(char *data)
+{
+    u_int32_t generation;
+    u_int32_t rectype;
+    LOGCOPY_32(&rectype, data); 
+    if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
+        LOGCOPY_32( &generation, &data[4 + 4 + 8 + 8] );
+    } else {
+        LOGCOPY_32( &generation, &data[4 + 4 + 8] );
+    }
+    return generation;
+}
+
+static u_int32_t get_timestamp_from_dist_abort_record(char *data)
+{
+    u_int64_t timestamp;
+    u_int32_t rectype;
+    LOGCOPY_32(&rectype, data); 
+    if ((rectype < 10000 && rectype > 2000) || rectype > 12000) {
+        LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4 + 8] );
+    } else {
+        LOGCOPY_64( &timestamp, &data[4 + 4 + 8 + 4] );
+    }
+    return timestamp;
 }
 
 static u_int64_t get_timestamp_from_regop_rowlocks_record(char *data)
@@ -389,6 +449,14 @@ u_int64_t get_timestamp_from_matchable_record(char *data)
         return get_timestamp_from_regop_gen_record(data);
     }
 
+    if (rectype == DB___txn_dist_commit || (rectype == DB___txn_dist_commit+2000)) {
+        return get_timestamp_from_dist_commit_record(data);
+    }
+
+    if (rectype == DB___txn_dist_abort || (rectype == DB___txn_dist_abort+2000)) {
+        return get_timestamp_from_dist_abort_record(data);
+    }
+
     if (rectype == DB___txn_regop_rowlocks || (rectype == DB___txn_regop_rowlocks+2000)) {
         return get_timestamp_from_regop_rowlocks_record(data);
     }
@@ -473,6 +541,14 @@ static int tranlogColumn(
             generation = get_generation_from_regop_gen_record(pCur->data.data);
         }
 
+        if (rectype == DB___txn_dist_commit){
+            generation = get_generation_from_dist_commit_record(pCur->data.data);
+        }
+
+        if (rectype == DB___txn_dist_abort){
+            generation = get_generation_from_dist_abort_record(pCur->data.data);
+        }
+
         if (rectype == DB___txn_regop_rowlocks) {
             generation = get_generation_from_regop_rowlocks_record(pCur->data.data);
         }
@@ -508,6 +584,14 @@ static int tranlogColumn(
 
         if (rectype == DB___txn_regop_gen || (rectype == DB___txn_regop_gen+2000)) {
             timestamp = get_timestamp_from_regop_gen_record(pCur->data.data);
+        }
+
+        if (rectype == DB___txn_dist_commit || (rectype == DB___txn_dist_commit+2000)){
+            timestamp = get_timestamp_from_dist_commit_record(pCur->data.data);
+        }
+
+        if (rectype == DB___txn_dist_abort || (rectype == DB___txn_dist_abort+2000)){
+            timestamp = get_timestamp_from_dist_abort_record(pCur->data.data);
         }
 
         if (rectype == DB___txn_regop_rowlocks || (rectype == DB___txn_regop_rowlocks+2000)) {

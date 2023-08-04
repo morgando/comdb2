@@ -534,6 +534,7 @@ static int trans_commit_seqnum_int(void *bdb_handle, struct dbenv *dbenv,
             bdb_handle, trans, blkseq, blklen, blkkey, blkkeylen,
             (seqnum_type*)seqnum, &iq->txnsize, &bdberr);
     }
+    iq->total_txnsize += iq->txnsize;
     iq->gluewhere = "bdb_tran_commit_with_seqnum_size done";
     if (bdberr != 0) {
         if (bdberr == BDBERR_DEADLOCK)
@@ -685,7 +686,7 @@ static int trans_wait_for_seqnum_int(void *bdb_handle, struct dbenv *dbenv,
     }
 
     end_ms = comdb2_time_epochms();
-    iq->reptimems = end_ms - start_ms;
+    iq->reptimems += (end_ms - start_ms);
 
     return rc;
 }
@@ -850,6 +851,8 @@ int trans_abort_int(struct ireq *iq, void *trans, int *priority)
     int bdberr;
     bdb_state_type *bdb_handle = thedb->bdb_env;
     iq->gluewhere = "bdb_tran_abort";
+    iq->txnsize = bdb_tran_logbytes(trans);
+    iq->total_txnsize += iq->txnsize;
     bdb_tran_abort_priority(bdb_handle, trans, &bdberr, priority);
     iq->gluewhere = "bdb_tran_abort done";
     if (bdberr != 0) {
@@ -5781,7 +5784,6 @@ int find_record_older_than(struct ireq *iq, void *tran, int timestamp,
 static int ix_find_check_blob_race(struct ireq *iq, char *inbuf, int numblobs,
                                    int *blobnums, void **blobptrs)
 {
-    char *table = iq->usedb->tablename;
     struct schema *sch;
     struct field *fld;
     int i;
@@ -5790,7 +5792,7 @@ static int ix_find_check_blob_race(struct ireq *iq, char *inbuf, int numblobs,
     int blobidx = 0;      /* walk blobnums[numblobs] list for the tag */
     int diskblobidx = -1; /* walk ondisk blobs */
 
-    sch = find_tag_schema(table, ".ONDISK");
+    sch = find_tag_schema(iq->usedb, ".ONDISK");
     if (sch == NULL)
         return -1;
 
@@ -5938,6 +5940,12 @@ int ix_check_update_genid(struct ireq *iq, void *trans,
 unsigned long long get_commit_context(const void *plsn, uint32_t generation)
 {
     return bdb_gen_commit_genid(thedb->bdb_env, plsn, generation);
+}
+
+int set_commit_context_prepared(unsigned long long context)
+{
+    bdb_set_commit_genid(thedb->bdb_env, context, NULL, NULL, NULL, 0);
+    return 0;
 }
 
 int set_commit_context(unsigned long long context, uint32_t *generation,
@@ -6149,6 +6157,8 @@ void *get_bdb_env(void)
     return thedb->bdb_env;
 }
 
+int timepart_systable_next_allowed(sqlite3_int64 *tabId);
+
 /* This function can be used as an iterator to jump to the next
  * base table, starting the table at the specified index in the
  * global tables array, that the current user has READ access to.
@@ -6162,6 +6172,9 @@ int comdb2_next_allowed_table(sqlite3_int64 *tabId)
     char *tablename;
     int bdberr;
     int rc;
+
+    if (*tabId >= thedb->num_dbs)
+        return timepart_systable_next_allowed(tabId);
 
     thd = pthread_getspecific(query_info_key);
 
@@ -6180,6 +6193,13 @@ int comdb2_next_allowed_table(sqlite3_int64 *tabId)
     }
 
     return SQLITE_OK;
+}
+
+struct dbtable *timepart_systable_shard0(sqlite3_int64 tabId);
+
+struct dbtable *comdb2_get_dbtable_or_shard0(sqlite3_int64 tabId)
+{
+    return ((tabId < thedb->num_dbs) ? thedb->dbs[tabId] : timepart_systable_shard0(tabId));
 }
 
 int comdb2_is_user_op(char *user, char *password)

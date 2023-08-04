@@ -79,6 +79,7 @@ int systblSQLIndexStatsInit(sqlite3 *);
 int systblTemporaryFileSizesModuleInit(sqlite3 *);
 
 int comdb2_next_allowed_table(sqlite3_int64 *tabId);
+struct dbtable *comdb2_get_dbtable_or_shard0(sqlite3_int64 tabId);
 
 int systblScStatusInit(sqlite3 *db);
 int systblScHistoryInit(sqlite3 *db);
@@ -92,6 +93,7 @@ int systblTranCommitInit(sqlite3 *db);
 int systblTransactionStateInit(sqlite3 *db);
 int systblMemstatsInit(sqlite3 *db);
 int systblStacks(sqlite3 *db);
+int systblPreparedInit(sqlite3 *db);
 
 /* Simple yes/no answer for booleans */
 #define YESNO(x) ((x) ? "Y" : "N")

@@ -1217,7 +1217,7 @@ REGISTER_TUNABLE("use_live_schema_change", NULL, TUNABLE_INTEGER,
 REGISTER_TUNABLE("use_llmeta", NULL, TUNABLE_INTEGER,
                  &gbl_use_llmeta, READONLY, NULL, NULL, NULL, NULL);
 */
-REGISTER_TUNABLE("llmeta_deadlock_poll", "Max poll for llmeta on deadlock.  (Default: 50ms)", TUNABLE_INTEGER,
+REGISTER_TUNABLE("llmeta_deadlock_poll", "Max poll for llmeta on deadlock.  (Default: 0ms)", TUNABLE_INTEGER,
                  &gbl_llmeta_deadlock_poll, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("usenames", NULL, TUNABLE_BOOLEAN, &gbl_nonames,
                  INVERSE_VALUE | READONLY | NOARG | READEARLY, NULL, NULL, NULL,
@@ -1381,6 +1381,16 @@ REGISTER_TUNABLE("block_set_commit_genid_trace",
                  "Print trace when blocking set commit_genid. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_block_set_commit_genid_trace, INTERNAL,
                  NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_random_prepare", "Prepare randomly. (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_random_prepare_commit, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_all_prepare_commit", "Prepare all transactions. (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_all_prepare_commit, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_all_prepare_abort", "Prepare and abort all transactions. (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_all_prepare_abort, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_all_prepare_leak", "Prepare and leak all transactions. (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_all_prepare_leak, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("flush_on_prepare", "Flush replicant log on prepare. (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_flush_on_prepare, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("abort_on_unset_ha_flag",
                  "Abort in snap_uid_retry if ha is unset. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_abort_on_unset_ha_flag, INTERNAL, NULL,
@@ -1423,7 +1433,7 @@ REGISTER_TUNABLE("reset_on_unelectable_cluster", "Reset master if unelectable.",
                  TUNABLE_BOOLEAN, &gbl_reset_on_unelectable_cluster,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("dedup_rep_all_reqs", "Only allow a single rep-all on queue to the master. (Default: off)",
-                 TUNABLE_BOOLEAN, &gbl_dedup_rep_all_reqs, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+                 TUNABLE_INTEGER, &gbl_dedup_rep_all_reqs, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("decoupled_logputs",
                  "Perform logputs out-of-band. (Default: on)", TUNABLE_BOOLEAN,
                  &gbl_decoupled_logputs, EXPERIMENTAL | INTERNAL, NULL, NULL,
@@ -1491,6 +1501,10 @@ REGISTER_TUNABLE("debug_partial_write", "Simulate partial write in net.  "
 REGISTER_TUNABLE("debug_verify_sleep", "Sleep one-second per record in verify.  "
                  "(Default: off)", TUNABLE_BOOLEAN, &gbl_debug_sleep_on_verify,
                  EXPERIMENTAL | INTERNAL, NULL,NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_drop_nth_rep_message", "Drop the Nth replication message "
+                 "for testing purposes (Default: 0)", TUNABLE_INTEGER,
+                 &gbl_debug_drop_nth_rep_message, EXPERIMENTAL | INTERNAL, NULL,
+                 NULL, NULL, NULL);
 REGISTER_TUNABLE(
     "max_clientstats",
     "Max number of client stats stored in comdb2_clientstats. (Default: 10000)",
@@ -1511,7 +1525,7 @@ REGISTER_TUNABLE(
     NULL, NULL, NULL);
 REGISTER_TUNABLE("req_all_threshold",
                  "Use req_all if a replicant is behind by "
-                 "this amount or more.  (Default: 10000000)",
+                 "this amount or more.  (Default: 1048476)",
                  TUNABLE_INTEGER, &gbl_req_all_threshold,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
@@ -1792,20 +1806,13 @@ REGISTER_TUNABLE("random_fail_client_write_lock",
                  TUNABLE_INTEGER, &gbl_fail_client_write_lock,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("reorder_socksql_no_deadlock",
-                 "Reorder sock sql to have no deadlocks ", TUNABLE_BOOLEAN,
-                 &gbl_reorder_socksql_no_deadlock, EXPERIMENTAL,
+REGISTER_TUNABLE("reorder_socksql_no_deadlock", "Reorder sock sql to have no deadlocks ",
+                 TUNABLE_BOOLEAN, &gbl_reorder_socksql_no_deadlock, EXPERIMENTAL,
                  NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("reorder_idx_writes", "reorder_idx_writes (Default on)",
+REGISTER_TUNABLE("reorder_idx_writes", "reorder_idx_writes",
                  TUNABLE_BOOLEAN, &gbl_reorder_idx_writes, EXPERIMENTAL,
                  NULL, NULL, NULL, NULL);
-
-REGISTER_TUNABLE("osql_snap_info_hashcheck",
-                 "Enable snapinfo to be stored and checked in a hash in "
-                 "toblock on master. (Default: on)",
-                 TUNABLE_BOOLEAN, &gbl_osql_snap_info_hashcheck,
-                 EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("disable_tpsc_tblvers",
                  "Disable table version checks for time partition schema "
@@ -1828,28 +1835,96 @@ REGISTER_TUNABLE("match_on_ckp",
                  TUNABLE_BOOLEAN, &gbl_match_on_ckp, EXPERIMENTAL | INTERNAL,
                  NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("verbose_physrep",
-                 "Print extended physrep trace.  (Default: off)",
-                 TUNABLE_BOOLEAN, &gbl_verbose_physrep, EXPERIMENTAL | INTERNAL,
-                 NULL, NULL, NULL, NULL);
-
-REGISTER_TUNABLE("physrep_reconnect_penalty",
-                 "Physrep wait seconds before retry to the same node.  "
-                 "(Default: 5)",
-                 TUNABLE_INTEGER, &gbl_physrep_reconnect_penalty, 0, NULL, NULL,
-                 NULL, NULL);
-
-REGISTER_TUNABLE("physrep_register_interval",
-                 "Interval for physical replicant re-registration.  "
-                 "(Default: 3600)",
-                 TUNABLE_INTEGER, &gbl_physrep_register_interval, 0, NULL, NULL,
-                 NULL, NULL);
-
+/* physical replication */
 REGISTER_TUNABLE("blocking_physrep",
-                 "Physical replicant blocks on select.  "
-                 "(Default: false)",
+                 "Physical replicant blocks on select. (Default: false)",
                  TUNABLE_BOOLEAN, &gbl_blocking_physrep, 0, NULL, NULL, NULL,
                  NULL);
+REGISTER_TUNABLE("physrep_check_minlog_freq_sec",
+                 "Check the minimum log number to keep this often. (Default: 10)",
+                 TUNABLE_INTEGER, &gbl_physrep_check_minlog_freq_sec, 0, NULL,
+                 NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_debug",
+                 "Print extended physrep trace. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_physrep_debug, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_exit_on_invalid_logstream", "Exit physreps on invalid logstream.  (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_physrep_exit_on_invalid_logstream, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_fanout",
+                 "Maximum number of physical replicants that a node can service (Default: 8)",
+                 TUNABLE_INTEGER, &gbl_physrep_fanout, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_hung_replicant_check_freq_sec",
+                 "Check for hung physical replicant this often. (Default: 10)",
+                 TUNABLE_INTEGER, &gbl_physrep_hung_replicant_check_freq_sec, 0, NULL,
+                 NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_hung_replicant_threshold",
+                 "Report if the physical replicant has been inactive for this duration. (Default: 60)",
+                 TUNABLE_INTEGER, &gbl_physrep_hung_replicant_threshold, 0, NULL,
+                 NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_i_am_metadb", "I am physical replication metadb (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_physrep_i_am_metadb, NOARG, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_keepalive_freq_sec",
+                 "Periodically send lsn to source node after this interval. (Default: 10)",
+                 TUNABLE_INTEGER, &gbl_physrep_keepalive_freq_sec, 0, NULL,
+                 NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_max_candidates",
+                 "Maximum number of candidates that should be returned to a "
+                 "new physical replicant during registration. (Default: 6)",
+                 TUNABLE_INTEGER, &gbl_physrep_max_candidates, 0, NULL,
+                 NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_max_pending_replicants",
+                 "There can be no more than this many physical replicants in "
+                 "pending state. (Default: 10)",
+                 TUNABLE_INTEGER, &gbl_physrep_max_pending_replicants, 0, NULL,
+                 NULL, NULL, NULL);
+REGISTER_TUNABLE("physrep_metadb_host", "List of physical replication metadb cluster hosts.",
+                 TUNABLE_STRING, &gbl_physrep_metadb_host, READONLY, NULL, NULL, NULL,
+                 NULL);
+REGISTER_TUNABLE("physrep_metadb_name", "Physical replication metadb cluster name.",
+                 TUNABLE_STRING, &gbl_physrep_metadb_name, READONLY, NULL, NULL, NULL,
+                 NULL);
+REGISTER_TUNABLE("physrep_reconnect_penalty",
+                 "Physrep wait seconds before retry to the same node. (Default: 5)",
+                 TUNABLE_INTEGER, &gbl_physrep_reconnect_penalty, 0, NULL, NULL,
+                 NULL, NULL);
+REGISTER_TUNABLE("physrep_register_interval",
+                 "Interval for physical replicant re-registration. (Default: 3600)",
+                 TUNABLE_INTEGER, &gbl_physrep_register_interval, 0, NULL, NULL,
+                 NULL, NULL);
+REGISTER_TUNABLE("physrep_shuffle_host_list",
+                 "Shuffle the host list returned by register_replicant() "
+                 "before connecting to the hosts. (Default: OFF)",
+                 TUNABLE_BOOLEAN, &gbl_physrep_shuffle_host_list, 0, NULL, NULL,
+                 NULL, NULL);
+REGISTER_TUNABLE("physrep_source_dbname", "Physical replication source cluster dbname.",
+                 TUNABLE_STRING, &gbl_physrep_source_dbname, READONLY, NULL, NULL, NULL,
+                 NULL);
+REGISTER_TUNABLE("physrep_source_host", "List of physical replication source cluster hosts.",
+                 TUNABLE_STRING, &gbl_physrep_source_host, READONLY, NULL, NULL, NULL,
+                 NULL);
+
+/* reversql-sql */
+REGISTER_TUNABLE("revsql_allow_command_execution",
+                 "Allow processing and execution of command over the 'reverse connection' "
+                 "that has come in as part of the request. This is mostly intended for "
+                 "testing. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_revsql_allow_command_exec, EXPERIMENTAL | INTERNAL,
+                 NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("revsql_cdb2_debug",
+                 "Print extended reversql-sql cdb2 related trace. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_revsql_cdb2_debug, EXPERIMENTAL | INTERNAL,
+                 NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("revsql_connect_freq_sec", "This node will attempt to (reverse) "
+                 "connect to the remote host at this frequency. (Default: 5secs)",
+                 TUNABLE_INTEGER, &gbl_revsql_connect_freq_sec, EXPERIMENTAL | INTERNAL,
+                 NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("revsql_debug",
+                 "Print extended reversql-sql trace. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_revsql_debug, EXPERIMENTAL | INTERNAL,
+                 NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("revsql_host_refresh_freq_sec", "The frequency at which the "
+                 "reverse connection host list will be refreshed (Default: 5secs)",
+                 TUNABLE_INTEGER, &gbl_revsql_host_refresh_freq_sec, EXPERIMENTAL | INTERNAL,
+                 NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("logdelete_lock_trace",
                  "Print trace getting and releasing the logdelete lock.  "
@@ -2222,9 +2297,6 @@ REGISTER_TUNABLE("test_fdb_io", "Testing fail mode remote sql.  (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_test_io_errors, INTERNAL, NULL, NULL,
                  NULL, NULL);
 
-REGISTER_TUNABLE("physrep_exit_on_invalid_logstream", "Exit physreps on invalid logstream.  (Default: off)",
-                 TUNABLE_BOOLEAN, &gbl_physrep_exit_on_invalid_logstream, 0, NULL, NULL, NULL, NULL);
-
 REGISTER_TUNABLE("debug_sleep_in_sql_tick", "Sleep for a second in sql tick.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_debug_sleep_in_sql_tick, INTERNAL | EXPERIMENTAL, NULL, NULL, NULL, NULL);
 
@@ -2310,9 +2382,11 @@ REGISTER_TUNABLE("view_feature", "Enables support for VIEWs (Default: ON)",
                  TUNABLE_BOOLEAN, &gbl_view_feature, 0, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("foreign_metadb", "Forces metadb for fdb queries to the one specified (Default:NULL)",
-                 TUNABLE_STRING, &gbl_foreign_metadb, READONLY | READEARLY, NULL, NULL, NULL, NULL);
+                 TUNABLE_STRING, &gbl_foreign_metadb, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("foreign_metadb_class", "Forces metadb for fdb queries to class specified (Default:NULL)",
-                 TUNABLE_STRING, &gbl_foreign_metadb_class, READONLY | READEARLY, NULL, NULL, NULL, NULL);
+                 TUNABLE_STRING, &gbl_foreign_metadb_class, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("foreign_metadb_config", "Cdb2api config file for fdb metadb; superceded by foreign_metadb (Default:NULL)",
+                 TUNABLE_RAW, &gbl_foreign_metadb_config, 0, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("allow_unauthenticated_tag_access", NULL, TUNABLE_BOOLEAN, &gbl_unauth_tag_access, NOARG | READEARLY,
                  NULL, NULL, NULL, NULL);
@@ -2356,4 +2430,20 @@ REGISTER_TUNABLE("wal_osync", "Open WAL files using the O_SYNC flag (Default: of
 REGISTER_TUNABLE("sc_headroom", 
                  "Percentage threshold for low headroom calculation. (Default: 10)",
                  TUNABLE_DOUBLE, &gbl_sc_headroom, INTERNAL | SIGNED, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("fdb_incoherence_percentage",
+                 "Generate random incoherent errors in remsql", TUNABLE_INTEGER,
+                 &gbl_fdb_incoherence_percentage, INTERNAL, NULL, percent_verify, NULL, NULL);
+REGISTER_TUNABLE("fdb_io_error_retries",
+                 "Number of retries for io error remsql", TUNABLE_INTEGER,
+                 &gbl_fdb_io_error_retries, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("unexpected_last_type_warn",
+                 "print a line of trace if the last response server sent before sockpool reset isn't LAST_ROW",
+                 TUNABLE_INTEGER, &gbl_unexpected_last_type_warn, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("unexpected_last_type_abort",
+                 "Panic if the last response server sent before sockpool reset isn't LAST_ROW",
+                 TUNABLE_INTEGER, &gbl_unexpected_last_type_abort, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("pstack_self",
+                 "Dump stack traces on certain slow events.",
+                 TUNABLE_BOOLEAN, &gbl_pstack_self, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+
 #endif /* _DB_TUNABLES_H */

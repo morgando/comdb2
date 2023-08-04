@@ -386,6 +386,7 @@
 (name='comdb2_opcode_handlers')
 (name='comdb2_partial_datacopies')
 (name='comdb2_plugins')
+(name='comdb2_prepared')
 (name='comdb2_procedures')
 (name='comdb2_query_plans')
 (name='comdb2_queues')
@@ -418,3 +419,8 @@
 (name='comdb2_users')
 (name='comdb2_views')
 [SELECT * FROM comdb2_systables ORDER BY name] rc 0
+[CREATE TABLE tpt1(a int PRIMARY KEY) PARTITIONED BY TIME PERIOD 'yearly' RETENTION 7 start '2000-01-01T UTC'] rc 0
+(COUNT(*)=1)
+[SELECT COUNT(*) FROM comdb2_keys WHERE tablename = 'tpt1'] rc 0
+(COUNT(*)=1)
+[SELECT COUNT(*) FROM comdb2_keycomponents WHERE tablename = 'tpt1'] rc 0

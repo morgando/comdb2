@@ -681,8 +681,8 @@ out:
     return rc;
 }
 
-static int read_stream(netinfo_type *netinfo_ptr, host_node_type *host_node_ptr,
-                       SBUF2 *sb, void *inptr, int maxbytes)
+int read_stream(netinfo_type *netinfo_ptr, host_node_type *host_node_ptr,
+                SBUF2 *sb, void *inptr, int maxbytes)
 {
     uint8_t *ptr = inptr;
     const int fd = sbuf2fileno(sb);
@@ -2431,19 +2431,29 @@ ssize_t net_udp_send(int udp_fd, netinfo_type *netinfo_ptr, const char *host,
 
 host_node_type *add_to_netinfo_ll(netinfo_type *netinfo_ptr, const char hostname[], int portnum)
 {
+    int count = 0;
     host_node_type *ptr;
     /* check to see if the node already exists */
     ptr = netinfo_ptr->head;
     if (debug_switch_offload_check_hostname() &&
         is_offload_netinfo(netinfo_ptr)) {
-        while (ptr != NULL && (strcmp(ptr->host, hostname)))
+        while (ptr != NULL && count < REPMAX && (strcmp(ptr->host, hostname))){
             ptr = ptr->next;
+            count++;
+        }
     } else {
-        while (ptr != NULL && ptr->host != hostname)
+        while (ptr != NULL && count < REPMAX && ptr->host != hostname) {
             ptr = ptr->next;
+            count++;
+        }
     }
     if (ptr != NULL) {
         return ptr;
+    }
+
+    if (count==REPMAX) {
+        logmsg(LOGMSG_ERROR, "Cannot add more than REPMAX(%d) number of nodes\n", REPMAX);
+        return NULL;
     }
 
     ptr = calloc(1, sizeof(host_node_type));
@@ -4557,6 +4567,7 @@ int net_get_port_by_service(const char *dbname)
 
 int gbl_waitalive_iterations = 3;
 
+#if defined _SUN_SOURCE
 void wait_alive(int fd)
 {
     int iter = gbl_waitalive_iterations, i;
@@ -4574,6 +4585,7 @@ void wait_alive(int fd)
         poll(NULL, 0, 10);
     }
 }
+#endif
 
 static void *connect_thread(void *arg)
 {
@@ -6096,13 +6108,21 @@ static sanc_node_type *add_to_sanctioned_nolock(netinfo_type *netinfo_ptr,
                                                 int portnum)
 {
     /* scan to see if it's already there */
+    int count = 0;
     sanc_node_type *ptr = netinfo_ptr->sanctioned_list;
 
-    while (ptr != NULL && ptr->host != hostname)
+    while (ptr != NULL && count < REPMAX && ptr->host != hostname) {
         ptr = ptr->next;
+        count++;
+    }
 
     if (ptr != NULL) {
         return ptr;
+    }
+
+    if (count==REPMAX) {
+        logmsg(LOGMSG_ERROR, "%s : Cannot add to more than REPMAX(%d) number of nodes\n", __func__, REPMAX);
+        return NULL;
     }
 
     ptr = calloc(1, sizeof(sanc_node_type));
@@ -6557,6 +6577,7 @@ int net_listen(int port)
 #if defined _SUN_SOURCE
     wait_alive(listenfd);
 #endif
+
 #ifdef NODELAY
     flag = 1;
     len = sizeof(flag);

@@ -3180,14 +3180,12 @@ static int bdb_update_relinks_fileid_queues(void *bdb_state,
     return 0;
 }
 
-static int bdb_update_pglogs_fileid_queues(void *bdb_state,
-                                           unsigned long long logical_tranid,
-                                           int is_logical_commit,
-                                           DB_LSN commit_lsn, uint32_t gen,
-                                           struct page_logical_lsn_key *keylist,
+static int bdb_update_pglogs_fileid_queues(void *in_bdb_state, unsigned long long logical_tranid, int is_logical_commit,
+                                           DB_LSN commit_lsn, uint32_t gen, struct page_logical_lsn_key *keylist,
                                            unsigned int nkeys)
 {
     int j;
+    bdb_state_type *bdb_state = (bdb_state_type *)in_bdb_state;
     struct fileid_pglogs_queue *fileid_queue = NULL;
     struct pglogs_queue_key **qearray = NULL, *qe, *chk;
     struct page_logical_lsn_key *key;
@@ -3209,8 +3207,10 @@ static int bdb_update_pglogs_fileid_queues(void *bdb_state,
         qe->lsn = key->lsn;
         qe->commit_lsn = key->commit_lsn;
 
-        if (log_compare(&key->commit_lsn, &commit_lsn))
+        if (log_compare(&key->commit_lsn, &commit_lsn)) {
+            bdb_state->dbenv->log_flush(bdb_state->dbenv, NULL);
             abort();
+        }
     }
 
     for (j = nkeys - 1; j >= 0; j--) {
@@ -3306,6 +3306,18 @@ struct pglog_queue_heads {
     int index;
     struct fileid_pglogs_queue **queue_heads;
 };
+
+/* Pagelogs which appear in prepare record need actual commit */
+int bdb_update_pglogs_commitlsn(void *bdb_state, void *pglogs, unsigned int nkeys, DB_LSN commit_lsn)
+{
+    struct page_logical_lsn_key *keylist = (struct page_logical_lsn_key *)pglogs;
+
+    for (int i = 0; i < nkeys; i++) {
+        struct page_logical_lsn_key *key = &keylist[i];
+        key->commit_lsn = commit_lsn;
+    }
+    return 0;
+}
 
 int bdb_transfer_pglogs_to_queues(void *bdb_state, void *pglogs,
                                   unsigned int nkeys, int is_logical_commit,
@@ -3535,8 +3547,8 @@ static inline void set_seqnum_host(void *in_bdb_state, char *host, DB_LSN lsn,
     }
 }
 
-int bdb_push_pglogs_commit(void *in_bdb_state, DB_LSN commit_lsn, uint32_t gen,
-                           unsigned long long ltranid, int push)
+static int bdb_push_pglogs_commit_int(void *in_bdb_state, DB_LSN commit_lsn, uint32_t gen, unsigned long long ltranid,
+                                      int push, int update_seqnum)
 {
     bdb_state_type *bdb_state = (bdb_state_type *)in_bdb_state;
     struct commit_list *lcommit = NULL;
@@ -3582,42 +3594,51 @@ int bdb_push_pglogs_commit(void *in_bdb_state, DB_LSN commit_lsn, uint32_t gen,
         lastpr = now;
     }
 
-    if (!strcmp(master, eid)) {
-        Pthread_mutex_lock(&(bdb_state->seqnum_info->lock));
-        if (commit_lsn.file == 0)
-            abort();
+    if (update_seqnum) {
+        if (!strcmp(master, eid)) {
+            Pthread_mutex_lock(&(bdb_state->seqnum_info->lock));
+            if (commit_lsn.file == 0)
+                abort();
 
-        set_seqnum_host(bdb_state, master, commit_lsn, __func__, __LINE__);
-        bdb_state->seqnum_info->seqnums[nodeix(master)].generation =
-            bdb_state->seqnum_info->seqnums[nodeix(master)].commit_generation =
-                gen;
-        Pthread_mutex_unlock(&(bdb_state->seqnum_info->lock));
-        bdb_set_commit_lsn_gen(bdb_state, &commit_lsn, gen);
-        master_cnt++;
-        if (doprint) {
-            logmsg(LOGMSG_USER,
-                   "%s: setting seqnum_info ptr %p on master to [%d][%d] gen "
-                   "[%d] master-count=%llu not-master-count=%llu\n",
-                   __func__, &bdb_state->seqnum_info->seqnums[nodeix(master)],
-                   commit_lsn.file, commit_lsn.offset, gen, master_cnt,
-                   notmaster_cnt);
-        }
-    }
-    else {
-        notmaster_cnt++;
-        if (doprint) {
-            logmsg(LOGMSG_USER, "%s: NOT setting seqnum_info on replicant, lsn is [%d][%d] "
-                    "gen [%d] master-count=%llu not-master-count=%llu\n", 
-                    __func__, commit_lsn.file, commit_lsn.offset, gen, 
-                    master_cnt, notmaster_cnt);
+            set_seqnum_host(bdb_state, master, commit_lsn, __func__, __LINE__);
+            bdb_state->seqnum_info->seqnums[nodeix(master)].generation =
+                bdb_state->seqnum_info->seqnums[nodeix(master)].commit_generation = gen;
+            Pthread_mutex_unlock(&(bdb_state->seqnum_info->lock));
+            bdb_set_commit_lsn_gen(bdb_state, &commit_lsn, gen);
+            master_cnt++;
+            if (doprint) {
+                logmsg(LOGMSG_USER,
+                       "%s: setting seqnum_info ptr %p on master to [%d][%d] gen "
+                       "[%d] master-count=%llu not-master-count=%llu\n",
+                       __func__, &bdb_state->seqnum_info->seqnums[nodeix(master)], commit_lsn.file, commit_lsn.offset,
+                       gen, master_cnt, notmaster_cnt);
+            }
+        } else {
+            notmaster_cnt++;
+            if (doprint) {
+                logmsg(LOGMSG_USER,
+                       "%s: NOT setting seqnum_info on replicant, lsn is [%d][%d] "
+                       "gen [%d] master-count=%llu not-master-count=%llu\n",
+                       __func__, commit_lsn.file, commit_lsn.offset, gen, master_cnt, notmaster_cnt);
+            }
         }
     }
 
     return 0;
 }
 
-int bdb_latest_commit(bdb_state_type *bdb_state, DB_LSN *latest_lsn,
-                      uint32_t *latest_gen)
+int bdb_push_pglogs_commit(void *in_bdb_state, DB_LSN commit_lsn, uint32_t gen, unsigned long long ltranid, int push)
+{
+    return bdb_push_pglogs_commit_int(in_bdb_state, commit_lsn, gen, ltranid, push, 1);
+}
+
+int bdb_push_pglogs_commit_recovery(void *in_bdb_state, DB_LSN commit_lsn, uint32_t gen, unsigned long long ltranid,
+                                    int push)
+{
+    return bdb_push_pglogs_commit_int(in_bdb_state, commit_lsn, gen, ltranid, push, 0);
+}
+
+int bdb_latest_commit(bdb_state_type *bdb_state, DB_LSN *latest_lsn, uint32_t *latest_gen)
 {
     Pthread_mutex_lock(&bdb_asof_current_lsn_mutex);
     *latest_lsn = bdb_latest_commit_lsn;
@@ -3649,6 +3670,7 @@ void bdb_durable_lsn_for_single_node(void *in_bdb_state)
         switch (rectype) {
         case DB___txn_regop:
         case DB___txn_regop_gen:
+        case DB___txn_dist_commit:
         case DB___txn_regop_rowlocks:
             found_lsn = lsn;
             goto done;

@@ -42,26 +42,40 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
     fdb_push_connector_t *push = NULL;
     struct Db *pDb = &pParse->db->aDb[node->remotedb];
 
-    if (!gbl_fdb_push_remote)
-        return -1;
+        printf("%s %d %d %d %d < %d \n", __func__, gbl_fdb_push_remote, clnt->disable_fdb_push, clnt->intrans, pDb->version, FDB_VER_PROXY);
 
-    if (clnt->disable_fdb_push)
+    if (!gbl_fdb_push_remote) {
+        printf("%s fdb push remote is disabled\n", __func__);
         return -1;
+    }
 
-    if (clnt->intrans)
+    if (clnt->disable_fdb_push) {
+        printf("%s clnt fdb push remote is disabled\n", __func__);
         return -1;
+    }
 
-    if (pDb->version < FDB_VER_PROXY)
+    if (clnt->intrans) {
+        printf("%s clnt is in trans\n", __func__);
         return -1;
+    }
+
+    if (pDb->version < FDB_VER_PROXY) {
+        printf("%s db version is bad\n", __func__);
+        return -1;
+    }
 
     push = calloc(1, sizeof(fdb_push_connector_t));
+    printf("push %p\n", push);
     if (!push) {
-        logmsg(LOGMSG_ERROR, "Failed to allocate fdb_push\n");
+        printf("%s failed to alloc fdb push\n", __func__);
+      //  logmsg(LOGMSG_ERROR, "Failed to allocate fdb_push\n");
         return -1;
     }
     push->remotedb = strdup(pDb->zDbSName);
+    printf("remdb %s\n", push->remotedb);
     if (!push->remotedb) {
-        logmsg(LOGMSG_ERROR, "Failed to allocate remotedb name\n");
+        printf("%s failed to alloc rem db name\n", __func__);
+     //   logmsg(LOGMSG_ERROR, "Failed to allocate remotedb name\n");
         free(push);
         return -1;
     }
@@ -74,6 +88,7 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
     _master_clnt_set(clnt);
 
     clnt->fdb_push = push;
+
 
     return 0;
 }
@@ -177,18 +192,23 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
     uint64_t row_id = 0;
     int first_row = 1;
     int rc, irc;
+    printf("%s\n", __func__);
 
     char *conf = getenv("CDB2_CONFIG");
     if (conf)
         cdb2_set_comdb2db_config(conf);
 
-    if (push->local)
+    if (push->local) {
+        printf("%s push local\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "local", CDB2_SQL_ROWS);
-    else if (push->class_override) {
+    } else if (push->class_override) {
+        printf("%s push override\n", __func__);
         const char *cls_ovrr = mach_class_class2name(push->class);
         rc = cdb2_open(&hndl, push->remotedb, cls_ovrr, CDB2_SQL_ROWS);
-    } else /* default */
+    } else /* default */  {
+        printf("%s push default\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "default", CDB2_SQL_ROWS);
+    }
     if (rc) {
         errstat_set_rcstrf(err, rc, "Failed to open db %s local", push->remotedb);
         return -1;

@@ -541,8 +541,16 @@ int has_parallel_sql(struct sqlclntstate *clnt)
        recom requires a read-only share;
        snapisol and serializable requires a read-write share
     */
-    if (!clnt || clnt->dbtran.mode != TRANLEVEL_SOSQL)
+    if (!clnt || clnt->dbtran.mode != TRANLEVEL_SOSQL) {
+        if (!clnt) {
+            printf("null clnt\n");
+        } else {
+            printf("tranmode %d neq sosql\n", clnt->dbtran.mode);
+        }
         return 0;
+    }
+
+    printf("%s: about to check final condition\n", __func__);
 
     return clnt && clnt->plugin.has_parallel_sql &&
            clnt->plugin.has_parallel_sql(clnt);

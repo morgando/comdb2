@@ -211,9 +211,7 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
         rc = cdb2_open(&hndl, "phs3", "fuzz", CDB2_SQL_ROWS);
     } else if (strstr(clnt->sql, "phs4.") != NULL) {
         rc = cdb2_open(&hndl, "phs4", "fuzz", CDB2_SQL_ROWS);
-    } else 
-
-    if (push->local) {
+    } else if (push->local) {
         printf("%s push local\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "local", CDB2_SQL_ROWS);
     } else if (push->class_override) {
@@ -263,7 +261,7 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
                 errstat_set_rcstrf(err, rc = -1, "Failed to send columns");
                 goto closing;
             }
-            goto next_row;
+          //  goto next_row;
         }
 
         /* send row */
@@ -281,7 +279,7 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
             goto closing;
         }
 
-next_row:
+// next_row:
         /* next row */
         rc = cdb2_next_record(hndl);
         if (rc != CDB2_OK && rc != CDB2_OK_DONE) {

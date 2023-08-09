@@ -185,19 +185,16 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
     Expr *joinExpr = NULL;
 
     if (p->recording) {
-        printf("%s skipping recording\n", __func__);
         return NULL; /* no selectv */
     }
     if (p->pWith) {
-        printf("%s skipping with\n", __func__);
+        printf("%s Push remote even though CTE\n", __func__);
 //        return NULL; /* no CTE */
     }
     if (p->pHaving) {
-        printf("%s skipping having\n", __func__);
         return NULL; /* no having */
     }
     if (p->pGroupBy) {
-        printf("%s skipping group by\n", __func__);
         return NULL; /* no group by */
     }
     /* if (p->pSrc->nSrc > 1)
@@ -214,7 +211,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
         if (whereExpr) {
             where = sqlite3ExprDescribeParams(v, whereExpr, pParamsOut, 1);
             if (!where) {
-                printf("%s where check failed\n", __func__);
                 return NULL;
             }
         }
@@ -224,7 +220,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
         orderby = describeExprList(v, p->pOrderBy, order_size, order_dir,
                                    pParamsOut, is_union);
         if (!orderby) {
-            printf("%s orderby check failed\n", __func__);
             sqlite3_free(where);
             return NULL;
         }
@@ -234,7 +229,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
     if (!cols) {
         // sqlite3_free(orderby);
         // sqlite3_free(where);
-        printf("%s ignoring column gen failed\n", __func__);
         select = sqlite3_mprintf("SeLeCT");
         goto done;
         // return NULL;
@@ -279,14 +273,12 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
         }
         /* is it a subquery? */
         if (p->pSrc->a[i].zName) {
-            printf("not a subquery\n");
             if (p->pSrc->a[i].zDatabase)
                 tbl = sqlite3_mprintf("%s\"%w\".\"%w\"", tmp,
                         p->pSrc->a[i].zDatabase, p->pSrc->a[i].zName);
             else
                 tbl = sqlite3_mprintf("%s\"%w\"", tmp, p->pSrc->a[i].zName);
         } else {
-            printf("is a subquery\n");
             /* subquery */
             dohsql_node_t *subnode = gen_select(v, p->pSrc->a[i].pSelect);
             /* failed to parse, or not standalone select */
@@ -314,7 +306,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
                 char *on = sqlite3ExprDescribeParams(v, p->pSrc->a[i].pOn,
                                                      pParamsOut, 1);
                 if (!on) {
-                    printf("%s on check failed\n", __func__);
                     sqlite3_free(tbl);
                     sqlite3_free(orderby);
                     sqlite3_free(where);
@@ -338,7 +329,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
                         sqlite3_free(tbl);
                         sqlite3_free(orderby);
                         sqlite3_free(where);
-                        printf("%s join check failed\n", __func__);
                         return NULL;
                     }
                     tmp = tbl;
@@ -367,7 +357,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
             sqlite3_free(orderby);
             sqlite3_free(where);
             sqlite3_free(cols);
-            printf("%s limit check failed\n", __func__);
             return NULL;
         }
         if (/* p->pLimit && */ p->pLimit->pRight) {
@@ -379,7 +368,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
                 sqlite3_free(orderby);
                 sqlite3_free(where);
                 sqlite3_free(cols);
-                printf("%s offsetj check failed\n", __func__);
                 return NULL;
             }
             select = sqlite3_mprintf(
@@ -403,7 +391,6 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
                 sqlite3_free(orderby);
                 sqlite3_free(where);
                 sqlite3_free(cols);
-                printf("%s extra check failed\n", __func__);
                 return NULL;
             }
             select = sqlite3_mprintf(
@@ -712,7 +699,6 @@ static dohsql_node_t *gen_select(Vdbe *v, Select *p)
     dohsql_node_t *ret = NULL;
     int not_recognized = 0;
 
-    printf("%s\n", __func__);
     if (!p)
         return NULL;
 
@@ -737,15 +723,12 @@ static dohsql_node_t *gen_select(Vdbe *v, Select *p)
          (span == 1 &&
          p->op == TK_ALL) /* insert rowset which links values on pNext */
     )  {
-        printf("'not recognized'\n");
          return NULL;
     }
 
     if (p->op == TK_SELECT) {
-        printf("%s gen oneselect\n", __func__);
         ret = gen_oneselect(v, p, NULL, NULL, NULL, 0);
         if (ret) {
-            printf("Successfully got sql\n");
             /* single query case, can we push this remotely? */
             int i;
             const char *remoteDb = "";
@@ -780,7 +763,6 @@ static dohsql_node_t *gen_select(Vdbe *v, Select *p)
             }
         }
     } else {
-        printf("%s gen union\n", __func__);
         ret = gen_union(v, p, span);
     }
 
@@ -790,15 +772,12 @@ static dohsql_node_t *gen_select(Vdbe *v, Select *p)
 int ast_push(ast_t *ast, enum ast_type op, Vdbe *v, void *obj)
 {
     // int ignore = 0;
-    printf("%s in ast push\n", __func__);
 
     if (gbl_dohast_disable) {
-        printf("%s dohast is disabled\n", __func__);
         return 0;
     }
 
     if (dohsql_is_parallel_shard()) {
-        printf("%s is parallel shard\n", __func__);
         return 0;
     }
 
@@ -806,7 +785,6 @@ int ast_push(ast_t *ast, enum ast_type op, Vdbe *v, void *obj)
         ast->stack = realloc(ast->stack, (ast->nalloc + AST_STACK_INIT) *
                                              sizeof(ast->stack[0]));
         if (!ast->stack) {
-            printf("%s no stack\n", __func__);
             return -1;
         }
         bzero(&ast->stack[ast->nalloc], AST_STACK_INIT * sizeof(ast->stack[0]));
@@ -819,18 +797,15 @@ int ast_push(ast_t *ast, enum ast_type op, Vdbe *v, void *obj)
 
 
         if ((p->selFlags & SF_ASTIncluded) == 0) {
-            printf("%s gen select\n", __func__);
             ast->stack[ast->nused].op = op;
             ast->stack[ast->nused].obj = gen_select(v, p);
             ast->nused++;
         } else {
-            printf("%s ignore\n", __func__);
         //    ignore = 1;
         }
         break;
     }
     default: {
-        printf("%s default \n", __func__);
         ast->stack[ast->nused].op = op;
         ast->stack[ast->nused].obj = obj;
         ast->nused++;
@@ -985,22 +960,15 @@ int comdb2_check_push_remote(Parse *pParse)
     ast_t *ast = pParse->ast;
     dohsql_node_t *node;
 
-    printf("%s\n", __func__);
-
     if (!gbl_fdb_push_remote) {
         return 0;
     }
-
-    printf("%s: Tunable is set\n", __func__);
 
     if (ast && ast->unsupported) {
         return 0;
     }
 
-    printf("%s: ast is supported \n", __func__);
-
     if (has_parallel_sql(NULL) == 0) {
-        printf("%s: ast has no parallel sql\n", __func__);
         return 0;
     }
     if (ast->nused > 1) {
@@ -1008,24 +976,12 @@ int comdb2_check_push_remote(Parse *pParse)
    //     return 0;
     }
     if (!ast->stack[0].obj) {
-        printf("%s: obj is null\n", __func__);
         return 0;
     }
 
-    printf("%s: getting node\n", __func__);
-
     node = (dohsql_node_t *)ast->stack[0].obj;
 
-    /* EXPERIMENTAL */
-    /*if (node->type == AST_TYPE_SELECT) {
-        printf("%s: ast is select, pushing remote \n", __func__);
-        return 1;
-    }*/
-
-    printf("considering pushing sql %s to remdb %d \n", node->sql, node->remotedb);
-
     if (node->type != AST_TYPE_SELECT) {
-        printf("%s: ast is NOT select, not pushing remote \n", __func__);
         return 0;
     }
 
@@ -1095,10 +1051,8 @@ static char *_gen_col_expr(Vdbe *v, Expr *expr, char **tblname,
             *tblname = sqlite3_mprintf("\"%s_%w\".\"%w\"",
                                        fdb_dbname_class_routing(fdb),
                                        fdb_dbname_name(fdb), tab->zName);
-            printf("FOUND TABLENAME %s\n", *tblname);
         } else {
             *tblname = sqlite3_mprintf("\"%w\"", tab->zName);
-            printf("FOUND TABLENAME %s\n", *tblname);
         }
     }
 

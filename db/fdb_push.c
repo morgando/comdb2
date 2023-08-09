@@ -86,6 +86,8 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
         push->class_override = pDb->class_override;
 
         push->ncols = node->ncols;
+    } else {
+        push->ncols = 5;
     }
 
     _master_clnt_set(clnt);

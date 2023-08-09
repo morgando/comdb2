@@ -3944,15 +3944,14 @@ retry_legacy_remote:
             rec.sql = (const char *)allocd_str;
             continue;
         }
-        if (rc == SQLITE_SCHEMA_PUSH_REMOTE) {
-            rc = handle_fdb_push(clnt, &err);
-            if (rc == -2) {
-                /* remote server does not support proxy, retry without */
-                clnt->disable_fdb_push = 1;
-                goto retry_legacy_remote;
-            }
-            goto done;
+
+        rc = handle_fdb_push(clnt, &err);
+        if (rc == -2) {
+            /* remote server does not support proxy, retry without */
+            clnt->disable_fdb_push = 1;
+            goto retry_legacy_remote;
         }
+        goto done;
 
         if (rc) {
             int irc = errstat_get_rc(&err);
@@ -3975,6 +3974,7 @@ retry_legacy_remote:
         int fast_error = 0;
 
         /* run the engine */
+        printf("Running engine\n");
         rc = run_stmt(thd, clnt, &rec, &fast_error, &err);
         if (rc) {
             int irc = errstat_get_rc(&err);

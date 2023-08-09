@@ -107,6 +107,7 @@ static void attachFunc(
   char *tblName;
   int  iFndDb;
 #else /* defined(SQLITE_BUILDING_FOR_COMDB2) */
+  printf("%s\n", __func__);
   UNUSED_PARAMETER(NotUsed);
   zFile = (const char *)sqlite3_value_text(argv[0]);
   zName = (const char *)sqlite3_value_text(argv[1]);

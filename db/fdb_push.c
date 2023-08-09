@@ -41,8 +41,9 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
     GET_CLNT;
     fdb_push_connector_t *push = NULL;
     struct Db *pDb = &pParse->db->aDb[node->remotedb];
+    int fdb_force_push = 1;
 
-        printf("%s %d %d %d %d < %d \n", __func__, gbl_fdb_push_remote, clnt->disable_fdb_push, clnt->intrans, pDb->version, FDB_VER_PROXY);
+    printf("%s %d %d %d %d < %d \n", __func__, gbl_fdb_push_remote, clnt->disable_fdb_push, clnt->intrans, pDb->version, FDB_VER_PROXY);
 
     if (!gbl_fdb_push_remote) {
         printf("%s fdb push remote is disabled\n", __func__);
@@ -59,7 +60,7 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
         return -1;
     }
 
-    if (pDb->version < FDB_VER_PROXY) {
+    if (!fdb_force_push && pDb->version < FDB_VER_PROXY) {
         printf("%s db version is bad\n", __func__);
         return -1;
     }
@@ -71,24 +72,28 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
       //  logmsg(LOGMSG_ERROR, "Failed to allocate fdb_push\n");
         return -1;
     }
-    push->remotedb = strdup(pDb->zDbSName);
-    printf("remdb %s\n", push->remotedb);
-    if (!push->remotedb) {
-        printf("%s failed to alloc rem db name\n", __func__);
-     //   logmsg(LOGMSG_ERROR, "Failed to allocate remotedb name\n");
-        free(push);
-        return -1;
-    }
-    push->class =  pDb->class;
-    push->local = pDb->local;
-    push->class_override = pDb->class_override;
 
-    push->ncols = node->ncols;
+    if (!fdb_force_push) {
+        // If we're force pushing we may not have a node or rem. db, so skip this code.
+
+        push->remotedb = strdup(pDb->zDbSName);
+        printf("remdb %s\n", push->remotedb);
+        if (!push->remotedb) {
+            printf("%s failed to alloc rem db name\n", __func__);
+         //   logmsg(LOGMSG_ERROR, "Failed to allocate remotedb name\n");
+            free(push);
+            return -1;
+        }
+        push->class =  pDb->class;
+        push->local = pDb->local;
+        push->class_override = pDb->class_override;
+
+        push->ncols = node->ncols;
+    }
 
     _master_clnt_set(clnt);
 
     clnt->fdb_push = push;
-
 
     return 0;
 }
@@ -198,6 +203,16 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
     if (conf)
         cdb2_set_comdb2db_config(conf);
 
+    if (strstr(clnt->sql, "phs1.") != NULL) {
+        rc = cdb2_open(&hndl, "phs1", "fuzz", CDB2_SQL_ROWS);
+    } else if (strstr(clnt->sql, "phs2.") != NULL) {
+        rc = cdb2_open(&hndl, "phs2", "fuzz", CDB2_SQL_ROWS);
+    } else if (strstr(clnt->sql, "phs3.") != NULL) {
+        rc = cdb2_open(&hndl, "phs3", "fuzz", CDB2_SQL_ROWS);
+    } else if (strstr(clnt->sql, "phs4.") != NULL) {
+        rc = cdb2_open(&hndl, "phs4", "fuzz", CDB2_SQL_ROWS);
+    } else 
+
     if (push->local) {
         printf("%s push local\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "local", CDB2_SQL_ROWS);
@@ -218,6 +233,8 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
     if (rc) {
         return -1;
     }
+
+    printf("pushing %s to remote\n", clnt->sql);
 
     rc = cdb2_run_statement(hndl, clnt->sql);
     if (rc) {
@@ -246,6 +263,7 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
                 errstat_set_rcstrf(err, rc = -1, "Failed to send columns");
                 goto closing;
             }
+            goto next_row;
         }
 
         /* send row */
@@ -263,6 +281,7 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
             goto closing;
         }
 
+next_row:
         /* next row */
         rc = cdb2_next_record(hndl);
         if (rc != CDB2_OK && rc != CDB2_OK_DONE) {

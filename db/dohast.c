@@ -188,8 +188,10 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
         printf("%s skipping recording\n", __func__);
         return NULL; /* no selectv */
     }
-//    if (p->pWith)
+    if (p->pWith) {
+        printf("%s skipping with\n", __func__);
 //        return NULL; /* no CTE */
+    }
     if (p->pHaving) {
         printf("%s skipping having\n", __func__);
         return NULL; /* no having */
@@ -230,10 +232,12 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
 
     cols = generate_columns(v, p->pEList, &tbl, pParamsOut);
     if (!cols) {
-        sqlite3_free(orderby);
-        sqlite3_free(where);
-        printf("%s column gen failed\n", __func__);
-        return NULL;
+        // sqlite3_free(orderby);
+        // sqlite3_free(where);
+        printf("%s ignoring column gen failed\n", __func__);
+        select = sqlite3_mprintf("SeLeCT");
+        goto done;
+        // return NULL;
     }
 
     //    if (!tbl && p->pSrc->nSrc) {
@@ -413,6 +417,8 @@ char *sqlite_struct_to_string(Vdbe *v, Select *p, Expr *extraRows,
                 limit, limit, extra, extra);
         }
     }
+
+done:
 
     sqlite3_free(cols);
     if (extra)
@@ -731,8 +737,8 @@ static dohsql_node_t *gen_select(Vdbe *v, Select *p)
          (span == 1 &&
          p->op == TK_ALL) /* insert rowset which links values on pNext */
     )  {
-        printf("skipping 'not recognized'\n");
-         // return NULL;
+        printf("'not recognized'\n");
+         return NULL;
     }
 
     if (p->op == TK_SELECT) {
@@ -998,8 +1004,8 @@ int comdb2_check_push_remote(Parse *pParse)
         return 0;
     }
     if (ast->nused > 1) {
-        printf("%s: ast nused > 1\n", __func__);
-        return 0;
+        printf("%s: ignoring ast nused > 1\n", __func__);
+   //     return 0;
     }
     if (!ast->stack[0].obj) {
         printf("%s: obj is null\n", __func__);
@@ -1016,18 +1022,20 @@ int comdb2_check_push_remote(Parse *pParse)
         return 1;
     }*/
 
+    printf("considering pushing sql %s to remdb %d \n", node->sql, node->remotedb);
+
     if (node->type != AST_TYPE_SELECT) {
         printf("%s: ast is NOT select, not pushing remote \n", __func__);
         return 0;
     }
 
     if (!pParse->explain) {
-        if (node->remotedb > 1) {
+        // if (node->remotedb > 1) {
             if (!fdb_push_run(pParse, node)) {
                 printf("%s:  pushing remote\n", __func__);
                 return 1;
             }
-        }
+        // }
     }
 
     printf("%s: not pushing remote\n", __func__);
@@ -1087,8 +1095,10 @@ static char *_gen_col_expr(Vdbe *v, Expr *expr, char **tblname,
             *tblname = sqlite3_mprintf("\"%s_%w\".\"%w\"",
                                        fdb_dbname_class_routing(fdb),
                                        fdb_dbname_name(fdb), tab->zName);
+            printf("FOUND TABLENAME %s\n", *tblname);
         } else {
             *tblname = sqlite3_mprintf("\"%w\"", tab->zName);
+            printf("FOUND TABLENAME %s\n", *tblname);
         }
     }
 

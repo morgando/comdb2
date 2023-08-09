@@ -4938,10 +4938,10 @@ int cdb2_numcolumns(cdb2_hndl_tp *hndl)
         rc = 0;
     else
         rc = hndl->firstresponse->n_value;
-    if (log_calls) {
+//    if (log_calls) {
         fprintf(stderr, "%p> cdb2_numcolumns(%p) = %d\n",
                 (void *)pthread_self(), hndl, rc);
-    }
+ //   }
     return rc;
 }
 

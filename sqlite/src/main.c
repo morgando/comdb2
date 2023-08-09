@@ -2818,8 +2818,6 @@ int sqlite3ParseUri(
   char c;
   int nUri = sqlite3Strlen30(zUri);
 
-  printf("uri %s\n", zUri);
-
   assert( *pzErrMsg==0 );
 
   if( ((flags & SQLITE_OPEN_URI)             /* IMP: R-48725-32206 */

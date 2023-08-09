@@ -43,8 +43,6 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
     struct Db *pDb = &pParse->db->aDb[node->remotedb];
     int fdb_force_push = 1;
 
-    printf("%s %d %d %d %d < %d \n", __func__, gbl_fdb_push_remote, clnt->disable_fdb_push, clnt->intrans, pDb->version, FDB_VER_PROXY);
-
     if (!gbl_fdb_push_remote) {
         printf("%s fdb push remote is disabled\n", __func__);
         return -1;
@@ -66,7 +64,6 @@ int fdb_push_run(Parse *pParse, dohsql_node_t *node)
     }
 
     push = calloc(1, sizeof(fdb_push_connector_t));
-    printf("push %p\n", push);
     if (!push) {
         printf("%s failed to alloc fdb push\n", __func__);
       //  logmsg(LOGMSG_ERROR, "Failed to allocate fdb_push\n");

@@ -475,7 +475,6 @@ static int newsql_columns_str(struct sqlclntstate *clnt, char **names,
 int newsql_columns_fdb_push(struct sqlclntstate *clnt, cdb2_hndl_tp *hndl,
                             int ncols)
 {
-    printf("%s\n", __func__);
     struct newsql_appdata *appdata = clnt->appdata;
     update_col_info(&appdata->col_info, ncols);
     CDB2SQLRESPONSE__Column cols[ncols];

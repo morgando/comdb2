@@ -107,7 +107,6 @@ static void attachFunc(
   char *tblName;
   int  iFndDb;
 #else /* defined(SQLITE_BUILDING_FOR_COMDB2) */
-  printf("%s\n", __func__);
   UNUSED_PARAMETER(NotUsed);
   zFile = (const char *)sqlite3_value_text(argv[0]);
   zName = (const char *)sqlite3_value_text(argv[1]);
@@ -257,7 +256,6 @@ static void attachFunc(
     pNew->class_override = class_override;
     pNew->local = local;
     pNew->version = proto_version;
-    // printf("dbname %s class %s class_override %s local");
 #else /* defined(SQLITE_BUILDING_FOR_COMDB2) */
     pNew->zDbSName = sqlite3DbStrDup(db, zName);
 #endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */

@@ -1255,6 +1255,12 @@ int sqlite3_aggregate_count(sqlite3_context *p){
 */
 int sqlite3_column_count(sqlite3_stmt *pStmt){
   Vdbe *pVm = (Vdbe *)pStmt;
+  if (pVm) {
+      printf("%s res columns %d", __func__, pVm->nResColumn);
+  } else {
+      printf("%s no pvm\n", __func__);
+  }
+
   return pVm ? pVm->nResColumn : 0;
 }
 

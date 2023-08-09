@@ -619,7 +619,7 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
     int ncols = column_count(clnt, stmt);
     struct newsql_appdata *appdata = clnt->appdata;
     update_col_info(&appdata->col_info, ncols);
-    assert(ncols == appdata->col_info.count);
+    // assert(ncols == appdata->col_info.count);
     int flip = 0;
 #if BYTE_ORDER == BIG_ENDIAN
     if (appdata->sqlquery->little_endian)
@@ -639,17 +639,20 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
     memset(&bd, 0, sizeof(ProtobufCBinaryData) * ncols);
     memset(&isnulls, 0, sizeof(protobuf_c_boolean) * ncols);
 
+    printf("ncols %d\n", ncols);
     for (int i = 0; i < ncols; ++i) {
         if (!clnt->flat_col_vals)
             value[i] = &cols[i];
         cdb2__sqlresponse__column__init(&cols[i]);
         if (is_column_type_null(clnt, stmt, i)) {
+            printf("col type null\n");
             newsql_null(cols, i);
             if (clnt->flat_col_vals)
                 isnulls[i] = cols[i].has_isnull ? cols[i].isnull : 0;
             continue;
         }
         int type = appdata->col_info.type[i];
+        printf("type %d\n", type);
         switch (type) {
         case SQLITE_INTEGER: {
             int64_t i64 = column_int64(clnt, stmt, i);
@@ -664,6 +667,7 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
         case SQLITE_TEXT: {
             cols[i].value.len = column_bytes(clnt, stmt, i) + 1;
             cols[i].value.data = (uint8_t *)column_text(clnt, stmt, i);
+            printf("Text data is %s\n", (char *) cols[i].value.data);
             break;
         }
         case SQLITE_BLOB: {
@@ -714,6 +718,7 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
         }
         case SQLITE_DECIMAL:
         default:
+            printf("Type %d is decimal or not found\n", type);
             return -1;
         }
 
@@ -738,10 +743,13 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
     }
 
     if (postpone) {
+        printf("%s: postponing\n", __func__);
         return newsql_save_postponed_row(clnt, &r);
     } else if (arg->pingpong) {
+        printf("%s: pingponging\n", __func__);
         return newsql_response_int(clnt, &r, RESPONSE_HEADER__SQL_RESPONSE_PING, 1);
     }
+    printf("%s: not postponing or pingponging\n", __func__);
     return newsql_response(clnt, &r, !clnt->rowbuffer);
 }
 

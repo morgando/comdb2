@@ -258,7 +258,6 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
                 errstat_set_rcstrf(err, rc = -1, "Failed to send columns");
                 goto closing;
             }
-          //  goto next_row;
         }
 
         /* send row */
@@ -276,7 +275,6 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
             goto closing;
         }
 
-// next_row:
         /* next row */
         rc = cdb2_next_record(hndl);
         if (rc != CDB2_OK && rc != CDB2_OK_DONE) {

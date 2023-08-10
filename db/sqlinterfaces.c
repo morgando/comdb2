@@ -3951,6 +3951,7 @@ retry_legacy_remote:
 
         rc = handle_fdb_push(clnt, &err);
         if (rc == -3) {
+            rc = 0;
             goto fallback;
         } else if (rc == -2) {
             /* remote server does not support proxy, retry without */

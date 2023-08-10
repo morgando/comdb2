@@ -213,17 +213,17 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
     } else {
         return -3;
     }
-    if (push->local) {
+/*    if (push->local) {
         printf("%s push local\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "local", CDB2_SQL_ROWS);
     } else if (push->class_override) {
         printf("%s push override\n", __func__);
         const char *cls_ovrr = mach_class_class2name(push->class);
         rc = cdb2_open(&hndl, push->remotedb, cls_ovrr, CDB2_SQL_ROWS);
-    } else /* default */  {
+    } else  {
         printf("%s push default\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "default", CDB2_SQL_ROWS);
-    }
+    }*/
     if (rc) {
         errstat_set_rcstrf(err, rc, "Failed to open db %s local", push->remotedb);
         return -1;

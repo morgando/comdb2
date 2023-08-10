@@ -650,7 +650,6 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
             continue;
         }
         int type = appdata->col_info.type[i];
-        printf("type %d\n", type);
         switch (type) {
         case SQLITE_INTEGER: {
             int64_t i64 = column_int64(clnt, stmt, i);

@@ -3938,12 +3938,16 @@ retry_legacy_remote:
         }
 
         rc = handle_fdb_push(clnt, &err);
-        if (rc == -2) {
+        if (rc == -3) {
+            goto fallback;
+        } else if (rc == -2) {
             /* remote server does not support proxy, retry without */
             clnt->disable_fdb_push = 1;
             goto retry_legacy_remote;
         }
         goto done;
+
+fallback:
 
         if (rc) {
             int irc = errstat_get_rc(&err);

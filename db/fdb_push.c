@@ -210,7 +210,10 @@ int handle_fdb_push(struct sqlclntstate *clnt, struct errstat *err)
         rc = cdb2_open(&hndl, "phs3", "fuzz", CDB2_SQL_ROWS);
     } else if (strstr(clnt->sql, "phs4.") != NULL) {
         rc = cdb2_open(&hndl, "phs4", "fuzz", CDB2_SQL_ROWS);
-    } else if (push->local) {
+    } else {
+        return -3;
+    }
+    if (push->local) {
         printf("%s push local\n", __func__);
         rc = cdb2_open(&hndl, push->remotedb, "local", CDB2_SQL_ROWS);
     } else if (push->class_override) {

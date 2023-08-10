@@ -280,6 +280,7 @@ extern int gbl_abort_on_missing_ufid;
 extern int gbl_ufid_dbreg_test;
 extern int gbl_debug_add_replication_latency;
 extern int gbl_javasp_early_release;
+extern int gbl_debug_drop_nth_rep_message;
 
 extern long long sampling_threshold;
 
@@ -310,6 +311,8 @@ extern int gbl_view_feature;
 
 extern char *gbl_kafka_topic;
 extern char *gbl_kafka_brokers;
+extern int gbl_noleader_retry_duration_ms;
+extern int gbl_noleader_retry_poll_ms;
 
 /* util/ctrace.c */
 extern int nlogs;
@@ -413,6 +416,7 @@ extern int gbl_physrep_exit_on_invalid_logstream;
 extern int gbl_physrep_fanout;
 extern int gbl_physrep_hung_replicant_check_freq_sec;
 extern int gbl_physrep_hung_replicant_threshold;
+extern int gbl_physrep_i_am_metadb;
 extern int gbl_physrep_keepalive_freq_sec;
 extern int gbl_physrep_max_candidates;
 extern int gbl_physrep_max_pending_replicants;
@@ -429,6 +433,8 @@ extern char *gbl_physrep_metadb_host;
 extern int gbl_revsql_allow_command_exec;
 extern int gbl_revsql_debug;
 extern int gbl_revsql_cdb2_debug;
+extern int gbl_revsql_host_refresh_freq_sec;
+extern int gbl_revsql_connect_freq_sec;
 
 int gbl_debug_tmptbl_corrupt_mem;
 int gbl_group_concat_mem_limit; /* 0 implies allow upto SQLITE_MAX_LENGTH,
@@ -451,6 +457,7 @@ extern uint64_t gbl_sc_headroom;
 
 extern int gbl_unexpected_last_type_warn;
 extern int gbl_unexpected_last_type_abort;
+extern int gbl_pstack_self;
 
 /*
   =========================================================

@@ -263,6 +263,7 @@ typedef struct {
     int maxchunksize;     /* multi-transaction bulk mode */
     int crtchunksize;     /* how many rows are processed already */
     int nchunks;          /* number of chunks. 0 for a non-chunked transaction. */
+    int views_lk_held;    /* Am I holding views_lk? */
 } dbtran_type;
 typedef dbtran_type trans_t;
 
@@ -585,7 +586,8 @@ enum prepare_flags {
     PREPARE_NO_NORMALIZE = 32,
     PREPARE_ONLY = 64,
     PREPARE_ALLOW_TEMP_DDL = 128,
-    PREPARE_ACQUIRE_SPLOCK = 256
+    PREPARE_ACQUIRE_SPLOCK = 256,
+    PREPARE_ACQUIRE_VIEWSLK = 512
 };
 
 /* This structure is designed to hold several pieces of data related to
@@ -931,6 +933,7 @@ struct sqlclntstate {
     int disable_fdb_push;
 
     int lastresptype;
+    char *externalAuthUser;
 };
 
 /* Query stats. */

@@ -63,7 +63,7 @@ extern int gbl_expressions_indexes;
 int gbl_fdb_track = 0;
 int gbl_fdb_track_times = 0;
 int gbl_test_io_errors = 0;
-int gbl_fdb_push_remote = 0;
+int gbl_fdb_push_remote = 1;
 int gbl_fdb_incoherence_percentage = 0;
 int gbl_fdb_io_error_retries = 16;
 
@@ -4968,7 +4968,7 @@ static int _get_protocol_flags(struct sqlclntstate *clnt, fdb_t *fdb,
         }
     } else {
         *flags = FDB_MSG_CURSOR_OPEN_SQL_SSL;
-        if (clnt->plugin.has_ssl(clnt) || fdb->ssl >= SSL_REQUIRE) {
+        if ((clnt->plugin.has_ssl(clnt) || fdb->ssl >= SSL_REQUIRE) && gbl_ssl_allow_remsql) {
             *flags |= FDB_MSG_CURSOR_OPEN_FLG_SSL;
         }
     }

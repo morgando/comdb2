@@ -966,7 +966,9 @@ int sqlite3_unpacked_to_packed(Mem *mems, int nmems, char **ret_rec,
         total_data_sz += sqlite3VdbeSerialTypeLen(type);
         total_header_sz += sqlite3VarintLen(type);
     }
-    total_header_sz += sqlite3VarintLen(total_header_sz);
+    // adding header length to total_header_sz may change header length of total_header_sz, so calculate sqlite3VarintLen() twice
+    int header_length = sqlite3VarintLen(total_header_sz);
+    total_header_sz += sqlite3VarintLen(total_header_sz + header_length);
 
     /* create the sqlite row */
     rec = (char *)calloc(1, total_header_sz + total_data_sz);
@@ -1003,6 +1005,7 @@ int sqlite3_unpacked_to_packed(Mem *mems, int nmems, char **ret_rec,
     *ret_rec_len = total_header_sz + total_data_sz;
 
     if (remsz != 0) {
+        logmsg(LOGMSG_ERROR, "%s: remsz %d != 0\n", __func__, remsz);
         abort();
     }
 
@@ -7619,6 +7622,7 @@ int gbl_assert_systable_locks = 1;
 #else
 int gbl_assert_systable_locks = 0;
 #endif
+extern pthread_rwlock_t views_lk;
 
 static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
 {
@@ -7641,6 +7645,11 @@ static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
 
     if (NULL == clnt->dbtran.cursor_tran) {
         return 0;
+    }
+
+    if ((p->vTableFlags & PREPARE_ACQUIRE_VIEWSLK) && !clnt->dbtran.views_lk_held) {
+        Pthread_rwlock_rdlock(&views_lk);
+        clnt->dbtran.views_lk_held = 1;
     }
 
     for (int i = 0; i < p->numVTableLocks; i++) {
@@ -8017,6 +8026,7 @@ sqlite3BtreeCursor_remote(Btree *pBt,      /* The btree */
                           BtCursor *cur,   /* Write new cursor here */
                           struct sql_thread *thd)
 {
+    extern int gbl_ssl_allow_remsql;
     struct sqlclntstate *clnt = thd->clnt;
     fdb_tran_t *trans;
     fdb_t *fdb;
@@ -8067,7 +8077,7 @@ sqlite3BtreeCursor_remote(Btree *pBt,      /* The btree */
     if (trans)
         Pthread_mutex_lock(&clnt->dtran_mtx);
 
-    int usessl = clnt->plugin.has_ssl(clnt);
+    int usessl = clnt->plugin.has_ssl(clnt) && gbl_ssl_allow_remsql;
     cur->fdbc =
         fdb_cursor_open(clnt, cur, cur->rootpage, trans, &cur->ixnum, usessl);
     if (!cur->fdbc) {
@@ -9685,6 +9695,12 @@ int put_curtran_flags(bdb_state_type *bdb_state, struct sqlclntstate *clnt,
 
     rc = bdb_put_cursortran(bdb_state, clnt->dbtran.cursor_tran, curtran_flags,
                             &bdberr);
+
+    if (clnt->dbtran.views_lk_held) {
+        Pthread_rwlock_unlock(&views_lk);
+        clnt->dbtran.views_lk_held = 0;
+    }
+
     if (rc) {
         logmsg(LOGMSG_DEBUG, "%s: %p rc %d bdberror %d\n", __func__, (void *)pthread_self(), rc, bdberr);
         ctrace("%s: rc %d bdberror %d\n", __func__, rc, bdberr);
@@ -11303,8 +11319,6 @@ sbuf:
         close(sockfd);
         return NULL;
     }
-
-    logmsg(LOGMSG_INFO, "%s:%d connected to remote fd: %d\n", __func__, __LINE__, sbuf2fileno(sb));
 
     sbuf2settimeout(sb, IOTIMEOUTMS, IOTIMEOUTMS);
 
@@ -13194,4 +13208,3 @@ int comdb2_is_field_indexable(const char *table_name, int fld_idx) {
     }
     return 1;
 }
-

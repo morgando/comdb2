@@ -2170,20 +2170,50 @@ static void bdb_appsock(netinfo_type *netinfo, SBUF2 *sb)
         (bdb_state->callback->appsock_rtn)(bdb_state, sb);
 }
 
+extern int gbl_pstack_self;
 void pstack_self(void)
 {
-    char buf[256];
+    if (!gbl_pstack_self)
+        return;
+
+    char cmd[256];
+    char output[20] = "/tmp/pstack.XXXXXX";
+    int fd = mkstemp(output);
+    if (fd == -1) {
+        logmsg(LOGMSG_ERROR, "%s: open(%s) err:%s\n", __func__, output, strerror(errno));
+        return;
+    }
     pid_t pid = getpid();
 #   if defined(COMDB2_BBCMAKE) && defined(_LINUX_SOURCE)
-    snprintf(buf, sizeof(buf), "/opt/bbinfra/bin/pstack %d", pid);
+    snprintf(cmd, sizeof(cmd), "/opt/bbinfra/bin/pstack %d > %s", pid, output);
 #   else
-    snprintf(buf, sizeof(buf), "pstack %d", pid);
+    snprintf(cmd, sizeof(cmd), "pstack %d > %s", pid, output);
 #   endif
     errno = 0;
-    int rc = system(buf);
+    int rc = system(cmd);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: system(%s) rc:%d err:%s\n", __func__, buf, rc, strerror(errno));
+        logmsg(LOGMSG_ERROR, "%s:%d system(\"%s\") failed (rc = %d)\n", __func__, __LINE__, cmd, rc);
+        close(fd);
+        unlink(output);
+        return;
     }
+
+    FILE *out = fdopen(fd, "r");
+    if (!out) {
+        logmsg(LOGMSG_ERROR, "%s: open(%s) err:%s\n", __func__, cmd, strerror(errno));
+        close(fd);
+        unlink(output);
+        return;
+    }
+    int old = gbl_logmsg_ctrace;
+    gbl_logmsg_ctrace = 1;
+    char line[LINE_MAX];
+    while (fgets(line, sizeof(line), out) == line) {
+        logmsg(LOGMSG_USER, "%s", line);
+    }
+    gbl_logmsg_ctrace = old;
+    fclose(out);
+    unlink(output);
 }
 
 static void panic_func(DB_ENV *dbenv, int errval)

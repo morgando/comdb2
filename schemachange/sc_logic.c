@@ -841,7 +841,7 @@ void *sc_resuming_watchdog(void *p)
         if (iq.sc->kind == SC_ADDTABLE) {
             delete_temp_table(&iq, iq.sc->db);
             if (iq.sc->add_state == SC_DONE_ADD) {
-                delete_db(iq.sc->tablename);
+                rem_dbtable_from_thedb_dbs(iq.sc->db);
             }
         }
         /* TODO: (NC) Also delete view? */
@@ -1498,6 +1498,9 @@ int dryrun_int(struct schema_change_type *s, struct dbtable *db, struct dbtable 
         } else if (changed == SC_BAD_DBPAD) {
             sc_client_error(s, ">Cannot change size of byte array without dbpad\n");
             return -1;
+        } else if (changed == SC_BAD_DBSTORE_FUNC_NOT_NULL) {
+            sc_client_error(s, ">Column must be nullable to use a function as its default value");
+            return -1;
         } else {
             sc_client_error(s, ">Failed to process schema!\n");
             return -1;
@@ -1544,7 +1547,7 @@ int backout_schema_changes(struct ireq *iq, tran_type *tran)
         }
         if (s->kind == SC_ADDTABLE) {
             if (s->add_state == SC_DONE_ADD) {
-                delete_db(s->tablename);
+                rem_dbtable_from_thedb_dbs(s->db);
             }
             if (s->newdb) {
                 backout_schemas(s->newdb->tablename);

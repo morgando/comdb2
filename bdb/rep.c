@@ -67,6 +67,7 @@ int gbl_prefault_latency = 0;
 int gbl_long_log_truncation_warn_thresh_sec = INT_MAX;
 int gbl_long_log_truncation_abort_thresh_sec = INT_MAX;
 int gbl_dump_sql_on_repwait_sec = 10;
+int gbl_debug_drop_nth_rep_message = 0;
 
 extern struct thdpool *gbl_udppfault_thdpool;
 extern int gbl_commit_delay_trace;
@@ -1248,11 +1249,13 @@ elect_again:
        here.  */
     set_repinfo_master_host(bdb_state, db_eid_invalid, __func__, __LINE__);
 
+    int already_master = 0;
+
     /* Should be holding bdb readlock .. */
     BDB_READLOCK("rep_elect");
 
-    rc = bdb_state->dbenv->rep_elect(bdb_state->dbenv, elect_count, rep_pri,
-                                     elect_time, &newgen, &master_host);
+    rc = bdb_state->dbenv->rep_elect(bdb_state->dbenv, elect_count, rep_pri, elect_time, &newgen, &already_master,
+                                     &master_host);
     BDB_RELLOCK();
 
     if (rc != 0) {
@@ -1274,6 +1277,13 @@ elect_again:
     }
     /* replace now: if i was already master, rep-start wont be called */
     set_repinfo_master_host(bdb_state, master_host, __func__, __LINE__);
+
+    /* Berkley says we are already master.  We won't get a rep-message and
+     * shouldn't call the newmaster-callback here (which would normally set this
+     * Just set thedb->master. */
+    if (already_master) {
+        thedb_set_master(master_host);
+    }
 
     /* Check if it's us. */
     if (rc == 0) {
@@ -1409,7 +1419,12 @@ static void *add_thread_int(bdb_state_type *bdb_state, int add_delay)
                __func__, bdb_state->repinfo->master_host,
                bdb_state->repinfo->myhost);
         goto done;
-    } else if (gbl_write_dummy_trace) {
+    } else if (gbl_is_physical_replicant == 1) {
+	logmsg(LOGMSG_USER, "physrep: %s:%d: Not inserting a dummy record\n", __func__, __LINE__);
+        goto done;
+    }
+
+    if (gbl_write_dummy_trace) {
         logmsg(LOGMSG_USER,
                "%s: adding dummy record for master %s, host %s\n", __func__,
                bdb_state->repinfo->master_host, bdb_state->repinfo->myhost);
@@ -3905,9 +3920,16 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control,
     if (debug_switch_rep_delay())
         sleep(2);
 
-    r = bdb_state->dbenv->rep_process_message(bdb_state->dbenv, control, rec,
-                                              &host, &permlsn,
-                                              &commit_generation, online);
+    if (gbl_debug_drop_nth_rep_message > 0 &&
+        (bdb_state->repinfo->repstats.rep_process_message %
+         gbl_debug_drop_nth_rep_message) == 0) {
+        logmsg(LOGMSG_INFO, "%s:%d dropping message!\n", __func__, __LINE__);
+        r = 0;
+    } else {
+        r = bdb_state->dbenv->rep_process_message(bdb_state->dbenv, control, rec,
+                                                  &host, &permlsn,
+                                                  &commit_generation, online);
+    }
 
     if (got_vote2lock) {
         if (bdb_get_rep_master(bdb_state, &master, &gen, &egen) != 0) {
@@ -3940,14 +3962,13 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control,
 
     if ((time2 - time1) > bdb_state->attr->rep_longreq) {
         const struct berkdb_thread_stats *t = bdb_get_thread_stats();
-        logmsg(LOGMSG_WARN, "LONG rep_process_message: %d seconds, type %d r %d\n",
-                time2 - time1, rep_control->rectype, r);
+        logmsg(LOGMSG_WARN, "LONG rep_process_message: %d seconds, type:%d r:%d host:%s\n",
+                time2 - time1, rep_control->rectype, r, host);
         bdb_fprintf_stats(t, "  ", stderr);
     }
 
     if (bdb_state->rep_trace)
-        logmsg(LOGMSG_USER, "after rep_process_message() got %d from %s\n", r,
-                host);
+        logmsg(LOGMSG_USER, "after rep_process_message() got %d from %s\n", r, host);
 
     /* force a high lsn if we are starting or stopping */
     if ((!bdb_state->caught_up) || (bdb_state->exiting))
@@ -4736,8 +4757,8 @@ void berkdb_receive_msg(void *ack_handle, void *usr_ptr, char *from_host,
 
         bdb_state->dbenv->rep_flush(bdb_state->dbenv);
 
-        logmsg(LOGMSG_INFO, "USER_TYPE_LSNCMP %d %d    %d %d\n", lsn_cmp.lsn.file,
-                cur_lsn.file, lsn_cmp.lsn.offset, cur_lsn.offset);
+        logmsg(LOGMSG_INFO, "USER_TYPE_LSNCMP %d %d    %d %d host:%s\n", lsn_cmp.lsn.file,
+                cur_lsn.file, lsn_cmp.lsn.offset, cur_lsn.offset, from_host);
 
         /* if he's ahead he's good */
         if (log_compare(&lsn_cmp.lsn, &cur_lsn) >= 0) {
@@ -5304,11 +5325,9 @@ void bdb_dump_threads_and_maybe_abort(bdb_state_type *bdb_state, int watchdog,
             signal(SIGALRM, abort_stalled_exit);
         }
         alarm(60);
-
         logmsg(LOGMSG_FATAL, "Getting ready to die, printing useful debug info.\n");
     }
-    if (bdb_state->callback->threaddump_rtn)
-        (bdb_state->callback->threaddump_rtn)();
+    if (bdb_state->callback->threaddump_rtn) (bdb_state->callback->threaddump_rtn)();
     lock_info_lockers(stderr, bdb_state);
     thd_dump();
     pstack_self();
@@ -5526,27 +5545,14 @@ void *watcher_thread(void *arg)
 
         if ((bdb_state->passed_dbenv_open) &&
             (bdb_state->repinfo->rep_process_message_start_time)) {
-            if (comdb2_time_epoch() -
-                    bdb_state->repinfo->rep_process_message_start_time >
-                10) {
-                logmsg(LOGMSG_WARN, "rep_process_message running for 10 seconds,"
-                                "dumping thread pool\n");
-
-                bdb_state->repinfo->rep_process_message_start_time = 0;
+            if (comdb2_time_epoch() - bdb_state->repinfo->rep_process_message_start_time > 10) {
+                logmsg(LOGMSG_WARN, "rep_process_message running for 10 seconds, dumping thread pool to trc.c\n");
+                gbl_logmsg_ctrace = 1;
                 bdb_dump_threads_and_maybe_abort(bdb_state, 0, 0);
+                gbl_logmsg_ctrace = 0;
+                bdb_state->repinfo->rep_process_message_start_time = 0;
             }
-
-            if ((comdb2_time_epoch() - bdb_state->repinfo->rep_process_message_start_time) >
-                gbl_dump_sql_on_repwait_sec) {
-                logmsg(LOGMSG_USER, "SQL statements currently blocking the "
-                                    "replication thread:\n");
-                comdb2_dump_blockers(bdb_state->dbenv);
-            }
-
-            if ((comdb2_time_epoch() - bdb_state->repinfo->rep_process_message_start_time) >
-                gbl_dump_sql_on_repwait_sec) {
-                logmsg(LOGMSG_USER, "SQL statements currently blocking the "
-                                    "replication thread:\n");
+            if ((comdb2_time_epoch() - bdb_state->repinfo->rep_process_message_start_time) > gbl_dump_sql_on_repwait_sec) {
                 comdb2_dump_blockers(bdb_state->dbenv);
             }
         }

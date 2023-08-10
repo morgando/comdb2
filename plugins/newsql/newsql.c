@@ -2071,11 +2071,14 @@ int newsql_loop(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
         if (sql_query->client_info->stack) {
             clnt->stack = strdup(sql_query->client_info->stack);
         }
+        if (sql_query->identity) {
+            clnt->externalAuthUser = sql_query->identity->principal;
+        }
     }
     if (clnt->rawnodestats == NULL) {
         clnt->rawnodestats =
             get_raw_node_stats(clnt->argv0, clnt->stack, clnt->origin,
-                               clnt->plugin.get_fileno(clnt));
+                               clnt->plugin.get_fileno(clnt), clnt->plugin.has_ssl(clnt));
     }
     if (process_set_commands(clnt, sql_query)) {
         return -1;
@@ -2102,6 +2105,9 @@ int newsql_loop(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
         return -1;
     }
     ATOMIC_ADD32(gbl_nnewsql, 1);
+    if (clnt->plugin.has_ssl(clnt))
+        ATOMIC_ADD32(gbl_nnewsql_ssl, 1);
+
     return 0;
 }
 

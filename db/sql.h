@@ -263,6 +263,7 @@ typedef struct {
     int maxchunksize;     /* multi-transaction bulk mode */
     int crtchunksize;     /* how many rows are processed already */
     int nchunks;          /* number of chunks. 0 for a non-chunked transaction. */
+    int views_lk_held;    /* Am I holding views_lk? */
 } dbtran_type;
 typedef dbtran_type trans_t;
 
@@ -319,9 +320,7 @@ void currange_free(CurRange *cr);
 struct stored_proc;
 struct lua_State;
 struct dohsql;
-typedef struct dohsql dohsql_t;
 struct dohsql_node;
-typedef struct dohsql_node dohsql_node_t;
 typedef struct fdb_push_connector fdb_push_connector_t;
 
 enum early_verify_error {
@@ -587,7 +586,8 @@ enum prepare_flags {
     PREPARE_NO_NORMALIZE = 32,
     PREPARE_ONLY = 64,
     PREPARE_ALLOW_TEMP_DDL = 128,
-    PREPARE_ACQUIRE_SPLOCK = 256
+    PREPARE_ACQUIRE_SPLOCK = 256,
+    PREPARE_ACQUIRE_VIEWSLK = 512
 };
 
 /* This structure is designed to hold several pieces of data related to
@@ -784,6 +784,7 @@ struct sqlclntstate {
     int is_hasql_retry;
     int is_readonly;
     int is_readonly_set; /* Whether 'readonly' was set explicitly via SET command? */
+    int force_readonly;
     int is_expert;
     int is_fast_expert; /* 1 if not scanning data to generate stat1 */
     int added_to_hist;
@@ -865,7 +866,7 @@ struct sqlclntstate {
     int verify_remote_schemas;
 
     /* sharding scheme */
-    dohsql_t *conns;
+    struct dohsql *conns;
     int nconns;
     int conns_idx;
     int shard_slice;
@@ -934,6 +935,9 @@ struct sqlclntstate {
     u_int32_t last_commit_lsn_file;
     u_int32_t last_commit_lsn_offset;
     int last_commit_lsn_isset;
+
+    int lastresptype;
+    char *externalAuthUser;
 };
 
 /* Query stats. */
@@ -1282,7 +1286,7 @@ int fdb_add_remote_time(BtCursor *pCur, unsigned long long start,
  * refers to a remote table
  *
  */
-int fdb_push_run(Parse *pParse, dohsql_node_t *node);
+int fdb_push_run(Parse *pParse, struct dohsql_node *node);
 
 /**
  * Free remote push support

@@ -469,6 +469,7 @@ struct tran_tag {
     /* Newsi pglogs queue hash */
     hash_t *pglogs_queue_hash;
     u_int32_t flags;
+    int is_prepared;
 };
 
 struct seqnum_t {
@@ -1866,5 +1867,6 @@ int bdb_prepare_put_pack_updateid(bdb_state_type *bdb_state, int is_blob,
                                   void **freeptr, void *stackbuf, int odhready);
 
 int net_get_lsn_rectype(const void *buf, int buflen, DB_LSN *lsn, int *myrectype);
+void pstack_self(void);
 
 #endif /* __bdb_int_h__ */

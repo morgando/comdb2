@@ -36,7 +36,8 @@ enum cdb2_hndl_alloc_flags {
     CDB2_RANDOMROOM = 16,
     CDB2_ROOM = 32,
     CDB2_ADMIN = 64,
-    CDB2_SQL_ROWS = 128
+    CDB2_SQL_ROWS = 128,
+    CDB2_TYPE_IS_FD = 256,
 };
 
 enum cdb2_request_type {
@@ -97,6 +98,7 @@ enum cdb2_errors {
     CDB2ERR_TZNAME_FAIL = 401,
     CDB2ERR_CHANGENODE = 402,
     CDB2ERR_CHECK_CONSTRAINT = 403,
+    CDB2ERR_DIST_ABORT = 410,
     CDB2ERR_QUERY_REJECTED = 451,
 
     CDB2ERR_UNKNOWN = 300
@@ -304,6 +306,13 @@ cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type types,
                                 cdb2_event_ctrl ctrls, cdb2_event_callback cb,
                                 void *user_arg, int argc, ...);
 int cdb2_unregister_event(cdb2_hndl_tp *hndl, cdb2_event *e);
+
+struct cdb2_identity {
+    void  (*resetIdentity_start)();
+    void  (*resetIdentity_end)(int);
+    void *(*getIdentity)();
+};
+
 #if defined __cplusplus
 }
 #endif

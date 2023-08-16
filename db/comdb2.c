@@ -31,6 +31,7 @@ void berk_memp_sync_alarm_ms(int);
 #include <berkdb/dbinc/queue.h>
 #include <limits.h>
 
+#include <arpa/inet.h>
 #include <alloca.h>
 #include <ctype.h>
 #include <errno.h>
@@ -89,6 +90,7 @@ void berk_memp_sync_alarm_ms(int);
 #include "switches.h"
 #include "sqloffload.h"
 #include "osqlblockproc.h"
+#include "osqlblkseq.h"
 
 #include <sqliteInt.h>
 
@@ -137,6 +139,7 @@ void berk_memp_sync_alarm_ms(int);
 #include "comdb2_query_preparer.h"
 #include <net_appsock.h>
 #include "sc_csc2.h"
+#include "reverse_conn.h"
 
 #define tokdup strndup
 
@@ -217,6 +220,8 @@ int gbl_move_deadlk_max_attempt = 500;
 
 int gbl_uses_password;
 int gbl_unauth_tag_access = 0;
+int64_t gbl_num_auth_allowed = 0;
+int64_t gbl_num_auth_denied = 0;
 int gbl_uses_externalauth = 0;
 int gbl_uses_externalauth_connect = 0;
 int gbl_externalauth_warn = 0;
@@ -302,6 +307,7 @@ int gbl_report_last;
 long gbl_report_last_n;
 long gbl_report_last_r;
 char *gbl_myhostname;      /* my hostname */
+char *gbl_mycname;      /* my cname */
 struct in_addr gbl_myaddr; /* my IPV4 address */
 int gbl_mynodeid = 0; /* node number, for backwards compatibility */
 pid_t gbl_mypid;      /* my pid */
@@ -368,6 +374,7 @@ uint32_t gbl_nsql;
 long long gbl_nsql_steps;
 
 uint32_t gbl_nnewsql;
+uint32_t gbl_nnewsql_ssl;
 long long gbl_nnewsql_steps;
 
 uint32_t gbl_masterrejects = 0;
@@ -387,7 +394,6 @@ int gbl_replicate_local_concurrent = 0;
 int gbl_allowbrokendatetime = 1;
 int gbl_sort_nulls_correctly = 1;
 int gbl_check_client_tags = 1;
-char *gbl_lrl_fname = NULL;
 char *gbl_spfile_name = NULL;
 char *gbl_timepart_file_name = NULL;
 int gbl_max_lua_instructions = 10000;
@@ -665,8 +671,8 @@ int gbl_check_wrong_db = 1;
 int gbl_broken_max_rec_sz = 0;
 int gbl_private_blkseq = 1;
 int gbl_use_blkseq = 1;
-int gbl_reorder_socksql_no_deadlock = 1;
-int gbl_reorder_idx_writes = 1;
+int gbl_reorder_socksql_no_deadlock = 0;
+int gbl_reorder_idx_writes = 0;
 
 char *gbl_recovery_options = NULL;
 
@@ -807,6 +813,8 @@ int run_init_plugins(int phase);
 extern void clear_sqlhist();
 
 int gbl_hostname_refresh_time = 60;
+
+int gbl_pstack_self = 1;
 
 int close_all_dbs_tran(tran_type *tran);
 
@@ -1279,6 +1287,7 @@ static void *purge_old_files_thread(void *arg)
     int empty = 0;
     int empty_pause = 5; // seconds
     int retries = 0;
+    extern int gbl_all_prepare_leak;
 
     thrman_register(THRTYPE_PURGEFILES);
     thread_started("purgefiles");
@@ -1291,10 +1300,11 @@ static void *purge_old_files_thread(void *arg)
     while (!db_is_exiting()) {
         /* even though we only add files to be deleted on the master,
          * don't try to delete files, ever, if you're a replicant */
-        if (thedb->master != gbl_myhostname) {
+        if (thedb->master != gbl_myhostname || gbl_all_prepare_leak) {
             sleep_with_check_for_exiting(empty_pause);
             continue;
         }
+
         if (db_is_exiting())
             continue;
 
@@ -1470,12 +1480,12 @@ void clean_exit_sigwrap(int signum) {
     clean_exit_thd(NULL);
 }
 
-static void free_sqlite_table(struct dbenv *dbenv)
+static void free_dbtables(struct dbenv *dbenv)
 {
     for (int i = dbenv->num_dbs - 1; i >= 0; i--) {
         dbtable *tbl = dbenv->dbs[i];
         delete_schema(tbl->tablename); // tags hash
-        delete_db(tbl->tablename);     // will free db
+        rem_dbtable_from_thedb_dbs(tbl);
         bdb_cleanup_fld_hints(tbl->handle);
         freedb(tbl);
     }
@@ -1502,9 +1512,6 @@ static void free_view_hash(hash_t *view_hash)
  */
 static void finish_clean()
 {
-    if(gbl_is_physical_replicant)
-        stop_replication();
-
     int rc = backend_close(thedb);
     if (rc != 0) {
         logmsg(LOGMSG_ERROR, "error backend_close() rc %d\n", rc);
@@ -1524,7 +1531,7 @@ static void finish_clean()
     net_cleanup();
     cleanup_sqlite_master();
 
-    free_sqlite_table(thedb);
+    free_dbtables(thedb);
 
     if (thedb->sqlalias_hash) {
         hash_clear(thedb->sqlalias_hash);
@@ -1542,6 +1549,7 @@ static void finish_clean()
         free_view_hash(thedb->view_hash);
         thedb->view_hash = NULL;
     }
+    free(thedb->envname);
 
     cleanup_interned_strings();
     cleanup_peer_hash();
@@ -1654,6 +1662,8 @@ void clean_exit(void)
 
     stop_threads(thedb);
     flush_db();
+    if (gbl_backend_opened)
+        llmeta_dump_mapping(thedb);
 
 #   if 0
     /* TODO: (NC) Instead of sleep(), maintain a counter of threads and wait for
@@ -1688,7 +1698,7 @@ void clean_exit(void)
     net_cleanup();
     cleanup_sqlite_master();
 
-    free_sqlite_table(thedb);
+    free_dbtables(thedb);
 
     if (thedb->sqlalias_hash) {
         hash_clear(thedb->sqlalias_hash);
@@ -2675,6 +2685,7 @@ struct dbenv *newdbenv(char *dbname, char *lrlname)
 
     listc_init(&dbenv->lrl_handlers, offsetof(struct lrl_handler, lnk));
     listc_init(&dbenv->message_handlers, offsetof(struct message_handler, lnk));
+    tz_hash_init();
 
     plugin_post_dbenv_hook(dbenv);
 
@@ -2709,7 +2720,6 @@ struct dbenv *newdbenv(char *dbname, char *lrlname)
         return NULL;
     }
 
-    tz_hash_init();
     init_sql_hint_table();
     init_clientstats_table();
 
@@ -2804,7 +2814,7 @@ static int db_finalize_and_sanity_checks(struct dbenv *dbenv)
 
         /* last ditch effort to stop invalid schemas getting through */
         for (jj = 0; jj < db->nix && jj < MAXINDEX; jj++)
-            if (db->ix_keylen[jj] > MAXKEYLEN) {
+            if (db->ix_keylen[jj] > MAXKEYLEN + 1) {
                 have_bad_schema = 1;
                 logmsg(LOGMSG_FATAL, "Database %s index %d too large (%d)\n",
                        db->tablename, jj,
@@ -4056,6 +4066,19 @@ static int init(int argc, char **argv)
 
     gbl_backend_opened = 1;
 
+    /* Recovered prepares need the osql-cnonce hash */
+    if (!gbl_exit && !gbl_create_mode) {
+        rc = osql_blkseq_init();
+        if (rc) {
+            logmsg(LOGMSG_FATAL, "failed to initialize osql_blkseq hash\n");
+            return -1;
+        }
+    }
+
+    if (!gbl_exit && !gbl_create_mode && (thedb->nsiblings == 1 || thedb->master == gbl_myhostname)) {
+        bdb_upgrade_all_prepared(thedb->bdb_env);
+    }
+
     sqlinit();
     rc = create_datacopy_arrays();
     if (rc) {
@@ -4181,43 +4204,31 @@ static int init(int argc, char **argv)
     if (gbl_net_max_queue) {
         net_set_max_queue(thedb->handle_sibling, gbl_net_max_queue);
     }
-
     if (gbl_net_max_mem) {
         uint64_t bytes;
         bytes = 1024 * 1024 * gbl_net_max_mem;
         net_set_max_bytes(thedb->handle_sibling, bytes);
     }
-
     if (gbl_net_throttle_percent) {
-        net_set_throttle_percent(thedb->handle_sibling,
-                                 gbl_net_throttle_percent);
+        net_set_throttle_percent(thedb->handle_sibling, gbl_net_throttle_percent);
     }
-
     if (gbl_net_portmux_register_interval) {
-        net_set_portmux_register_interval(thedb->handle_sibling,
-                                          gbl_net_portmux_register_interval);
+        net_set_portmux_register_interval(thedb->handle_sibling, gbl_net_portmux_register_interval);
     }
-
     if (gbl_enque_flush_interval) {
-        net_set_enque_flush_interval(thedb->handle_sibling,
-                                     gbl_enque_flush_interval);
+        net_set_enque_flush_interval(thedb->handle_sibling, gbl_enque_flush_interval);
     }
-
     if (gbl_enque_reorder_lookahead) {
-        net_set_enque_reorder_lookahead(thedb->handle_sibling,
-                                        gbl_enque_reorder_lookahead);
+        net_set_enque_reorder_lookahead(thedb->handle_sibling, gbl_enque_reorder_lookahead);
     }
-
     if (gbl_net_poll) {
         net_set_poll(thedb->handle_sibling, gbl_net_poll);
     }
-
     if (gbl_heartbeat_send) {
         net_set_heartbeat_send_time(thedb->handle_sibling, gbl_heartbeat_send);
     }
     if (gbl_heartbeat_check) {
-        net_set_heartbeat_check_time(thedb->handle_sibling,
-                                     gbl_heartbeat_check);
+        net_set_heartbeat_check_time(thedb->handle_sibling, gbl_heartbeat_check);
     }
 
     net_setbufsz(thedb->handle_sibling, gbl_netbufsz);
@@ -5327,19 +5338,21 @@ static void register_all_int_switches()
 
 static void getmyid(void)
 {
-    char name[1024];
-    char *cname;
-
-    if (gethostname(name, sizeof(name))) {
-        logmsg(LOGMSG_ERROR, "%s: Failure to get local hostname!!!\n", __func__);
-        gbl_myhostname = "localhost";
-    } else if ((cname = comdb2_getcanonicalname(name)) != NULL) {
-        gbl_myhostname = intern(cname);
-    } else {
-        gbl_myhostname = intern(name);
+    int rc;
+    char *cname = NULL;
+    char buf[NI_MAXHOST];
+    if ((rc = gethostname(buf, sizeof(buf))) != 0) {
+        logmsg(LOGMSG_FATAL, "gethostname failed rc:%d err:%s\n", rc, strerror(errno));
+        abort();
     }
-
-    getmyaddr();
+    gbl_myhostname = intern(buf);
+    get_os_hostbyname()(&gbl_myhostname, &gbl_myaddr , &cname); // -> os_get_host_and_cname_by_name
+    if (cname) {
+        gbl_mycname = intern(cname);
+        free(cname);
+    } else {
+        gbl_mycname = gbl_myhostname;
+    }
     gbl_mypid = getpid();
 }
 
@@ -5620,8 +5633,10 @@ int main(int argc, char **argv)
         }
     }
 
+    logmsg(LOGMSG_USER, "hostname:%s  cname:%s\n", gbl_myhostname, gbl_mycname);
+    logmsg(LOGMSG_USER, "I AM READY.\n");
+    increase_net_buf();
     gbl_ready = 1;
-    logmsg(LOGMSG_WARN, "I AM READY.\n");
 
     pthread_t timer_tid;
     pthread_attr_t timer_attr;
@@ -5634,6 +5649,8 @@ int main(int argc, char **argv)
     }
     Pthread_create(&timer_tid, &timer_attr, timer_thread, NULL);
     Pthread_attr_destroy(&timer_attr);
+
+    start_physrep_threads();
 
     if (!gbl_perform_full_clean_exit) {
         void *ret;
@@ -5669,41 +5686,33 @@ int main(int argc, char **argv)
     return 0;
 }
 
-int add_db(dbtable *db)
+int add_dbtable_to_thedb_dbs(dbtable *table)
 {
     Pthread_rwlock_wrlock(&thedb_lock);
 
-    if (_db_hash_find(db->tablename) != 0) {
+    if (_db_hash_find(table->tablename) != 0) {
         Pthread_rwlock_unlock(&thedb_lock);
         return -1;
     }
 
     thedb->dbs = realloc(thedb->dbs, (thedb->num_dbs + 1) * sizeof(dbtable *));
-    db->dbs_idx = thedb->num_dbs;
-    thedb->dbs[thedb->num_dbs++] = db;
+    table->dbs_idx = thedb->num_dbs;
+    thedb->dbs[thedb->num_dbs++] = table;
 
     /* Add table to the hash. */
-    _db_hash_add(db);
+    _db_hash_add(table);
 
     Pthread_rwlock_unlock(&thedb_lock);
     return 0;
 }
 
-void delete_db(char *db_name)
+void rem_dbtable_from_thedb_dbs(dbtable *table)
 {
-    int idx;
-
     Pthread_rwlock_wrlock(&thedb_lock);
-    if ((idx = getdbidxbyname_ll(db_name)) < 0) {
-        logmsg(LOGMSG_FATAL, "%s: failed to find tbl for deletion: %s\n", __func__,
-                db_name);
-        exit(1);
-    }
-
     /* Remove the table from hash. */
-    _db_hash_del(thedb->dbs[idx]);
+    _db_hash_del(table);
 
-    for (int i = idx; i < (thedb->num_dbs - 1); i++) {
+    for (int i = table->dbs_idx; i < (thedb->num_dbs - 1); i++) {
         thedb->dbs[i] = thedb->dbs[i + 1];
         thedb->dbs[i]->dbs_idx = i;
     }
@@ -6107,7 +6116,7 @@ retry_tran:
         abort();
     }
 
-    free_sqlite_table(thedb);
+    free_dbtables(thedb);
     thedb->dbs = NULL;
 
     if (thedb->db_hash)

@@ -36,10 +36,12 @@
 #  ifndef SBUF2_DFL_SIZE
 #    define SBUF2_DFL_SIZE 1024ULL
 #  endif
-#  include "mem_util.h"
-#  define calloc comdb2_calloc_util
-#  define malloc(size) comdb2_malloc(sb->allocator, size)
-#  define free comdb2_free
+#  ifdef PER_THREAD_MALLOC
+#    include "mem_util.h"
+#    define calloc comdb2_calloc_util
+#    define malloc(size) comdb2_malloc(sb->allocator, size)
+#    define free comdb2_free
+#  endif
 #else /* SBUF2_SERVER */
 #  ifndef SBUF2_DFL_SIZE
 #    define SBUF2_DFL_SIZE (1024ULL * 128ULL)
@@ -88,7 +90,9 @@ struct sbuf2 {
     void *userptr;
 
 #if SBUF2_SERVER
+#   ifdef PER_THREAD_MALLOC
     comdb2ma allocator;
+#   endif
     struct sqlclntstate *clnt;
 #endif
 
@@ -113,8 +117,11 @@ int SBUF2_FUNC(sbuf2free)(SBUF2 *sb)
         return -1;
 
     /* Gracefully shutdown SSL to make the
-       fd re-usable. */
-    sslio_close(sb, 1);
+       fd re-usable. Close the fd if it fails. */
+    int rc = sslio_close(sb, 1);
+    if (rc)
+        close(sb->fd);
+
     sb->fd = -1;
     if (sb->rbuf) {
         free(sb->rbuf);
@@ -132,14 +139,14 @@ int SBUF2_FUNC(sbuf2free)(SBUF2 *sb)
         free(sb->dbgout);
         sb->dbgout = NULL;
     }
-#if SBUF2_SERVER
+#if SBUF2_SERVER && defined(PER_THREAD_MALLOC)
     comdb2ma alloc = sb->allocator;
 #endif
     free(sb);
-#if SBUF2_SERVER
+#if SBUF2_SERVER && defined(PER_THREAD_MALLOC)
     comdb2ma_destroy(alloc);
 #endif
-    return 0;
+    return rc;
 }
 
 /* flush output, close fd, and free SBUF2.*/
@@ -547,6 +554,11 @@ static int swrite_unsecure(SBUF2 *sb, const char *cc, int len)
             return -100000 + pol.revents;
         /*can write*/
     }
+#if 0
+    char buf[100] = {0};
+    memcpy(buf, cc, (len < 99) ? len : 99);
+    printf("%s:%d writing data of size %d '%s'\n", __func__, __LINE__, len, buf);
+#endif
     return write(sb->fd, cc, len);
 }
 
@@ -772,13 +784,23 @@ void SBUF2_FUNC(sbuf2setflags)(SBUF2 *sb, int flags)
     sb->flags |= flags;
 }
 
+void SBUF2_FUNC(sbuf2setisreadonly)(SBUF2 *sb)
+{
+    sb->flags |= SBUF2_IS_READONLY;
+}
+
+int SBUF2_FUNC(sbuf2getisreadonly)(SBUF2 *sb)
+{
+    return (sb->flags & SBUF2_IS_READONLY) ? 1 : 0;
+}
+
 SBUF2 *SBUF2_FUNC(sbuf2open)(int fd, int flags)
 {
     if (fd < 0) {
         return NULL;
     }
     SBUF2 *sb = NULL;
-#if SBUF2_SERVER
+#if SBUF2_SERVER && defined(PER_THREAD_MALLOC)
     comdb2ma alloc = comdb2ma_create(0, 0, "sbuf2", 0);
     if (alloc == NULL) {
         goto error;
@@ -794,7 +816,9 @@ SBUF2 *SBUF2_FUNC(sbuf2open)(int fd, int flags)
     sb->fd = fd;
     sb->flags = flags;
 #if SBUF2_SERVER
+#   ifdef PER_THREAD_MALLOC
     sb->allocator = alloc;
+#   endif
     sb->clnt = NULL;
 #endif
 
@@ -812,7 +836,7 @@ error:
     if (sb) {
         free(sb);
     }
-#if SBUF2_SERVER
+#if SBUF2_SERVER && defined(PER_THREAD_MALLOC)
     if (alloc) {
         comdb2ma_destroy(alloc);
     }

@@ -594,12 +594,6 @@ int do_dryrun(struct schema_change_type *s)
             goto done;
         }
     }
-    
-    if (db == NULL) {
-        sbuf2printf(s->sb, ">Table %s will be added.\n", s->tablename);
-        goto done;
-    }
-
 
     struct errstat err = {0};
     newdb = create_new_dbtable(thedb, s->tablename, s->newcsc2, 0, 0, 1, 0, 0,
@@ -610,6 +604,10 @@ int do_dryrun(struct schema_change_type *s)
         goto done;
     }
 
+    if (db == NULL && newdb) {
+        sbuf2printf(s->sb, ">Table %s will be added.\n", s->tablename);
+        goto done;
+    }
     set_schemachange_options(s, db, &scinfo);
     set_sc_flgs(s);
 
@@ -704,8 +702,8 @@ static int unodhfy_if_necessary(struct ireq *iq, blob_buffer_t *blobs,
     /* Check if we need to unpack vutf8. */
     assert(iq->usedb->sc_from != NULL && iq->usedb->sc_to != NULL);
 
-    from = find_tag_schema(iq->usedb->sc_from->tablename, ".ONDISK");
-    to = find_tag_schema(iq->usedb->sc_to->tablename, ".NEW..ONDISK");
+    from = find_tag_schema(iq->usedb->sc_from, ".ONDISK");
+    to = find_tag_schema(iq->usedb->sc_to, ".NEW..ONDISK");
 
     for (rc = 0, i = 0; i != to->nmembers; ++i) {
         /* If the field in the new schema is new, do nothing. */

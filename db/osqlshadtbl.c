@@ -1806,12 +1806,13 @@ static int process_local_shadtbl_qblob(struct sqlclntstate *clnt,
     int ncols;
     int osql_nettype = tran2netrpl(clnt->dbtran.mode);
     blob_key_t *tmptblkey;
+    struct dbtable *table = get_dbtable_by_name(tbl->tablename);
 
     /* identify the number of blobs */
     for (i = 0; i < tbl->nblobs; i++) {
 
         if (updCols && gbl_osql_blob_optimization) {
-            idx = get_schema_blob_field_idx(tbl->tablename, ".ONDISK", i);
+            idx = get_schema_blob_field_idx(table, ".ONDISK", i);
             ncols = updCols[0];
             if (idx >= 0 && idx < ncols && -1 == updCols[idx + 1]) {
                 rc = osql_send_qblob(&osql->target, osql->rqid, osql->uuid, i,
@@ -2172,7 +2173,7 @@ static int insert_record_indexes(BtCursor *pCur, struct sql_thread *thd,
     bdb_cursor_ifn_t *tmpcur;
     int ix;
     int rc = SQLITE_OK;
-    char key[MAXKEYLEN];
+    char key[MAXKEYLEN + 1];
     char *datacopy;
     int datacopylen;
 
@@ -2268,7 +2269,7 @@ static int delete_record_indexes(BtCursor *pCur, char *pdta, int dtasize,
     int rc = 0;
     unsigned long long genid = pCur->genid;
     void *dta = pCur->dtabuf;
-    key = alloca(MAXKEYLEN + sizeof(genid));
+    key = alloca(MAXKEYLEN + sizeof(genid) + 1);
 
     if (thd->clnt && thd->clnt->dbtran.mode == TRANLEVEL_SOSQL)
         return 0;

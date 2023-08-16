@@ -850,8 +850,12 @@ static int read_lrl_option(struct dbenv *dbenv, char *line,
                 /* Check to see if this name is another name for me. */
                 struct in_addr addr;
                 char *name = nodename;
-                if (comdb2_gethostbyname(&name, &addr) == 0 &&
-                    addr.s_addr == gbl_myaddr.s_addr) {
+                int rc = comdb2_gethostbyname(&name, &addr);
+                if (rc!=0) {
+                    logmsg(LOGMSG_FATAL, "Could not resolve host %s. Exiting Database...\n", name);
+                    exit(1);
+                }
+                if (rc==0 && addr.s_addr == gbl_myaddr.s_addr) {
                     /* Assume I am better known by this name. */
                     gbl_myhostname = intern(name);
                     gbl_mynodeid = machine_num(gbl_myhostname);
@@ -1309,60 +1313,38 @@ static int read_lrl_option(struct dbenv *dbenv, char *line,
          * marked as READEARLY) */
         read_legacy_defaults(dbenv, options);
 
-        /* 'replicate_from <dbname>
-         * <prod|beta|alpha|dev|host|@hst1,hst2,hst3..>' */
     } else if (tokcmp(tok, ltok, "replicate_from") == 0) {
-        cdb2_hndl_tp *hndl;
-        /* replicate_from <db_name> [dbs to query] */
-        if (gbl_exit)
-            return -1;
-
-        if (gbl_is_physical_replicant) {
-            logmsg(LOGMSG_FATAL, "Ignoring multiple replicate_from directives:"
-                                 "can only replicate from a single source\n");
-            return -1;
-        }
-
-        /* dbname */
+        /* 'replicate_from <dbname> <prod|beta|alpha|dev|host|@hst1,hst2,hst3..>' */
         tok = segtok(line, len, &st, &ltok);
         if (ltok == 0) {
             logmsg(LOGMSG_FATAL, "Must specify a database to replicate from\n");
             exit(1);
         }
-        char *dbname = tokdup(tok, ltok);
+        gbl_physrep_source_dbname = tokdup(tok, ltok);
 
         tok = segtok(line, len, &st, &ltok);
         if (ltok == 0) {
             logmsg(LOGMSG_FATAL, "Must specify a type\n");
             exit(1);
         }
-        char *type = tokdup(tok, ltok);
+        gbl_physrep_source_host = tokdup(tok, ltok);
 
-        if ((rc = cdb2_open(&hndl, dbname, type, 0)) != 0) {
-            logmsg(LOGMSG_FATAL, "Error opening handle to %s %s: %d\n", dbname,
-                   type, rc);
+        gbl_is_physical_replicant = 1;
+
+    } else if (tokcmp(tok, ltok, "physrep_metadb") == 0) {
+        tok = segtok(line, len, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_FATAL, "Must specify a database to replicate from\n");
             exit(1);
         }
+        gbl_physrep_metadb_name = tokdup(tok, ltok);
 
-        char *hosts[32];
-        int count;
-        cdb2_cluster_info(hndl, hosts, NULL, 32, &count);
-        count = (count < 32 ? count : 32);
-        for (ii = 0; ii < count; ii++) {
-            if (add_replicant_host(hosts[ii], dbname, 0) != 0) {
-                logmsg(LOGMSG_ERROR, "Failed to insert hostname %s\n",
-                       hosts[ii]);
-            }
-            gbl_is_physical_replicant = 1;
-            free(hosts[ii]);
+        tok = segtok(line, len, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_FATAL, "Must specify a type\n");
+            exit(1);
         }
-        cdb2_close(hndl);
-        logmsg(LOGMSG_INFO, "Physical replicant replicating from %s on %s\n",
-               dbname, type);
-        free(dbname);
-        free(type);
-        start_replication();
-
+        gbl_physrep_metadb_host = tokdup(tok, ltok);
     } else if (tokcmp(tok, ltok, "physrep_ignore") == 0) {
         /* Tables that should ignore replication */
         while ((tok = segtok(line, len, &st, &ltok)) != NULL && ltok > 0) {

@@ -154,6 +154,7 @@ extern int gbl_notimeouts;
 extern int gbl_move_deadlk_max_attempt;
 extern int gbl_fdb_track;
 extern int gbl_selectv_rangechk;
+extern int gbl_enable_internal_sql_stmt_caching;
 
 unsigned long long gbl_sql_deadlock_reconstructions = 0;
 unsigned long long gbl_sql_deadlock_failures = 0;
@@ -966,7 +967,9 @@ int sqlite3_unpacked_to_packed(Mem *mems, int nmems, char **ret_rec,
         total_data_sz += sqlite3VdbeSerialTypeLen(type);
         total_header_sz += sqlite3VarintLen(type);
     }
-    total_header_sz += sqlite3VarintLen(total_header_sz);
+    // adding header length to total_header_sz may change header length of total_header_sz, so calculate sqlite3VarintLen() twice
+    int header_length = sqlite3VarintLen(total_header_sz);
+    total_header_sz += sqlite3VarintLen(total_header_sz + header_length);
 
     /* create the sqlite row */
     rec = (char *)calloc(1, total_header_sz + total_data_sz);
@@ -1003,6 +1006,7 @@ int sqlite3_unpacked_to_packed(Mem *mems, int nmems, char **ret_rec,
     *ret_rec_len = total_header_sz + total_data_sz;
 
     if (remsz != 0) {
+        logmsg(LOGMSG_ERROR, "%s: remsz %d != 0\n", __func__, remsz);
         abort();
     }
 
@@ -6706,7 +6710,7 @@ static int fetch_blob_into_sqlite_mem(BtCursor *pCur, struct schema *sc,
     }
 
     if (!pCur->have_blob_descriptor) {
-        gather_blob_data_byname(pCur->db->tablename, ".ONDISK",
+        gather_blob_data_byname(pCur->db, ".ONDISK",
                                 &pCur->blob_descriptor, pd);
         pCur->have_blob_descriptor = 1;
     }
@@ -6763,7 +6767,7 @@ again:
     init_fake_ireq(thedb, &iq);
     iq.usedb = pCur->db;
 
-    if (check_one_blob_consistency(&iq, iq.usedb->tablename, ".ONDISK", &blobs,
+    if (check_one_blob_consistency(&iq, iq.usedb, ".ONDISK", &blobs,
                                    dta, f->blob_index, 0, pd)) {
         free_blob_status_data(&blobs);
         nretries++;
@@ -7633,6 +7637,7 @@ int gbl_assert_systable_locks = 1;
 #else
 int gbl_assert_systable_locks = 0;
 #endif
+extern pthread_rwlock_t views_lk;
 
 static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
 {
@@ -7655,6 +7660,11 @@ static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
 
     if (NULL == clnt->dbtran.cursor_tran) {
         return 0;
+    }
+
+    if ((p->vTableFlags & PREPARE_ACQUIRE_VIEWSLK) && !clnt->dbtran.views_lk_held) {
+        Pthread_rwlock_rdlock(&views_lk);
+        clnt->dbtran.views_lk_held = 1;
     }
 
     for (int i = 0; i < p->numVTableLocks; i++) {
@@ -8031,6 +8041,7 @@ sqlite3BtreeCursor_remote(Btree *pBt,      /* The btree */
                           BtCursor *cur,   /* Write new cursor here */
                           struct sql_thread *thd)
 {
+    extern int gbl_ssl_allow_remsql;
     struct sqlclntstate *clnt = thd->clnt;
     fdb_tran_t *trans;
     fdb_t *fdb;
@@ -8081,7 +8092,7 @@ sqlite3BtreeCursor_remote(Btree *pBt,      /* The btree */
     if (trans)
         Pthread_mutex_lock(&clnt->dtran_mtx);
 
-    int usessl = clnt->plugin.has_ssl(clnt);
+    int usessl = clnt->plugin.has_ssl(clnt) && gbl_ssl_allow_remsql;
     cur->fdbc =
         fdb_cursor_open(clnt, cur, cur->rootpage, trans, &cur->ixnum, usessl);
     if (!cur->fdbc) {
@@ -8191,7 +8202,7 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     /* check one time if we have blobs when we open the cursor,
      * so we dont need to run this code for every row if we dont even
      * have them */
-    rc = gather_blob_data_byname(cur->db->tablename, ".ONDISK", &cur->blobs, NULL);
+    rc = gather_blob_data_byname(cur->db, ".ONDISK", &cur->blobs, NULL);
     if (rc) {
        logmsg(LOGMSG_ERROR, "sqlite3BtreeCursor: gather_blob_data error rc=%d\n", rc);
         return SQLITE_INTERNAL;
@@ -8550,7 +8561,7 @@ static int make_stat_record(struct sql_thread *thd, BtCursor *pCur,
                             blob_buffer_t blobs[MAXBLOBS])
 {
     int n = is_stat2(pCur->db->tablename) ? 3 : 2;
-    struct schema *sc = find_tag_schema(pCur->db->tablename, ".ONDISK_IX_0");
+    struct schema *sc = find_tag_schema(pCur->db, ".ONDISK_IX_0");
 
     /* extract first n fields from packed record */
     if (sqlite_to_ondisk(sc, pData, nData, pCur->ondisk_buf, pCur->clnt->tzname,
@@ -9496,6 +9507,7 @@ void cancel_sql_statement_with_cnonce(const char *cnonce)
 void sql_dump_running_statements(void)
 {
     struct sql_thread *thd;
+    struct sqlclntstate *clnt;
     BtCursor *cur;
     struct tm tm;
     char rqid[50];
@@ -9507,24 +9519,24 @@ void sql_dump_running_statements(void)
         localtime_r((time_t *)&t, &tm);
         Pthread_mutex_lock(&thd->lk);
 
-        if (thd->clnt && thd->clnt->sql) {
-            if (thd->clnt->osql.rqid) {
+        if ((clnt = thd->clnt) != NULL && clnt->sql) {
+            if (clnt->osql.rqid) {
                 uuidstr_t us;
-                snprintf(rqid, sizeof(rqid), "txn %016llx %s",
-                         thd->clnt->osql.rqid,
-                         comdb2uuidstr(thd->clnt->osql.uuid, us));
+                snprintf(rqid, sizeof(rqid), "txn %016llx %s", clnt->osql.rqid, comdb2uuidstr(clnt->osql.uuid, us));
             } else
                 rqid[0] = 0;
 
-            logmsg(LOGMSG_USER, "id %d %02d/%02d/%02d %02d:%02d:%02d %s%s pid %d task %s ", thd->id,
-                   tm.tm_mon + 1, tm.tm_mday, 1900 + tm.tm_year, tm.tm_hour,
-                   tm.tm_min, tm.tm_sec, rqid, thd->clnt->origin, thd->clnt->conninfo.pid, thd->clnt->argv0 ? thd->clnt->argv0 : "???");
-            logmsg(LOGMSG_USER, "%s\n", thd->clnt->sql);
+            logmsg(LOGMSG_USER, "id %d %02d/%02d/%02d %02d:%02d:%02d %s%s pid %d task %s ", thd->id, tm.tm_mon + 1,
+                   tm.tm_mday, 1900 + tm.tm_year, tm.tm_hour, tm.tm_min, tm.tm_sec, rqid, clnt->origin,
+                   clnt->conninfo.pid, clnt->argv0 ? clnt->argv0 : "???");
+            if (clnt->osql.replay != OSQL_RETRY_NONE)
+                logmsg(LOGMSG_USER, "[replay] ");
+            logmsg(LOGMSG_USER, "%s\n", clnt->sql);
 
-            int nparams = thd->clnt->plugin.param_count(thd->clnt);
+            int nparams = clnt->plugin.param_count(clnt);
             char param[255];
             for (int i = 0; i < nparams; i++) {
-                char *value = param_string_value(thd->clnt, i, param, sizeof(param));
+                char *value = param_string_value(clnt, i, param, sizeof(param));
                 if (value)
                     logmsg(LOGMSG_USER, "    %s\n", value);
             }
@@ -9704,6 +9716,12 @@ int put_curtran_flags(bdb_state_type *bdb_state, struct sqlclntstate *clnt,
 
     rc = bdb_put_cursortran(bdb_state, clnt->dbtran.cursor_tran, curtran_flags,
                             &bdberr);
+
+    if (clnt->dbtran.views_lk_held) {
+        Pthread_rwlock_unlock(&views_lk);
+        clnt->dbtran.views_lk_held = 0;
+    }
+
     if (rc) {
         logmsg(LOGMSG_DEBUG, "%s: %p rc %d bdberror %d\n", __func__, (void *)pthread_self(), rc, bdberr);
         ctrace("%s: rc %d bdberror %d\n", __func__, rc, bdberr);
@@ -12527,7 +12545,8 @@ static int bind_stmt_mem(struct schema *sc, sqlite3_stmt *stmt, Mem *m)
 void bind_verify_indexes_query(sqlite3_stmt *stmt, void *sm)
 {
     struct schema_mem *psm = (struct schema_mem *)sm;
-    bind_stmt_mem(psm->sc, stmt, psm->min);
+    if (psm->sc)
+        bind_stmt_mem(psm->sc, stmt, psm->min);
 }
 
 /* verify_indexes_column_value

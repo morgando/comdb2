@@ -463,10 +463,12 @@ function log_function() {
 	printf("\trectype = DB_%s;\n", funcname) >> CFILE;
 	printf("\tif (utxnid_log)\n") >> CFILE;
 	printf("\t\trectype += 2000;\n") >> CFILE;
+	printf("\telse if (txnid != NULL)\n") >> CFILE;
+	printf("\t\tF_SET(txnid, TXN_NOPREP);\n") >> CFILE;
 	if (has_dbp == 1) {
 		printf("\tif (ufid_log)\n") >> CFILE;
 		printf("\t\trectype += 1000;\n") >> CFILE;
-	}	
+	}
 	printf("\tnpad = 0;\n\n") >> CFILE;
 
 	if (dbprivate) {
@@ -801,7 +803,7 @@ function print_function() {
 	printf("\t    (u_long)argp->txnid->txnid,\n") >> CFILE;
 	printf("\t    (u_long)argp->prev_lsn.file,\n") >> CFILE;
 	printf("\t    (u_long)argp->prev_lsn.offset,\n") >> CFILE;
-	printf("\t    (u_long)argp->txnid->utxnid);\n") >> CFILE;
+	printf("\t    argp->txnid->utxnid);\n") >> CFILE;
 
 	# Now print fields of argp
 	for (i = 0; i < nvars; i ++) {

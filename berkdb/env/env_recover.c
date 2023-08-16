@@ -63,6 +63,7 @@ void bdb_rellock(void *bdb_state, const char *funcname, int line);
 int bdb_is_open(void *bdb_state);
 
 extern int gbl_is_physical_replicant;
+int gbl_apprec_gen;
 
 #define BDB_WRITELOCK(idstr)	bdb_get_writelock(bdb_state, (idstr), __func__, __LINE__)
 #define BDB_RELLOCK()		   bdb_rellock(bdb_state, __func__, __LINE__)
@@ -859,7 +860,7 @@ full_recovery_check(DB_ENV *dbenv, DB_LSN *max_lsn)
 		if (IS_ZERO_LSN(first))
 			first = lsn;
 		if (type == DB___txn_regop || type == DB___txn_regop_gen ||
-			type == DB___txn_regop_rowlocks) {
+			type == DB___txn_dist_commit || type == DB___txn_regop_rowlocks) {
 			cpy = lsn;
 			ret =
 				__rep_collect_txn(dbenv, &cpy, &lc, &ignore, NULL);
@@ -1041,6 +1042,8 @@ __db_apprec(dbenv, max_lsn, trunclsn, update, flags)
 			goto err;
 		}
 	}
+
+        ++gbl_apprec_gen;
 
 	/*
 	 * Recovery is done in three passes:
@@ -2102,7 +2105,7 @@ extern pthread_mutex_t bdb_asof_current_lsn_mutex;
  */
 #define GOTOERR do{ lineno=__LINE__; goto err; } while(0);
 
-extern int bdb_push_pglogs_commit(void *in_bdb_state, DB_LSN commit_lsn,
+extern int bdb_push_pglogs_commit_recovery(void *in_bdb_state, DB_LSN commit_lsn,
 	uint32_t gen, unsigned long long ltranid, int push);
 
 int
@@ -2111,7 +2114,8 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
    void *fileid_tbl;
 {
 	DB_LOGC *logc;
-	DB_LSN first_lsn, lsn;
+	DB_LOGC *logc_prep;
+	DB_LSN first_lsn, lsn, preplsn;
 	DBT data;
 	int ret;
 	int lineno = 0;
@@ -2126,13 +2130,17 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 	__txn_ckp_args *ckp_args = NULL;
 	__txn_regop_args *txn_args = NULL;
 	__txn_regop_gen_args *txn_gen_args = NULL;
+	__txn_dist_commit_args *txn_dist_args = NULL;
+	__txn_dist_prepare_args *txn_prep_args = NULL;
 	__txn_regop_rowlocks_args *txn_rl_args = NULL;
 	__bam_split_args *split_args = NULL;
 	__bam_rsplit_args *rsplit_args = NULL;
 	__db_relink_args *relink_args = NULL;
 	void *free_ptr = NULL;
+	void *free_ptr2 = NULL;
 
 	logc = NULL;
+    logc_prep = NULL;
 	memset(&data, 0, sizeof(data));
 
 	/* Allocate a cursor for the log. */
@@ -2182,7 +2190,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 					&txn_gen_args)) != 0) {
 				GOTOERR;
 		 }
-		 bdb_push_pglogs_commit(dbenv->app_private, lsn, 
+		 bdb_push_pglogs_commit_recovery(dbenv->app_private, lsn, 
 			   txn_gen_args->generation, 0, 0);
 			free_ptr = txn_gen_args;
 
@@ -2206,13 +2214,60 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 				GOTOERR;
 		 }
 		 break;
+		case DB___txn_dist_commit:
+			if ((ret = __txn_dist_commit_read(dbenv, data.data,
+				&txn_dist_args)) != 0) {
+				GOTOERR;
+			}
+			bdb_push_pglogs_commit_recovery(dbenv->app_private, lsn, txn_dist_args->generation, 0, 0);
+			ret = bdb_update_timestamp_lsn(dbenv->app_private,
+				txn_dist_args->timestamp, lsn, txn_dist_args->context);
+			if (ret) {
+				GOTOERR;
+			}
+
+			if (logc_prep == NULL) {
+				if ((ret = __log_cursor(dbenv, &logc_prep)) != 0) {
+					return ret;
+				}
+			}
+			preplsn = txn_dist_args->prev_lsn;
+
+			free(txn_dist_args);
+			txn_dist_args = NULL;
+
+			ret = __log_c_get(logc_prep, &preplsn, &data, DB_SET);
+			if (ret != 0) {
+				GOTOERR;
+			}
+
+			LOGCOPY_32(&rectype, data.data);
+			normalize_rectype(&rectype);
+			assert(rectype == DB___txn_dist_prepare);
+
+			if ((ret = 
+				__txn_dist_prepare_read(dbenv, data.data, &txn_prep_args)) != 0) {
+				GOTOERR;
+			}
+
+			ret = lock_list_parse_pglogs(dbenv, &txn_prep_args->locks, &lsn, &keylist, &keycnt);
+			if (ret) {
+				not_newsi_log_format = 1;
+				break;
+			}
+
+			ret = bdb_update_logfile_pglogs(dbenv->app_private, keylist, keycnt, lsn, fileid_tbl);
+			if (ret) {
+				GOTOERR;
+			}
+			break;
 		case DB___txn_regop:
 			if ((ret =
 				__txn_regop_read(dbenv, data.data,
 					&txn_args)) != 0) {
 				GOTOERR;
 		 }
-		 bdb_push_pglogs_commit(dbenv->app_private, lsn, 0, 0, 0);
+		 bdb_push_pglogs_commit_recovery(dbenv->app_private, lsn, 0, 0, 0);
 			free_ptr = txn_args;
 
 			ret =
@@ -2241,7 +2296,7 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 					&txn_rl_args)) != 0) {
 				GOTOERR;
 		 }
-		 bdb_push_pglogs_commit(dbenv->app_private, lsn, 
+		 bdb_push_pglogs_commit_recovery(dbenv->app_private, lsn, 
 			   txn_rl_args->generation, 0, 0);
 			free_ptr = txn_rl_args;
 
@@ -2373,6 +2428,10 @@ __recover_logfile_pglogs(dbenv, fileid_tbl)
 				__os_free(dbenv, free_ptr);
 				free_ptr = NULL;
 			}
+			if (free_ptr2) {
+				__os_free(dbenv, free_ptr2);
+				free_ptr2 = NULL;
+			}
 			if (keylist)
 				__os_free(dbenv, keylist);
 			keylist = NULL;
@@ -2403,6 +2462,10 @@ err:
 
 		if (logc) {
 			logc->close(logc, 0);
+		}
+
+		if (logc_prep) {
+			logc_prep->close(logc_prep, 0);
 		}
 
 		return ret;

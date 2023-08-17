@@ -4846,7 +4846,7 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
 	    &thedb->static_table; /* this is not used but required */
     /* Latch last commit LSN */
     if (!clnt->last_commit_lsn_isset && (db->handle != NULL)) {
-	    printf("%s: SETTING LAST COMMIT LSN\n", __func__);
+	    // printf("%s: SETTING LAST COMMIT LSN\n", __func__);
             bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
             clnt->last_commit_lsn_isset = 1;
 	    //printf("clnt %p set last commit lsn to %d:%d\n", clnt, clnt->last_commit_lsn_file, clnt->last_commit_lsn_offset);
@@ -4962,7 +4962,7 @@ int sqlite3BtreeCommit(Btree *pBt)
 
     if (!clnt->in_sqlite_init && (clnt->ctrl_sqlengine != SQLENG_INTRANS_STATE) && (clnt->ctrl_sqlengine != SQLENG_STRT_STATE)) {
 	    clnt->last_commit_lsn_isset = 0;
-	    printf("%s: UNSETTING LAST COMMIT LSN. SQLENG state %s\n", __func__, sqlenginestate_tostr(clnt->ctrl_sqlengine));
+	    // printf("%s: UNSETTING LAST COMMIT LSN. SQLENG state %s\n", __func__, sqlenginestate_tostr(clnt->ctrl_sqlengine));
     }
     if (!clnt->intrans || clnt->in_sqlite_init ||
         (!clnt->in_sqlite_init && clnt->ctrl_sqlengine != SQLENG_FNSH_STATE &&
@@ -8314,7 +8314,6 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     } else {
         open_type = BDB_OPEN_REAL;
     }
-    printf("%s tranlevel %d\n", __func__, clnt->dbtran.mode);
     cur->bdbcur = bdb_cursor_open(
         cur->db->handle, clnt->dbtran.cursor_tran, shadow_tran, cur->ixnum,
         open_type, (clnt->dbtran.mode == TRANLEVEL_SOSQL)

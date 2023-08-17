@@ -1738,7 +1738,7 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     assert(db->handle);
     bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
     clnt->last_commit_lsn_isset = 1;
-    printf("%s: SETTING LAST COMMIT LSN\n", __func__);
+    // printf("%s: SETTING LAST COMMIT LSN\n", __func__);
 
     if (clnt->osql.replay)
         goto done;

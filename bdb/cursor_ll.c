@@ -207,8 +207,6 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
     u_int32_t curflags = 0;
 	//bdb_state_type *env = bdb_state->parent;
 
-    printf("Opening a cursor\n");
-
     *bdberr = 0;
 
     pberkdb = (bdb_berkdb_t *)thread_malloc(sizeof(bdb_berkdb_t));
@@ -307,7 +305,6 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
         }
 
 	if (cur->use_snapcur) {
-		printf("Opening a snapshot cursor\n");
 		curflags |= DB_CUR_SNAPSHOT;
 	}
         dbc =

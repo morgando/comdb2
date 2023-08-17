@@ -409,7 +409,7 @@ __dbenv_open(dbenv, db_home, flags, mode)
 			offsetof(struct mintruncate_entry, lnk));
 
 	if (LF_ISSET(DB_INIT_LOCK) && LF_ISSET(DB_INIT_LOG) && LF_ISSET(DB_INIT_REP)) {
-		if ((ret = __mempv_init(dbenv, 4*(offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + 20000))) != 0) {
+		if ((ret = __mempv_init(dbenv, 64*(offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + 20000))) != 0) {
 			goto err;
 		}
 	}

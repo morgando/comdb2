@@ -1938,7 +1938,6 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 {
     int irc = 0, rc = 0, bdberr = 0;
 
-    printf("%s: UNSETTING\n", __func__);
     clnt->last_commit_lsn_isset = 0;
 
     if (!clnt->intrans) {

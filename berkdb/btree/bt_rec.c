@@ -87,23 +87,18 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 	REC_INTRO_PANIC(__bam_split_read, 1);
 	dbp = file_dbp->peer;
 
-	printf("in split rec\n");
-
 	/* Handle modsnap recovery */
 
 	if (info != NULL) {
 		db_pgno_t pgin = PGNO((PAGE *) info);
 		if (pgin == argp->root_pgno || pgin == argp->left) {
-			printf("Returning page as is\n");
 			memcpy(info, argp->pg.data, argp->pg.size);
 		} else if (pgin == argp->npgno) {
-			printf("Fixing up prev ptr\n");
 			PREV_PGNO((PAGE *) info) = argp->left;
 			LSN((PAGE *) info) = argp->nlsn;
-		} else {
-			printf("Modsnap split recover input is not root, left, or next page.\n");
-			abort();
-		}
+		} else if (pgin == argp->right) {
+		    LSN((PAGE *) info) = argp->rlsn; 
+        }
 		return 0;
 	}
 

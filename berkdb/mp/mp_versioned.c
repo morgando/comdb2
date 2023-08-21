@@ -844,8 +844,8 @@ rollback:
 		}
 
 		// Check if hole filled
-        if (DEBUG_PAGES)
-            printf("end of hole %p lsn pg image %d:%d lsn end of hole %d:%d\n", end_of_hole, LSN(page_image).file, LSN(page_image).offset, end_of_hole != NULL ? LSN(end_of_hole).file : 0, end_of_hole != NULL ? LSN(end_of_hole).offset : 0);
+		if (DEBUG_PAGES)
+		    printf("end of hole %p lsn pg image %d:%d lsn end of hole %d:%d\n", end_of_hole, LSN(page_image).file, LSN(page_image).offset, end_of_hole != NULL ? LSN(end_of_hole).file : 0, end_of_hole != NULL ? LSN(end_of_hole).offset : 0);
 		if ((end_of_hole != NULL) && (log_compare(&LSN(page_image), &LSN(end_of_hole->page + offsetof(BH, buf))) == 0)) {
 			// We scanned a hole and did not find a newer version. Return end of hole. Throw out newly created header.
 

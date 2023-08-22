@@ -627,6 +627,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
 
 	Pthread_mutex_lock(&mempv->mempv_mutexp);
+	acquired_write_lock = 1;
 
 	pages = hash_find(mempv->pages, &key);
 	int alloc_new_page_cache = pages == NULL;
@@ -641,6 +642,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		}
 	}
 	Pthread_mutex_unlock(&mempv->mempv_mutexp);
+	acquired_write_lock = 0;
 
 	// If we are here then we are doing a rollback.
 	// We either start from the page preceding a hole, or we start from the newest page (retrieved from memp_fget).

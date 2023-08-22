@@ -182,11 +182,6 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			}
 		}
 	} else {
-		if (!DB_UNDO(op)) {
-			printf("I am redo\n");
-		} else if (DB_UNDO(op)) {
-			printf("I am undo\n");
-		}
 		pagep = (PAGE*) info;
 	}
 

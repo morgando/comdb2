@@ -2880,7 +2880,7 @@ struct __mempv_page_cache {
 };
 
 struct __mempv {
-	pthread_mutex_t mempv_mutexp;
+	pthread_rwlock_t mempv_mutexp;
 	pthread_mutex_t mempv_dummy_mutexp;
 	mspace *msp;
 	u_int64_t size;

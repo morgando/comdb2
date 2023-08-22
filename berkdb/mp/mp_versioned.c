@@ -12,8 +12,25 @@
 static int DEBUG_PAGES = 0;
 static int num_gets = 0;
 static int num_puts = 0;
+static int num_dups = 0;
+static int num_versions_fetched = 0;
+static int num_versions_fetched_without_rollback = 0;
+static int num_versions_fetched_from_cache = 0;
+static int stat_dump_itrs = 0;
+static int STAT_DUMP_THRESHOLD = 5000;
 
+struct __version {
+    DB_LSN lsn;
+    db_pgno_t pgno;
+};
+struct __mempv_stat {
+    u_int8_t rollback;
+    struct __version version;
+};
 
+static hash_t * mempv_stats;
+
+static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *), DB_LSN *prevPageLsn, u_int64_t *utxnid, db_pgno_t pgno);
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
 
@@ -48,10 +65,11 @@ int __mempv_init(dbenv, size)
 		goto done;
 	}
 
+	mempv_stats = hash_init_o(offsetof(struct __mempv_stat, version), sizeof(struct __version));
 	mpv->msp = create_mspace_with_base(gbl_mempv_base, size, 1);
 	mpv->size = size;
 	dbenv->mempv = mpv;
-	pthread_mutex_init(&mpv->mempv_mutexp, NULL);
+	pthread_rwlock_init(&mpv->mempv_mutexp, NULL);
 	pthread_mutex_init(&mpv->mempv_dummy_mutexp, NULL);
 	listc_init(&mpv->lru, offsetof(MEMPV_PAGE_HEADER, lrulnk));
 	
@@ -72,15 +90,52 @@ int __mempv_destroy(dbenv)
 	return 1;
 }
 
+static int __mempv_add_stats(dbenv, rollback, page_image, cached)
+    DB_ENV *dbenv;
+    int rollback;
+    PAGE *page_image;
+    int cached;
+{
+    struct __mempv_stat * stat;
+    __os_malloc(dbenv, sizeof(struct __mempv_stat), &stat);
+    stat->rollback = rollback;
+    stat->version.pgno = PGNO(page_image);
+    stat->version.lsn = LSN(page_image);
+
+    if (!hash_find(mempv_stats, &stat->version)) {
+        hash_add(mempv_stats, stat);
+    } else {
+        num_dups++;
+    }
+    num_versions_fetched++;
+    if (!rollback) {
+        num_versions_fetched_without_rollback++;
+    }
+    if (cached) {
+	    num_versions_fetched_from_cache++;
+    }
+
+    if (++stat_dump_itrs == STAT_DUMP_THRESHOLD) {
+        printf("%s: STAT DUMP\n\tFrac duplicate versions fetched: (%d/%d = %.3f)\n\t Frac versions fetched without rollback (%d/%d = %.3f)\n\tFrac versions fetched from cache (%d/%d = %.3f)\n", __func__, num_dups, num_versions_fetched, 1.0*num_dups/num_versions_fetched, num_versions_fetched_without_rollback, num_versions_fetched, 1.0*num_versions_fetched_without_rollback/num_versions_fetched, num_versions_fetched_from_cache, num_versions_fetched, 1.0*num_versions_fetched_from_cache/num_versions_fetched);
+        stat_dump_itrs = 0;
+    }
+
+    return 0;
+}
+
 static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)
     DB_ENV *dbenv;
     DB_LSN target_lsn;
     PAGE *page_image;
 {
+	DB_LSN pglsn;
+
+	pglsn = LSN(page_image);
+
     return (
-        IS_NOT_LOGGED_LSN(LSN(page_image)) ||
-        (LSN(page_image).file < dbenv->txmap->smallest_logfile) ||
-        (log_compare(&target_lsn, &dbenv->txmap->highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&dbenv->txmap->highest_commit_lsn_asof_checkpoint, &LSN(page_image)) >= 0)
+        IS_NOT_LOGGED_LSN(pglsn) ||
+        (pglsn.file < dbenv->txmap->smallest_logfile) ||
+        (log_compare(&target_lsn, &dbenv->txmap->highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&dbenv->txmap->highest_commit_lsn_asof_checkpoint, &pglsn) >= 0)
     );
 }
 
@@ -103,6 +158,642 @@ static int __mempv_create_page_cache(DB_MPOOLFILE *mpf, DB *dbp, db_pgno_t pgno,
 
 
 done:
+	return ret;
+}
+
+
+static int new_cache_space = 0;
+pthread_cond_t  cond  = PTHREAD_COND_INITIALIZER;
+
+static int __mempv_evict_page_cache(dbenv, mempv, pinned_cache)
+	DB_ENV *dbenv;
+	DB_MEMPV *mempv;
+	MEMPV_PAGE_CACHE *pinned_cache;
+{
+	MEMPV_PAGE_HEADER *lru;
+	MEMPV_PAGE_CACHE *owner_cache;
+
+	int itr = 0;
+	int size = listc_size(&mempv->lru);
+	int eviction = 0;
+	int evictable_page = 0;
+	while (!eviction) {
+		// TODO: prevent infinite loop when all pages are pinned.
+		if (itr == size && !evictable_page) {
+		    new_cache_space = 0;
+
+		    printf("Going to sleep\n");
+
+		    while (!new_cache_space) {
+			Pthread_mutex_lock(&mempv->mempv_dummy_mutexp);
+			pthread_rwlock_unlock(&mempv->mempv_mutexp);
+			pthread_cond_wait( &cond, &mempv->mempv_dummy_mutexp);
+			pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+			Pthread_mutex_unlock(&mempv->mempv_dummy_mutexp);
+		    }
+
+		    printf("Woke up\n");
+		    itr = 0;
+		}
+		lru = listc_rtl(&mempv->lru);
+		if (lru == NULL) {
+			printf("%s: LRU list is empty\n", __func__);
+			return 1;
+		}
+		if (lru->ref == 1 || lru->pin >= 1) {
+			lru->ref = 0;
+			if (lru->pin == 0) {
+				evictable_page = 1;
+			}
+			listc_abl(&mempv->lru, lru);
+			continue;
+		}
+
+		owner_cache = lru->pagecache;
+
+		if (lru->commit_order.next) {
+			lru->commit_order.next->prev_cache_entry_lsn = lru->prev_cache_entry_lsn;
+		}
+
+		listc_rfl(&owner_cache->pages, lru);
+		mspace_free(mempv->msp, lru);
+
+		if ((listc_size(&owner_cache->pages) == 0) && (owner_cache != pinned_cache)) {
+			if (DEBUG_PAGES)
+				printf("%s: Freed empty cache %p\n", __func__, owner_cache);
+
+			hash_del(mempv->pages, owner_cache);
+			__os_free(dbenv, owner_cache);
+		}
+		eviction = 1;
+		++itr;
+	}
+
+	return 0;
+}
+
+MEMPV_PAGE_HEADER * __mempv_add_page_header(mpf, dbp, pages)
+	DB_MPOOLFILE *mpf;
+	DB *dbp;
+	MEMPV_PAGE_CACHE *pages;
+{
+	DB_ENV *dbenv;
+	MEMPV_PAGE_HEADER *allocd_hdr;
+	int ret;
+
+	dbenv = mpf->dbenv;
+	ret = 0;
+
+	allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+	while (allocd_hdr == NULL) {
+		if (DEBUG_PAGES) {
+			printf("%s: New hdr was null. Evicting page\n", __func__);
+		}
+		ret = __mempv_evict_page_cache(dbenv, dbenv->mempv, pages);
+		if (ret) { goto done; }
+		allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+	}
+
+	allocd_hdr->pin = 1;
+	allocd_hdr->ref = 1;
+	allocd_hdr->pagecache = pages;
+	allocd_hdr->commit_order.next = allocd_hdr->commit_order.prev = NULL;
+	LSN_NOT_LOGGED(allocd_hdr->prev_cache_entry_lsn);
+
+done:
+	return allocd_hdr;
+}
+
+static void __mempv_print_page_cache(pages)
+	MEMPV_PAGE_CACHE *pages;
+{
+	MEMPV_PAGE_HEADER *hdr;
+	BH *bhp;
+	PAGE * page_image;
+	int num;
+
+	hdr = pages->pages.top;
+	num = 1;
+	
+	printf("==== Start of cache ====\n");
+
+	while (hdr) {
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+
+		printf("--- hdr %d ---\n", num);
+		printf("commit lsn: %d:%d\n", hdr->commit_lsn.file, hdr->commit_lsn.offset);
+		printf("prev entry lsn: %d:%d\n", hdr->prev_cache_entry_lsn.file, hdr->prev_cache_entry_lsn.offset);
+		printf("my lsn: %d:%d\n", LSN(page_image).file, LSN(page_image).offset);
+		printf("--------------\n");
+
+		hdr = hdr->commit_order.next;
+		num++;
+	}
+
+	printf("==== End of cache ====\n");
+}
+
+static int __mempv_check_cache_for_version(dbenv, pages, start_of_hole, end_of_hole, found, page_image, fetch_newest_version, target_lsn)
+	DB_ENV *dbenv;
+	MEMPV_PAGE_CACHE *pages;
+	MEMPV_PAGE_HEADER **start_of_hole;
+	MEMPV_PAGE_HEADER **end_of_hole;
+	int *found;
+	PAGE **page_image;
+	int *fetch_newest_version;
+	DB_LSN target_lsn;
+{
+	DB_LSN prev_cache_entry_lsn;
+	MEMPV_PAGE_HEADER *hdr, *prev_hdr;
+	int firstItr, ret;
+
+	hdr = pages->pages.top;
+	firstItr = 1;
+	ret = 0;
+
+	// __mempv_print_page_cache(pages);
+
+	while (hdr) {
+		if (DEBUG_PAGES) {
+			printf("%s: Checking next cache header for match\n", __func__);
+		}
+		*page_image = (PAGE*) (hdr->page + offsetof(BH, buf));
+		DB_LSN commit_lsn = hdr->commit_lsn;
+		if (log_compare(&commit_lsn, &target_lsn) <= 0) {
+			// Is target candidate. Now check for holes.
+			if (firstItr) {
+				if (pages->new_version == 1) {
+					// The newest thing in the cache is older than us and there is a newer
+					// version. We need to check it.
+					if (DEBUG_PAGES)
+						printf("Need to fetch new version.\n");
+					pages->new_version = 0; // TODO: Consider if right place for this.
+					*fetch_newest_version = 1;
+					*end_of_hole = hdr;
+					(*end_of_hole)->pin++;
+					(*end_of_hole)->ref = 1;
+					goto done;
+				}
+			} else if (log_compare(&hdr->prev_cache_entry_lsn, &prev_cache_entry_lsn) != 0) {
+				// We found something older than us in the cache but there is a hole preceding it.
+				// We need to make sure that the target version isn't in the hole.
+
+				// Start walkback from preceding image.
+				*end_of_hole = hdr;
+				*start_of_hole = prev_hdr;
+				(*end_of_hole)->pin++;
+				(*end_of_hole)->ref = 1;
+				(*start_of_hole)->pin++;
+				(*start_of_hole)->ref = 1;
+
+				if (DEBUG_PAGES)
+					printf("Found a hole.\n");
+				goto done;
+			}
+
+			// No holes. We found our target!
+
+			hdr->pin++;
+			hdr->ref = 1;
+			*found = 1;
+			if (DEBUG_PAGES) {
+				printf("%s: Found correct page version in cache. Version lsn %d:%d. Target lsn %d:%d\n", __func__, commit_lsn.file, commit_lsn.offset, target_lsn.file, target_lsn.offset);
+			}
+
+			goto done;
+		}
+
+		prev_hdr = hdr;
+		prev_cache_entry_lsn = LSN(*page_image);
+		firstItr = 0;
+
+		hdr = hdr->commit_order.next;
+	}
+
+done:
+	return ret;
+}
+
+
+/*
+ * __mempv_fget --
+ *	Return a page in the version that it was at a past LSN.
+ *
+ * PUBLIC: int __mempv_fget
+ * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, void *));
+ */
+int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
+	DB_MPOOLFILE *mpf;
+	DB *dbp;
+	db_pgno_t pgno;
+	DB_LSN target_lsn;
+	void *ret_page;
+{
+	int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
+	int have_lock, have_page, have_page_image, found, ret, fetch_newest_version;
+	u_int64_t utxnid;
+	u_int32_t rectype;
+	DB_MEMPV *mempv;
+	DB_MPOOL *dbmp;
+	MEMPV_KEY key;
+	MEMPV_PAGE_CACHE *pages;
+	MEMPV_PAGE_HEADER *hdr, *prev_hdr, *start_of_hole, *end_of_hole;
+	DB_LOGC *logc;
+	PAGE *page, *page_image, *prev_page_image;
+	DB_LSN curPageLsn, prevPageLsn, commit_lsn;
+	DB_ENV *dbenv;
+	BH *bhp, *prev_bhp;
+	void *data_t;
+	int acquired_write_lock, cached;
+
+	DBT dbt = {0};
+	dbt.data = NULL;
+	dbt.flags = DB_DBT_MALLOC;
+	ret = found = fetch_newest_version = acquired_write_lock = 0;
+	logc = NULL;
+	data_t = NULL; 
+	page_image = NULL;
+	hdr = prev_hdr = start_of_hole = end_of_hole = NULL;
+	*(void **)ret_page = NULL;
+	dbenv = mpf->dbenv;
+	mempv = dbenv->mempv;
+	dbmp = dbenv->mp_handle;
+	cached = 0;
+
+	if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
+		if (DEBUG_PAGES) {
+			printf("%s: Failed to get initial page version\n", __func__);
+		}
+		ret = 1;
+		goto done;
+	}
+
+	if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page)) {
+	    if (DEBUG_PAGES) {
+		printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
+	    }
+	    page_image = page;
+	    // LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+	    found = 1;
+	    goto rollback;
+	}
+
+	// Get cached page versions. If DNE, create list of versions for this page.
+	key.pgno = pgno;
+	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
+
+	pthread_rwlock_rdlock(&mempv->mempv_mutexp);
+	acquired_write_lock = 1;
+
+	pages = hash_find(mempv->pages, &key);
+	int alloc_new_page_cache = pages == NULL;
+
+	// Check cache for correct version.
+
+	if (!alloc_new_page_cache) {
+		__mempv_check_cache_for_version(dbenv, pages, &start_of_hole, &end_of_hole, &found, &page_image, &fetch_newest_version, target_lsn);
+
+		if (found) {
+			cached = 1;
+			goto rollback;
+		}
+	}
+	pthread_rwlock_unlock(&mempv->mempv_mutexp);
+	acquired_write_lock = 0;
+
+	// If we are here then we are doing a rollback.
+	// We either start from the page preceding a hole, or we start from the newest page (retrieved from memp_fget).
+
+	if (fetch_newest_version || alloc_new_page_cache) {
+		// Start from newest page version.
+
+		if (alloc_new_page_cache) {
+		    if (DEBUG_PAGES) {
+			printf("%s: Creating page cache for key pgno %d ufid %s \n", __func__, pgno, key.ufid);
+		    }
+		    ret = __mempv_create_page_cache(mpf, dbp, pgno, &pages);
+		    if (ret) { 
+			goto done; 
+		    }
+		}
+
+		pthread_rwlock_wrlock(&mempv->mempv_mutexp); // Rework for lockless
+		acquired_write_lock = 1;
+
+		hdr = __mempv_add_page_header(mpf, dbp, pages);
+
+		ret = hash_add(dbenv->mempv->pages, pages);
+
+		/* lru link */
+		listc_abl(&dbenv->mempv->lru, hdr);
+
+		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+		acquired_write_lock = 0;
+
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+		memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
+
+		if ((ret = __memp_fput(mpf, page, 0)) != 0) {
+			printf("%s: Failed to return initial page version\n", __func__);
+			ret = 1;
+			goto done;
+		}
+		
+		if (alloc_new_page_cache) {
+			pages->newest_lsn = LSN(page_image);
+		}
+		pages->new_version = 0;
+
+		/* Cache link */
+		listc_atl(&pages->pages, hdr);
+
+		hdr->pagecache = pages;
+
+	} else {
+		// Start from start of hole.
+		hdr = start_of_hole;
+
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+	}
+
+	// Rollback page to target version.
+
+	if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
+		if (DEBUG_PAGES) {
+		    printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
+		}
+		printf("exit 2\n");
+		// LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+		found = 1;
+	} else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
+		if (DEBUG_PAGES) {
+		    printf("%s: Failed to create log cursor\n", __func__);
+		}
+		ret = 1;
+		goto done;
+	}
+
+	int initial_pass = 1;
+
+rollback:
+	while (!found) 
+	{
+		DB_LSN pglsn = LSN(page_image);
+		DB_LSN prev_pglsn;
+
+		if (DEBUG_PAGES)
+			printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
+
+		if (!initial_pass && __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
+			LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+			printf("exit 3\n");
+			found = 1;
+			break;
+		}
+
+		if (IS_ZERO_LSN(pglsn)) {
+			if (DEBUG_PAGES) {
+				printf("%s: Got to page with zero / unlogged LSN\n", __func__);
+			}
+			ret = 1;
+			goto done;
+		}
+		
+		/* Move log cursor */
+		ret = logc->get(logc, &pglsn, &dbt, DB_SET);
+		if (ret || (dbt.size < sizeof(int))) {
+			if (DEBUG_PAGES) {
+				printf("%s: Failed to get log cursor\n", __func__);
+			}
+			ret = 1;
+			goto done;
+		}
+
+		// TODO: Encapsulate.
+		LOGCOPY_32(&rectype, dbt.data);
+		normalize_rectype(&rectype);
+		if (rectype == DB___bam_split || rectype == DB___bam_rsplit || rectype == DB___db_pg_freedata || rectype == DB___db_pg_free ) {
+			__os_malloc(dbenv, dbt.size, &data_t);
+			memcpy(data_t, dbt.data, dbt.size);
+		}
+		if ((ret = __mempv_read_log_record(dbenv, data_t != NULL ? data_t : dbt.data, &apply, &prevPageLsn, &utxnid, PGNO(page_image))) != 0) {
+			if (DEBUG_PAGES) {
+				printf("%s: Failed to read log record\n", __func__);
+			}
+			ret = 1;
+			goto done;
+		}
+		if (data_t != NULL) { 
+			__os_free(dbenv, data_t);
+			data_t = NULL;
+		}
+
+		/* TODO: Reword -- If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
+		if (((ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 1) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {
+			if (DEBUG_PAGES) {
+				printf("%s: Found the right page version with lsn %d:%d and commit lsn %d:%d\n", __func__, pglsn.file, pglsn.offset, commit_lsn.file, commit_lsn.offset);
+				if (ret) {
+					printf("%s: Page commit LSN did not exist in the map\n", __func__);
+				}
+			}
+			if (ret) {
+				if (DEBUG_PAGES) {
+				    printf("%s: Page commit LSN did not exist in the map\n", __func__);
+				}
+				LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+			} else {
+				hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
+			}
+			printf("exit 4\n");
+			found = 1;
+			ret = 0;
+			break;
+		}
+
+		// This will overwrite commit lsn of start_of_hole. Okay because it must have the same value.
+		if (ret) {
+			LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
+		} else {
+			hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
+		}
+		// create a new cache hdr for next page version.
+		prev_hdr = hdr;
+		prev_bhp = bhp;
+		prev_page_image = page_image;
+		prev_pglsn = pglsn;
+		pglsn = LSN(prev_page_image); 
+
+		pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+		acquired_write_lock = 1;
+		hdr = __mempv_add_page_header(mpf, dbp, pages);
+		if (hdr == NULL) {
+			ret = 1;
+			goto done;
+		}
+		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+		acquired_write_lock = 0;
+
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+
+		memcpy(bhp, prev_bhp, offsetof(BH, buf) + dbp->pgsize);
+
+		if((ret = apply(dbenv, &dbt, &pglsn, DB_TXN_ABORT, page_image)) != 0) {
+			if (DEBUG_PAGES) {
+				printf("%s: Failed to undo log record\n", __func__);
+			}
+			ret = 1;
+			goto done;
+		}
+
+		// Check if hole filled
+		if (DEBUG_PAGES)
+		    printf("end of hole %p lsn pg image %d:%d lsn end of hole %d:%d\n", end_of_hole, LSN(page_image).file, LSN(page_image).offset, end_of_hole != NULL ? LSN(end_of_hole).file : 0, end_of_hole != NULL ? LSN(end_of_hole).offset : 0);
+		if ((end_of_hole != NULL) && (log_compare(&pglsn, &LSN(end_of_hole->page + offsetof(BH, buf))) == 0)) {
+			// We scanned a hole and did not find a newer version. Return end of hole. Throw out newly created header.
+
+		//	assert (prev_hdr->commit_order.next == end_of_hole);
+		//	assert (end_of_hole->commit_order.prev == prev_hdr);
+
+			if (DEBUG_PAGES)
+				printf("%s: Closing hole\n", __func__);
+
+			// Close the hole.
+
+			pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+			prev_hdr->pin--;
+			/* Cache link */
+			end_of_hole->prev_cache_entry_lsn = prev_pglsn;
+			pthread_rwlock_unlock(&mempv->mempv_mutexp);
+
+			// Throw out newly created header.
+			mspace_free(mempv->msp, hdr);
+
+			hdr = end_of_hole;
+			printf("exit 5\n");
+			found = 1;
+		} else {
+			// Not end of a hole. Link in new header and continue scan.
+
+			pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+
+			prev_hdr->pin--;
+            
+			/* List link */
+			listc_add_after(&pages->pages, hdr, prev_hdr);
+
+			/* lru link */
+			listc_abl(&dbenv->mempv->lru, hdr);
+
+			/* Cache link */
+			hdr->prev_cache_entry_lsn = prev_pglsn;
+
+			pthread_rwlock_unlock(&mempv->mempv_mutexp);
+		}
+		initial_pass = 0;
+	}
+
+	*(void **)ret_page = (void *) page_image;
+	if (hdr != NULL)  {
+		if (!acquired_write_lock) {
+		    pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+		    acquired_write_lock = 1;
+		}
+		hdr->ref = 1;
+	}
+	// __mempv_add_stats(dbenv, !initial_pass, page_image, cached);
+done:
+	if (end_of_hole && end_of_hole != hdr) {
+		if (!acquired_write_lock) {
+		    pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+		    acquired_write_lock = 1;
+		}
+		end_of_hole->pin--;
+	}
+	if (acquired_write_lock) {
+		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+	}
+	// TODO: start of hole
+	if (logc)
+		logc->close(logc, 0);
+	if (dbt.data)
+		__os_free(dbenv, dbt.data);
+	// TODO: if alloc'd new hdr del hdr
+	return ret;
+}
+
+/*
+ * __mempv_fput --
+ *	Release a page accessed with __mempv_fget.
+ *
+ * PUBLIC: int __mempv_fput
+ * PUBLIC:     __P((DB_MPOOLFILE *, void *));
+ */
+int __mempv_fput(mpf, page)
+	DB_MPOOLFILE *mpf;
+	void *page;
+{
+	BH *bhp;
+	DB_ENV *dbenv;
+	MEMPV_KEY key;
+	DB_MEMPV *mempv;
+	MEMPV_PAGE_CACHE *pages;
+	MEMPV_PAGE_HEADER *hdr;
+	PAGE * page_image;
+	int ret, acquired_write_lock, acquired_read_lock;
+
+	if (page == NULL) { return 0; }
+
+	dbenv = mpf->dbenv;
+	mempv = dbenv->mempv;
+	ret = 0;
+	acquired_write_lock = 0;
+	acquired_read_lock = 0;
+	key.pgno = PGNO(page);
+	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
+
+	pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+	acquired_write_lock = 1;
+
+	pages = hash_find(mempv->pages, &key);
+	if (pages == NULL) {
+		goto return_uncached_page;
+	}
+
+	LISTC_FOR_EACH(&pages->pages, hdr, commit_order) {
+		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
+		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+
+		if (page_image == page) {
+			if (DEBUG_PAGES)
+				printf("Unpinning pgno %d ufid %s\n", key.pgno, key.ufid);
+
+			hdr->pin--;
+			if (hdr->pin == 0) {
+				new_cache_space = 1;
+				pthread_cond_signal(&cond);
+			}
+			ret = 0;
+			goto done;
+		}
+		
+	}
+
+return_uncached_page:
+	pthread_rwlock_unlock(&mempv->mempv_mutexp);
+	acquired_write_lock = 0;
+	if ((ret = __memp_fput(mpf, page, 0)) != 0) {
+		printf("%s: Failed to return initial page version\n", __func__);
+		ret = 1;
+	}
+
+done:
+	if (acquired_write_lock) {
+		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+	}
 	return ret;
 }
 
@@ -365,623 +1056,5 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			break;
 	}
 done:		
-	return ret;
-}
-
-static int new_cache_space = 0;
-pthread_cond_t  cond  = PTHREAD_COND_INITIALIZER;
-
-static int __mempv_evict_page_cache(dbenv, mempv, pinned_cache)
-	DB_ENV *dbenv;
-	DB_MEMPV *mempv;
-	MEMPV_PAGE_CACHE *pinned_cache;
-{
-	MEMPV_PAGE_HEADER *lru;
-	MEMPV_PAGE_CACHE *owner_cache;
-
-	int itr = 0;
-	int size = listc_size(&mempv->lru);
-	int eviction = 0;
-	int evictable_page = 0;
-	while (!eviction) {
-		// TODO: prevent infinite loop when all pages are pinned.
-		if (itr == size && !evictable_page) {
-		    new_cache_space = 0;
-
-		    printf("Going to sleep\n");
-
-		    while (!new_cache_space) {
-			pthread_cond_wait( &cond, &mempv->mempv_mutexp);
-		    }
-
-		    printf("Woke up\n");
-		    itr = 0;
-		}
-		lru = listc_rtl(&mempv->lru);
-		if (lru == NULL) {
-			printf("%s: LRU list is empty\n", __func__);
-			return 1;
-		}
-		if (lru->ref == 1 || lru->pin >= 1) {
-			lru->ref = 0;
-			if (lru->pin == 0) {
-				evictable_page = 1;
-			}
-			listc_abl(&mempv->lru, lru);
-			continue;
-		}
-
-		owner_cache = lru->pagecache;
-
-		if (lru->commit_order.next) {
-			lru->commit_order.next->prev_cache_entry_lsn = lru->prev_cache_entry_lsn;
-		}
-
-		listc_rfl(&owner_cache->pages, lru);
-		mspace_free(mempv->msp, lru);
-
-		if ((listc_size(&owner_cache->pages) == 0) && (owner_cache != pinned_cache)) {
-			if (DEBUG_PAGES)
-				printf("%s: Freed empty cache %p\n", __func__, owner_cache);
-
-			hash_del(mempv->pages, owner_cache);
-			__os_free(dbenv, owner_cache);
-		}
-		eviction = 1;
-		++itr;
-	}
-
-	return 0;
-}
-
-MEMPV_PAGE_HEADER * __mempv_add_page_header(mpf, dbp, pages)
-	DB_MPOOLFILE *mpf;
-	DB *dbp;
-	MEMPV_PAGE_CACHE *pages;
-{
-	DB_ENV *dbenv;
-	MEMPV_PAGE_HEADER *allocd_hdr;
-	int ret;
-
-	dbenv = mpf->dbenv;
-	ret = 0;
-
-	allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
-	while (allocd_hdr == NULL) {
-		if (DEBUG_PAGES) {
-			printf("%s: New hdr was null. Evicting page\n", __func__);
-		}
-		ret = __mempv_evict_page_cache(dbenv, dbenv->mempv, pages);
-		if (ret) { goto done; }
-		allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
-	}
-
-	allocd_hdr->pin = 1;
-	allocd_hdr->ref = 1;
-	allocd_hdr->pagecache = pages;
-	allocd_hdr->commit_order.next = allocd_hdr->commit_order.prev = NULL;
-	LSN_NOT_LOGGED(allocd_hdr->prev_cache_entry_lsn);
-
-done:
-	return allocd_hdr;
-}
-
-static void __mempv_print_page_cache(pages)
-	MEMPV_PAGE_CACHE *pages;
-{
-	MEMPV_PAGE_HEADER *hdr;
-	BH *bhp;
-	PAGE * page_image;
-	int num;
-
-	hdr = pages->pages.top;
-	num = 1;
-	
-	printf("==== Start of cache ====\n");
-
-	while (hdr) {
-		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
-		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
-
-		printf("--- hdr %d ---\n", num);
-		printf("commit lsn: %d:%d\n", hdr->commit_lsn.file, hdr->commit_lsn.offset);
-		printf("prev entry lsn: %d:%d\n", hdr->prev_cache_entry_lsn.file, hdr->prev_cache_entry_lsn.offset);
-		printf("my lsn: %d:%d\n", LSN(page_image).file, LSN(page_image).offset);
-		printf("--------------\n");
-
-		hdr = hdr->commit_order.next;
-		num++;
-	}
-
-	printf("==== End of cache ====\n");
-}
-
-static int __mempv_check_cache_for_version(dbenv, pages, start_of_hole, end_of_hole, found, page_image, fetch_newest_version, target_lsn)
-	DB_ENV *dbenv;
-	MEMPV_PAGE_CACHE *pages;
-	MEMPV_PAGE_HEADER **start_of_hole;
-	MEMPV_PAGE_HEADER **end_of_hole;
-	int *found;
-	PAGE **page_image;
-	int *fetch_newest_version;
-	DB_LSN target_lsn;
-{
-	DB_LSN prev_cache_entry_lsn;
-	MEMPV_PAGE_HEADER *hdr, *prev_hdr;
-	int firstItr, ret;
-
-	hdr = pages->pages.top;
-	firstItr = 1;
-	ret = 0;
-
-	// __mempv_print_page_cache(pages);
-
-	while (hdr) {
-		if (DEBUG_PAGES) {
-			printf("%s: Checking next cache header for match\n", __func__);
-		}
-		*page_image = (PAGE*) (hdr->page + offsetof(BH, buf));
-		DB_LSN commit_lsn = hdr->commit_lsn;
-		if (log_compare(&commit_lsn, &target_lsn) <= 0) {
-			// Is target candidate. Now check for holes.
-			if (firstItr) {
-				if (pages->new_version == 1) {
-					// The newest thing in the cache is older than us and there is a newer
-					// version. We need to check it.
-					if (DEBUG_PAGES)
-						printf("Need to fetch new version.\n");
-					pages->new_version = 0; // TODO: Consider if right place for this.
-					*fetch_newest_version = 1;
-					*end_of_hole = hdr;
-					(*end_of_hole)->pin++;
-					(*end_of_hole)->ref = 1;
-					goto done;
-				}
-			} else if (log_compare(&hdr->prev_cache_entry_lsn, &prev_cache_entry_lsn) != 0) {
-				// We found something older than us in the cache but there is a hole preceding it.
-				// We need to make sure that the target version isn't in the hole.
-
-				// Start walkback from preceding image.
-				*end_of_hole = hdr;
-				*start_of_hole = prev_hdr;
-				(*end_of_hole)->pin++;
-				(*end_of_hole)->ref = 1;
-				(*start_of_hole)->pin++;
-				(*start_of_hole)->ref = 1;
-
-				if (DEBUG_PAGES)
-					printf("Found a hole.\n");
-				goto done;
-			}
-
-			// No holes. We found our target!
-
-			hdr->pin++;
-			hdr->ref = 1;
-			*found = 1;
-			if (DEBUG_PAGES) {
-				printf("%s: Found correct page version in cache. Version lsn %d:%d. Target lsn %d:%d\n", __func__, commit_lsn.file, commit_lsn.offset, target_lsn.file, target_lsn.offset);
-			}
-
-			goto done;
-		}
-
-		prev_hdr = hdr;
-		prev_cache_entry_lsn = LSN(*page_image);
-		firstItr = 0;
-
-		hdr = hdr->commit_order.next;
-	}
-
-done:
-	return ret;
-}
-
-
-/*
- * __mempv_fget --
- *	Return a page in the version that it was at a past LSN.
- *
- * PUBLIC: int __mempv_fget
- * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, void *));
- */
-int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
-	DB_MPOOLFILE *mpf;
-	DB *dbp;
-	db_pgno_t pgno;
-	DB_LSN target_lsn;
-	void *ret_page;
-{
-	int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-	int have_lock, have_page, have_page_image, found, ret, fetch_newest_version;
-	u_int64_t utxnid;
-	u_int32_t rectype;
-	DB_MEMPV *mempv;
-	DB_MPOOL *dbmp;
-	MEMPV_KEY key;
-	MEMPV_PAGE_CACHE *pages;
-	MEMPV_PAGE_HEADER *hdr, *prev_hdr, *start_of_hole, *end_of_hole;
-	DB_LOGC *logc;
-	PAGE *page, *page_image, *prev_page_image;
-	DB_LSN curPageLsn, prevPageLsn, commit_lsn;
-	DB_ENV *dbenv;
-	BH *bhp, *prev_bhp;
-	void *data_t;
-	int acquired_write_lock;
-
-	DBT dbt = {0};
-	dbt.data = NULL;
-	dbt.flags = DB_DBT_MALLOC;
-	ret = found = fetch_newest_version = acquired_write_lock = 0;
-	logc = NULL;
-	data_t = NULL; 
-	page_image = NULL;
-	hdr = prev_hdr = start_of_hole = end_of_hole = NULL;
-	*(void **)ret_page = NULL;
-	dbenv = mpf->dbenv;
-	mempv = dbenv->mempv;
-	dbmp = dbenv->mp_handle;
-
-	// Get cached page versions. If DNE, create list of versions for this page.
-	key.pgno = pgno;
-	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
-
-	Pthread_mutex_lock(&mempv->mempv_mutexp);
-	acquired_write_lock = 1;
-
-	pages = hash_find(mempv->pages, &key);
-	int alloc_new_page_cache = pages == NULL;
-
-	// Check cache for correct version.
-
-	if (!alloc_new_page_cache) {
-		__mempv_check_cache_for_version(dbenv, pages, &start_of_hole, &end_of_hole, &found, &page_image, &fetch_newest_version, target_lsn);
-
-		if (found) {
-			goto rollback;
-		}
-	}
-	Pthread_mutex_unlock(&mempv->mempv_mutexp);
-	acquired_write_lock = 0;
-
-	// If we are here then we are doing a rollback.
-	// We either start from the page preceding a hole, or we start from the newest page (retrieved from memp_fget).
-
-	if (fetch_newest_version || alloc_new_page_cache) {
-		// Start from newest page version.
-
-		// Allocate header for newest page version.
-
-		if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to get initial page version\n", __func__);
-			}
-			ret = 1;
-			goto done;
-		}
-
-		if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page)) {
-		    if (DEBUG_PAGES) {
-			printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
-		    }
-		    page_image = page;
-		    // LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
-		    found = 1;
-		    goto rollback;
-		}
-
-
-		if (alloc_new_page_cache) {
-		    if (DEBUG_PAGES) {
-			printf("%s: Creating page cache for key pgno %d ufid %s \n", __func__, pgno, key.ufid);
-		    }
-		    ret = __mempv_create_page_cache(mpf, dbp, pgno, &pages);
-		    if (ret) { 
-			goto done; 
-		    }
-		}
-
-		Pthread_mutex_lock(&mempv->mempv_mutexp); // Rework for lockless
-		acquired_write_lock = 1;
-
-		ret = hash_add(dbp->dbenv->mempv->pages, pages);
-
-		hdr = __mempv_add_page_header(mpf, dbp, pages);
-
-		/* lru link */
-		listc_abl(&dbenv->mempv->lru, hdr);
-
-		Pthread_mutex_unlock(&mempv->mempv_mutexp);
-		acquired_write_lock = 0;
-
-		// Header is invalid but this is okay because it is not yet accessible because of db-level locks over pages. Okay as long as it is pinned and cannot be evicted.
-
-		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
-		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
-
-		memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
-
-		if (alloc_new_page_cache) {
-			pages->newest_lsn = LSN(page_image);
-		}
-		pages->new_version = 0;
-
-		/* Cache link */
-		listc_atl(&pages->pages, hdr);
-
-		if ((ret = __memp_fput(mpf, page, 0)) != 0) {
-			printf("%s: Failed to return initial page version\n", __func__);
-			ret = 1;
-			goto done;
-		}
-
-	} else {
-		// Start from start of hole.
-		hdr = start_of_hole;
-
-		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
-		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
-	}
-
-	// Rollback page to target version.
-
-	if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
-		if (DEBUG_PAGES) {
-		    printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
-		}
-		// LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
-		found = 1;
-	} else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
-		if (DEBUG_PAGES) {
-		    printf("%s: Failed to create log cursor\n", __func__);
-		}
-		ret = 1;
-		goto done;
-	}
-
-rollback:
-	while (!found) 
-	{
-		if (DEBUG_PAGES)
-			printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
-
-		if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
-			LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
-			found = 1;
-			break;
-		}
-
-		if (IS_ZERO_LSN(LSN(page_image))) {
-			if (DEBUG_PAGES) {
-				printf("%s: Got to page with zero / unlogged LSN\n", __func__);
-			}
-			ret = 1;
-			goto done;
-		}
-		
-		/* Move log cursor */
-		ret = logc->get(logc, &LSN(page_image), &dbt, DB_SET);
-		if (ret || (dbt.size < sizeof(int))) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to get log cursor\n", __func__);
-			}
-			ret = 1;
-			goto done;
-		}
-
-		// TODO: Encapsulate.
-		LOGCOPY_32(&rectype, dbt.data);
-		normalize_rectype(&rectype);
-		if (rectype == DB___bam_split || rectype == DB___bam_rsplit || rectype == DB___db_pg_freedata || rectype == DB___db_pg_free ) {
-			__os_malloc(dbenv, dbt.size, &data_t);
-			memcpy(data_t, dbt.data, dbt.size);
-		}
-		if ((ret = __mempv_read_log_record(dbenv, data_t != NULL ? data_t : dbt.data, &apply, &prevPageLsn, &utxnid, PGNO(page_image))) != 0) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to read log record\n", __func__);
-			}
-			ret = 1;
-			goto done;
-		}
-		if (data_t != NULL) { 
-			__os_free(dbenv, data_t);
-			data_t = NULL;
-		}
-
-		/* TODO: Reword -- If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page. */
-		if (((ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 1) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {
-			if (DEBUG_PAGES) {
-				printf("%s: Found the right page version with lsn %d:%d and commit lsn %d:%d\n", __func__, LSN(page_image).file, LSN(page_image).offset, commit_lsn.file, commit_lsn.offset);
-				if (ret) {
-					printf("%s: Page commit LSN did not exist in the map\n", __func__);
-				}
-			}
-			if (ret) {
-				if (DEBUG_PAGES) {
-				    printf("%s: Page commit LSN did not exist in the map\n", __func__);
-				}
-				LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
-			} else {
-				hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
-			}
-			found = 1;
-			ret = 0;
-			break;
-		}
-
-		// This will overwrite commit lsn of start_of_hole. Okay because it must have the same value.
-		if (ret) {
-			LSN_NOT_LOGGED(hdr->commit_lsn); // TODO: ?
-		} else {
-			hdr->commit_lsn = commit_lsn; // TODO: Deal with commit lsn of things that don't exist. Should just be not logged?
-		}
-		// create a new cache hdr for next page version.
-		prev_hdr = hdr;
-		prev_bhp = bhp;
-		prev_page_image = page_image;
-		curPageLsn = LSN(prev_page_image); // TODO: rename 'curPageLsn'
-
-		Pthread_mutex_lock(&mempv->mempv_mutexp);
-		acquired_write_lock = 1;
-		hdr = __mempv_add_page_header(mpf, dbp, pages);
-		if (hdr == NULL) {
-			ret = 1;
-			goto done;
-		}
-		Pthread_mutex_unlock(&mempv->mempv_mutexp);
-		acquired_write_lock = 0;
-
-		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
-		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
-
-		memcpy(bhp, prev_bhp, offsetof(BH, buf) + dbp->pgsize);
-
-		if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to undo log record\n", __func__);
-			}
-			ret = 1;
-			goto done;
-		}
-
-		// Check if hole filled
-		if (DEBUG_PAGES)
-		    printf("end of hole %p lsn pg image %d:%d lsn end of hole %d:%d\n", end_of_hole, LSN(page_image).file, LSN(page_image).offset, end_of_hole != NULL ? LSN(end_of_hole).file : 0, end_of_hole != NULL ? LSN(end_of_hole).offset : 0);
-		if ((end_of_hole != NULL) && (log_compare(&LSN(page_image), &LSN(end_of_hole->page + offsetof(BH, buf))) == 0)) {
-			// We scanned a hole and did not find a newer version. Return end of hole. Throw out newly created header.
-
-			assert (prev_hdr->commit_order.next == end_of_hole);
-			assert (end_of_hole->commit_order.prev == prev_hdr);
-
-			if (DEBUG_PAGES)
-				printf("%s: Closing hole\n", __func__);
-
-			// Close the hole.
-
-			Pthread_mutex_lock(&mempv->mempv_mutexp);
-			prev_hdr->pin--;
-			/* Cache link */
-			end_of_hole->prev_cache_entry_lsn = LSN(prev_page_image);
-			Pthread_mutex_unlock(&mempv->mempv_mutexp);
-
-			// Throw out newly created header.
-			mspace_free(mempv->msp, hdr);
-
-			hdr = end_of_hole;
-			found = 1;
-		} else {
-			// Not end of a hole. Link in new header and continue scan.
-
-			Pthread_mutex_lock(&mempv->mempv_mutexp);
-
-			prev_hdr->pin--;
-            
-			/* List link */
-			listc_add_after(&pages->pages, hdr, prev_hdr);
-
-			/* lru link */
-			listc_abl(&dbenv->mempv->lru, hdr);
-
-			/* Cache link */
-			hdr->prev_cache_entry_lsn = LSN(prev_page_image);
-
-			Pthread_mutex_unlock(&mempv->mempv_mutexp);
-		}
-	}
-
-	*(void **)ret_page = (void *) page_image;
-	if (hdr != NULL)  {
-		if (!acquired_write_lock) {
-		    Pthread_mutex_lock(&mempv->mempv_mutexp);
-		    acquired_write_lock = 1;
-		}
-		hdr->ref = 1;
-	}
-done:
-	if (!acquired_write_lock) {
-		Pthread_mutex_lock(&mempv->mempv_mutexp);
-	}
-	if (end_of_hole && end_of_hole != hdr) {
-		end_of_hole->pin--;
-	}
-	// TODO: start of hole
-	Pthread_mutex_unlock(&mempv->mempv_mutexp);
-	if (logc)
-		logc->close(logc, 0);
-	if (dbt.data)
-		__os_free(dbenv, dbt.data);
-	// TODO: if alloc'd new hdr del hdr
-	return ret;
-}
-
-/*
- * __mempv_fput --
- *	Release a page accessed with __mempv_fget.
- *
- * PUBLIC: int __mempv_fput
- * PUBLIC:     __P((DB_MPOOLFILE *, void *));
- */
-int __mempv_fput(mpf, page)
-	DB_MPOOLFILE *mpf;
-	void *page;
-{
-	BH *bhp;
-	DB_ENV *dbenv;
-	MEMPV_KEY key;
-	DB_MEMPV *mempv;
-	MEMPV_PAGE_CACHE *pages;
-	MEMPV_PAGE_HEADER *hdr;
-	PAGE * page_image;
-	int ret, acquired_write_lock, acquired_read_lock;
-
-	if (page == NULL) { return 0; }
-
-	dbenv = mpf->dbenv;
-	mempv = dbenv->mempv;
-	ret = 0;
-	acquired_write_lock = 0;
-	acquired_read_lock = 0;
-	key.pgno = PGNO(page);
-	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
-
-	Pthread_mutex_lock(&mempv->mempv_mutexp);
-	acquired_write_lock = 1;
-
-	pages = hash_find(mempv->pages, &key);
-	if (pages == NULL) {
-		goto return_uncached_page;
-	}
-
-	LISTC_FOR_EACH(&pages->pages, hdr, commit_order) {
-		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
-		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
-
-		if (page_image == page) {
-			if (DEBUG_PAGES)
-				printf("Unpinning pgno %d ufid %s\n", key.pgno, key.ufid);
-
-			hdr->pin--;
-			if (hdr->pin == 0) {
-				new_cache_space = 1;
-				pthread_cond_signal(&cond);
-			}
-			ret = 0;
-			goto done;
-		}
-		
-	}
-
-return_uncached_page:
-	Pthread_mutex_unlock(&mempv->mempv_mutexp);
-	acquired_write_lock = 0;
-	if ((ret = __memp_fput(mpf, page, 0)) != 0) {
-		printf("%s: Failed to return initial page version\n", __func__);
-		ret = 1;
-	}
-
-done:
-	if (acquired_write_lock) {
-		Pthread_mutex_unlock(&mempv->mempv_mutexp);
-	}
 	return ret;
 }

@@ -101,7 +101,6 @@ static int __mempv_create_page_cache(DB_MPOOLFILE *mpf, DB *dbp, db_pgno_t pgno,
 	pc->new_version = 0;
 	*page_cache = pc;
 
-	ret = hash_add(dbp->dbenv->mempv->pages, pc);
 
 done:
 	return ret;
@@ -628,7 +627,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
 
 	Pthread_mutex_lock(&mempv->mempv_mutexp);
-	acquired_write_lock = 1;
 
 	pages = hash_find(mempv->pages, &key);
 	int alloc_new_page_cache = pages == NULL;
@@ -642,9 +640,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 			goto rollback;
 		}
 	}
-
 	Pthread_mutex_unlock(&mempv->mempv_mutexp);
-	acquired_write_lock = 0;
 
 	// If we are here then we are doing a rollback.
 	// We either start from the page preceding a hole, or we start from the newest page (retrieved from memp_fget).
@@ -672,8 +668,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		    goto rollback;
 		}
 
-		Pthread_mutex_lock(&mempv->mempv_mutexp);
-		acquired_write_lock = 1;
 
 		if (alloc_new_page_cache) {
 		    if (DEBUG_PAGES) {
@@ -685,7 +679,20 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		    }
 		}
 
+		Pthread_mutex_lock(&mempv->mempv_mutexp); // Rework for lockless
+		acquired_write_lock = 1;
+
+		ret = hash_add(dbp->dbenv->mempv->pages, pages);
+
 		hdr = __mempv_add_page_header(mpf, dbp, pages);
+
+		/* lru link */
+		listc_abl(&dbenv->mempv->lru, hdr);
+
+		Pthread_mutex_unlock(&mempv->mempv_mutexp);
+		acquired_write_lock = 0;
+
+		// Header is invalid but this is okay because it is not yet accessible because of db-level locks over pages. Okay as long as it is pinned and cannot be evicted.
 
 		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
 		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
@@ -697,16 +704,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		}
 		pages->new_version = 0;
 
-		// Header allocation successful. Link new header into structures.
-
 		/* Cache link */
 		listc_atl(&pages->pages, hdr);
-
-		/* lru link */
-		listc_abl(&dbenv->mempv->lru, hdr);
-
-		Pthread_mutex_unlock(&mempv->mempv_mutexp);
-		acquired_write_lock = 0;
 
 		if ((ret = __memp_fput(mpf, page, 0)) != 0) {
 			printf("%s: Failed to return initial page version\n", __func__);

@@ -625,6 +625,8 @@ rollback:
 		prev_page_image = page_image;
 		prev_pglsn = pglsn;
 		pglsn = LSN(prev_page_image); 
+		curPageLsn.file = 0; // TODO: rename 'curPageLsn'
+		curPageLsn.offset = 2; // TODO: rename 'curPageLsn'
 
 		pthread_rwlock_wrlock(&mempv->mempv_mutexp);
 		acquired_write_lock = 1;

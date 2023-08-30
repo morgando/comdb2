@@ -256,7 +256,6 @@ bdb_osql_trn_t *bdb_osql_trn_register(bdb_state_type *bdb_state,
                                       int *bdberr, int epoch, uint32_t file,
                                       uint32_t offset, int is_ha_retry)
 {
-    printf("%s\n", __func__);
     bdb_osql_trn_t *trn = NULL;
     int rc = 0, durable_lsns = bdb_state->attr->durable_lsns;
     uint32_t durable_gen = 0;

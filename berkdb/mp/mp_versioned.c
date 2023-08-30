@@ -819,7 +819,8 @@ rollback:
 		prev_hdr = hdr;
 		prev_bhp = bhp;
 		prev_page_image = page_image;
-		curPageLsn = LSN(prev_page_image); // TODO: rename 'curPageLsn'
+		curPageLsn.file = 0; // TODO: rename 'curPageLsn'
+		curPageLsn.offset = 2; // TODO: rename 'curPageLsn'
 
 		Pthread_mutex_lock(&mempv->mempv_mutexp);
 		acquired_write_lock = 1;

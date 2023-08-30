@@ -182,11 +182,6 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			}
 		}
 	} else {
-		if (!DB_UNDO(op)) {
-			printf("I am redo\n");
-		} else if (DB_UNDO(op)) {
-			printf("I am undo\n");
-		}
 		pagep = (PAGE*) info;
 	}
 
@@ -785,7 +780,6 @@ __db_pg_alloc_recover(dbenv, dbtp, lsnp, op, info)
 	db_recops op;
 	void *info;
 {
-	// TODO
 	__db_pg_alloc_args *argp;
 	DB *file_dbp;
 	DBC *dbc;
@@ -811,6 +805,18 @@ __db_pg_alloc_recover(dbenv, dbtp, lsnp, op, info)
 	 * If we're undoing the operation and the page was ever created, we put
 	 * it on the freelist.
 	 */
+
+    // TODO: Maybe add flags for recovery functions so that don't need to
+    // do things like this.
+    if (lsnp->file == 0 && lsnp->offset == 2 && info != NULL) {
+        PAGE * pagep = (PAGE *) info;
+        pagep->lsn = argp->page_lsn;
+
+        // TODO: Verify that don't need to update meta page
+
+        return 0;
+    }
+
 	pgno = PGNO_BASE_MD;
 	if ((ret = __memp_fget(mpf, &pgno, 0, &meta)) != 0) {
 		/* The metadata page must always exist on redo. */

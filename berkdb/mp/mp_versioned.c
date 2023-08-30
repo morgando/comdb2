@@ -17,7 +17,7 @@ static int num_versions_fetched = 0;
 static int num_versions_fetched_without_rollback = 0;
 static int num_versions_fetched_from_cache = 0;
 static int stat_dump_itrs = 0;
-static int STAT_DUMP_THRESHOLD = 5000;
+static int STAT_DUMP_THRESHOLD = 3;
 
 struct __version {
     DB_LSN lsn;
@@ -25,10 +25,9 @@ struct __version {
 };
 struct __mempv_stat {
     u_int8_t rollback;
+    u_int32_t offset;
     struct __version version;
 };
-
-static hash_t * mempv_stats;
 
 static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *), DB_LSN *prevPageLsn, u_int64_t *utxnid, db_pgno_t pgno);
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
@@ -65,7 +64,7 @@ int __mempv_init(dbenv, size)
 		goto done;
 	}
 
-	mempv_stats = hash_init_o(offsetof(struct __mempv_stat, version), sizeof(struct __version));
+	mpv->mempv_stats = hash_init_o(offsetof(struct __mempv_stat, offset), sizeof(u_int32_t));
 	mpv->msp = create_mspace_with_base(gbl_mempv_base, size, 1);
 	mpv->size = size;
 	dbenv->mempv = mpv;
@@ -96,17 +95,22 @@ static int __mempv_add_stats(dbenv, rollback, page_image, cached)
     PAGE *page_image;
     int cached;
 {
-    struct __mempv_stat * stat;
-    __os_malloc(dbenv, sizeof(struct __mempv_stat), &stat);
-    stat->rollback = rollback;
-    stat->version.pgno = PGNO(page_image);
-    stat->version.lsn = LSN(page_image);
+    struct __version v;
+    v.pgno = PGNO(page_image);
+    v.lsn = LSN(page_image);
 
-    if (!hash_find(mempv_stats, &stat->version)) {
-        hash_add(mempv_stats, stat);
+    /*if (!hash_find(dbenv->mempv->mempv_stats, &(v.lsn.offset))) {
+        struct __mempv_stat * stat;
+        if(__os_malloc(dbenv, sizeof(struct __mempv_stat), &stat)) {
+            abort();
+        }
+        stat->rollback = rollback;
+        stat->offset = v.lsn.offset;
+        stat->version = v;
+        hash_add(dbenv->mempv->mempv_stats, stat);
     } else {
         num_dups++;
-    }
+    }*/
     num_versions_fetched++;
     if (!rollback) {
         num_versions_fetched_without_rollback++;
@@ -443,7 +447,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	key.pgno = pgno;
 	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
 
-	pthread_rwlock_rdlock(&mempv->mempv_mutexp);
+    pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+	// pthread_rwlock_rdlock(&mempv->mempv_mutexp);
 	acquired_write_lock = 1;
 
 	pages = hash_find(mempv->pages, &key);
@@ -478,7 +483,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		    }
 		}
 
-		pthread_rwlock_wrlock(&mempv->mempv_mutexp); // Rework for lockless
+//		pthread_rwlock_wrlock(&mempv->mempv_mutexp); // Rework for lockless
 		acquired_write_lock = 1;
 
 		hdr = __mempv_add_page_header(mpf, dbp, pages);
@@ -488,7 +493,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 		/* lru link */
 		listc_abl(&dbenv->mempv->lru, hdr);
 
-		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+//		pthread_rwlock_unlock(&mempv->mempv_mutexp);
 		acquired_write_lock = 0;
 
 		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
@@ -511,12 +516,16 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
 		hdr->pagecache = pages;
 
+        printf("Fetched newest version\n");
+
 	} else {
 		// Start from start of hole.
 		hdr = start_of_hole;
 
 		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
 		page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
+
+        printf("Fetched cached page\n");
 	}
 
 	// Rollback page to target version.
@@ -628,14 +637,14 @@ rollback:
 		curPageLsn.file = 0; // TODO: rename 'curPageLsn'
 		curPageLsn.offset = 2; // TODO: rename 'curPageLsn'
 
-		pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+//		pthread_rwlock_wrlock(&mempv->mempv_mutexp);
 		acquired_write_lock = 1;
 		hdr = __mempv_add_page_header(mpf, dbp, pages);
 		if (hdr == NULL) {
 			ret = 1;
 			goto done;
 		}
-		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+//		pthread_rwlock_unlock(&mempv->mempv_mutexp);
 		acquired_write_lock = 0;
 
 		bhp = (BH *) (((char *) hdr) + offsetof(MEMPV_PAGE_HEADER, page));
@@ -643,7 +652,7 @@ rollback:
 
 		memcpy(bhp, prev_bhp, offsetof(BH, buf) + dbp->pgsize);
 
-		if((ret = apply(dbenv, &dbt, &pglsn, DB_TXN_ABORT, page_image)) != 0) {
+		if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
 			if (DEBUG_PAGES) {
 				printf("%s: Failed to undo log record\n", __func__);
 			}
@@ -665,11 +674,11 @@ rollback:
 
 			// Close the hole.
 
-			pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+//			pthread_rwlock_wrlock(&mempv->mempv_mutexp);
 			prev_hdr->pin--;
 			/* Cache link */
 			end_of_hole->prev_cache_entry_lsn = prev_pglsn;
-			pthread_rwlock_unlock(&mempv->mempv_mutexp);
+//			pthread_rwlock_unlock(&mempv->mempv_mutexp);
 
 			// Throw out newly created header.
 			mspace_free(mempv->msp, hdr);
@@ -680,7 +689,7 @@ rollback:
 		} else {
 			// Not end of a hole. Link in new header and continue scan.
 
-			pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+			// pthread_rwlock_wrlock(&mempv->mempv_mutexp);
 
 			prev_hdr->pin--;
             
@@ -693,7 +702,7 @@ rollback:
 			/* Cache link */
 			hdr->prev_cache_entry_lsn = prev_pglsn;
 
-			pthread_rwlock_unlock(&mempv->mempv_mutexp);
+			// pthread_rwlock_unlock(&mempv->mempv_mutexp);
 		}
 		initial_pass = 0;
 	}
@@ -706,17 +715,18 @@ rollback:
 		}
 		hdr->ref = 1;
 	}
-	// __mempv_add_stats(dbenv, !initial_pass, page_image, cached);
+	__mempv_add_stats(dbenv, !initial_pass, page_image, cached);
 done:
 	if (end_of_hole && end_of_hole != hdr) {
 		if (!acquired_write_lock) {
-		    pthread_rwlock_wrlock(&mempv->mempv_mutexp);
+		    // pthread_rwlock_wrlock(&mempv->mempv_mutexp);
 		    acquired_write_lock = 1;
 		}
 		end_of_hole->pin--;
 	}
 	if (acquired_write_lock) {
-		pthread_rwlock_unlock(&mempv->mempv_mutexp);
+        pthread_rwlock_unlock(&mempv->mempv_mutexp);
+		// pthread_rwlock_unlock(&mempv->mempv_mutexp);
 	}
 	// TODO: start of hole
 	if (logc)

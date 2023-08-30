@@ -2884,6 +2884,7 @@ struct __mempv {
 	pthread_mutex_t mempv_dummy_mutexp;
 	mspace *msp;
 	u_int64_t size;
+    hash_t * mempv_stats;
 	hash_t *pages;
 	LISTC_T(struct __mempv_page_cache) lru;
 };

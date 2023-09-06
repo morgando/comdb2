@@ -29,6 +29,8 @@ struct __mempv_stat {
     struct __version version;
 };
 
+static pthread_mutex_t mspace_lock;
+
 static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *), DB_LSN *prevPageLsn, u_int64_t *utxnid, db_pgno_t pgno);
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
@@ -58,15 +60,19 @@ int __mempv_init(dbenv, size)
 		goto done;
 	}
 
+    pthread_mutex_lock(&mspace_lock);
 	gbl_mempv_base = malloc(size);
 	if (gbl_mempv_base == NULL) {
+        pthread_mutex_unlock(&mspace_lock);
 		ret = ENOMEM;
 		goto done;
 	}
 
-	mpv->mempv_stats = hash_init_o(offsetof(struct __mempv_stat, offset), sizeof(u_int32_t));
 	mpv->msp = create_mspace_with_base(gbl_mempv_base, size, 1);
 	mpv->size = size;
+    pthread_mutex_unlock(&mspace_lock);
+
+	mpv->mempv_stats = hash_init_o(offsetof(struct __mempv_stat, offset), sizeof(u_int32_t));
 	dbenv->mempv = mpv;
 	pthread_rwlock_init(&mpv->mempv_mutexp, NULL);
 	pthread_mutex_init(&mpv->mempv_dummy_mutexp, NULL);
@@ -183,7 +189,7 @@ static int __mempv_evict_page_cache(dbenv, mempv, pinned_cache)
 	int evictable_page = 0;
 	while (!eviction) {
 		// TODO: prevent infinite loop when all pages are pinned.
-		if (itr == size && !evictable_page) {
+		if (itr == size*2 && !evictable_page) {
 		    new_cache_space = 0;
 
 		    printf("Going to sleep\n");
@@ -199,6 +205,7 @@ static int __mempv_evict_page_cache(dbenv, mempv, pinned_cache)
 		    printf("Woke up\n");
 		    itr = 0;
 		}
+		++itr;
 		lru = listc_rtl(&mempv->lru);
 		if (lru == NULL) {
 			printf("%s: LRU list is empty\n", __func__);
@@ -220,7 +227,9 @@ static int __mempv_evict_page_cache(dbenv, mempv, pinned_cache)
 		}
 
 		listc_rfl(&owner_cache->pages, lru);
+        pthread_mutex_lock(&mspace_lock);
 		mspace_free(mempv->msp, lru);
+        pthread_mutex_unlock(&mspace_lock);
 
 		if ((listc_size(&owner_cache->pages) == 0) && (owner_cache != pinned_cache)) {
 			if (DEBUG_PAGES)
@@ -230,7 +239,7 @@ static int __mempv_evict_page_cache(dbenv, mempv, pinned_cache)
 			__os_free(dbenv, owner_cache);
 		}
 		eviction = 1;
-		++itr;
+        printf("evicted page\n");
 	}
 
 	return 0;
@@ -248,14 +257,21 @@ MEMPV_PAGE_HEADER * __mempv_add_page_header(mpf, dbp, pages)
 	dbenv = mpf->dbenv;
 	ret = 0;
 
+    pthread_mutex_lock(&mspace_lock);
 	allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+    pthread_mutex_unlock(&mspace_lock);
 	while (allocd_hdr == NULL) {
+        printf("%s: New hdr was null. Evicting page\n", __func__);
 		if (DEBUG_PAGES) {
 			printf("%s: New hdr was null. Evicting page\n", __func__);
 		}
 		ret = __mempv_evict_page_cache(dbenv, dbenv->mempv, pages);
-		if (ret) { goto done; }
+		if (ret) { 
+            abort(); 
+        }
+        pthread_mutex_lock(&mspace_lock);
 		allocd_hdr = (MEMPV_PAGE_HEADER *) mspace_malloc(dbenv->mempv->msp, offsetof(MEMPV_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+        pthread_mutex_unlock(&mspace_lock);
 	}
 
 	allocd_hdr->pin = 1;
@@ -263,6 +279,7 @@ MEMPV_PAGE_HEADER * __mempv_add_page_header(mpf, dbp, pages)
 	allocd_hdr->pagecache = pages;
 	allocd_hdr->commit_order.next = allocd_hdr->commit_order.prev = NULL;
 	LSN_NOT_LOGGED(allocd_hdr->prev_cache_entry_lsn);
+    printf("%s: Allocd page\n", __func__);
 
 done:
 	return allocd_hdr;

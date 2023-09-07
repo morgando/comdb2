@@ -931,6 +931,10 @@ struct sqlclntstate {
     // Latch last statement's cost for comdb2_last_cost to fetch
     int64_t last_cost;
     int disable_fdb_push;
+    
+    u_int32_t last_commit_lsn_file;
+    u_int32_t last_commit_lsn_offset;
+    int last_commit_lsn_isset;
 
     int lastresptype;
     char *externalAuthUser;

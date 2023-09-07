@@ -1360,6 +1360,7 @@ typedef enum {
 #define	DB_MULTIPLE	0x04000000	/* Return multiple data values. */
 #define	DB_MULTIPLE_KEY	0x08000000	/* Return multiple data/key pairs. */
 #define	DB_RMW		0x10000000	/* Acquire write flag immediately. */
+#define DB_CUR_SNAPSHOT 0x20000000       /* Use modsnap cursors */
 
 /*
  * DB (user visible) error return codes.
@@ -2054,6 +2055,7 @@ struct __dbc {
 #define	DBC_PAGE_ORDER	 0x1000		/* Traverse btree in page-order. */
 #define	DBC_DISCARD_PAGES 0x2000	/* Fast discard pages after reading. */
 #define	DBC_PAUSIBLE	 0x4000		/* Never considered for curadj */
+#define DBC_SNAPSHOT     0x8000         /* Cursor in snapshot mode. */
 	u_int32_t flags;
 
 	int pp_allocated;   /* the owner of the cursor tracking structure */
@@ -2067,6 +2069,8 @@ struct __dbc {
 	
 	char*	   pf; // Added by Fabio for prefaulting the index pages
 	db_pgno_t   lastpage; // pgno of last move
+
+	DB_LSN snapshot_lsn;
 };
 extern pthread_key_t DBG_FREE_CURSOR;
 
@@ -2813,6 +2817,8 @@ struct __db_env {
 	int (*pgin[DB_TYPE_MAX]) __P((DB_ENV *, db_pgno_t, void *, DBT *));
 	int (*pgout[DB_TYPE_MAX]) __P((DB_ENV *, db_pgno_t, void *, DBT *));
 
+	int (*last_commit_lsn) __P((DB_ENV *, DB_LSN *));
+
 	pthread_mutex_t utxnid_lock;
 	u_int64_t next_utxnid;
 
@@ -2826,6 +2832,7 @@ struct __utxnid {
 
 struct __logfile_txn_list {
 	u_int32_t file_num;
+	DB_LSN highest_commit_lsn;
 	LISTC_T(struct __utxnid) commit_utxnids;
 };
 
@@ -2836,6 +2843,7 @@ struct __utxnid_track {
 
 struct __txn_commit_map {
 	pthread_mutex_t txmap_mutexp;
+	DB_LSN highest_commit_lsn;
 	hash_t *transactions;
 	hash_t *logfile_lists;
 };

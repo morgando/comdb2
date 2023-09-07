@@ -129,6 +129,7 @@ static __thread struct temptable *tmptbl_clone = NULL;
 
 uint32_t gbl_sql_temptable_count;
 int gbl_throttle_txn_chunks_msec = 0;
+extern char *sqlenginestate_tostr(int state);
 
 void free_cached_idx(uint8_t **cached_idx)
 {
@@ -4829,7 +4830,7 @@ int start_new_transaction(struct sqlclntstate *clnt, struct sql_thread *thd)
  */
 
 int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersion)
-{
+{ 
     int rc = SQLITE_OK;
     struct sql_thread *thd = pthread_getspecific(query_info_key);
     struct sqlclntstate *clnt = thd->clnt;
@@ -4840,6 +4841,14 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
                clnt->ctrl_sqlengine);
     }
 #endif
+
+    struct dbtable *db =
+	    &thedb->static_table; /* this is not used but required */
+    /* Latch last commit LSN */
+    if (!clnt->last_commit_lsn_isset && (db->handle != NULL)) {
+            bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
+            clnt->last_commit_lsn_isset = 1;
+    }
 
     /* already have a transaction, keep using it until it commits/aborts */
     if (clnt->intrans || clnt->in_sqlite_init ||
@@ -4949,6 +4958,9 @@ int sqlite3BtreeCommit(Btree *pBt)
     if (clnt->selectv_arr)
         currangearr_coalesce(clnt->selectv_arr);
 
+    if (!clnt->in_sqlite_init && (clnt->ctrl_sqlengine != SQLENG_INTRANS_STATE) && (clnt->ctrl_sqlengine != SQLENG_STRT_STATE)) {
+	    clnt->last_commit_lsn_isset = 0;
+    }
     if (!clnt->intrans || clnt->in_sqlite_init ||
         (!clnt->in_sqlite_init && clnt->ctrl_sqlengine != SQLENG_FNSH_STATE &&
          clnt->ctrl_sqlengine != SQLENG_NORMAL_PROCESS &&
@@ -8161,6 +8173,10 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     }
     cur->tableversion = cur->db->tableversion;
 
+    assert(clnt->last_commit_lsn_isset);
+    clnt->dbtran.cursor_tran->last_commit_lsn.file = clnt->last_commit_lsn_file;
+    clnt->dbtran.cursor_tran->last_commit_lsn.offset = clnt->last_commit_lsn_offset;
+
     /* initialize the shadow, if any  */
     cur->shadtbl = osql_get_shadow_bydb(thd->clnt, cur->db);
 
@@ -8304,7 +8320,7 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
         rowlocks ? &clnt->holding_pagelocks_flag : NULL,
         rowlocks ? pause_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
         rowlocks ? count_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
-        clnt->bdb_osql_trak, &bdberr);
+        clnt->bdb_osql_trak, &bdberr, clnt->dbtran.mode == TRANLEVEL_RECOM ? 1 : 0); // TODO: add tran type here?
     if (cur->bdbcur == NULL) {
         logmsg(LOGMSG_ERROR, "%s: bdb_cursor_open rc %d\n", __func__, bdberr);
         if (bdberr == BDBERR_DEADLOCK)
@@ -10802,7 +10818,7 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
                 break;
             }
 
-            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count);
+            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_RECOM ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset);
             if (rc == BDBERR_DEADLOCK &&
                 recover_deadlock(thedb->bdb_env, thd, NULL, 0)) {
                 break;

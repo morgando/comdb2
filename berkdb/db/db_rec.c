@@ -150,7 +150,6 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
     int check_page = gbl_check_page_in_recovery;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_addrem_print);
 	REC_INTRO(__db_addrem_read, 1);
 
@@ -162,24 +161,35 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			goto out;
 	}
 
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_UNDO(op)) {
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op)) {
 #if defined (UFID_HASH_DEBUG)
-			logmsg(LOGMSG_USER, "t-%p %s ignoring failed memp_fget because undo\n",
-					(void *)pthread_self(),__func__);
+				logmsg(LOGMSG_USER, "t-%p %s ignoring failed memp_fget because undo\n",
+						(void *)pthread_self(),__func__);
 #endif
-			/*
-			 * We are undoing and the page doesn't exist.  That
-			 * is equivalent to having a pagelsn of 0, so we
-			 * would not have to undo anything.  In this case,
-			 * don't bother creating a page.
-			 */
-			goto done;
-		} else
-			if ((ret = __memp_fget(mpf,
-			    &argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
-				goto out;
+				/*
+				 * We are undoing and the page doesn't exist.  That
+				 * is equivalent to having a pagelsn of 0, so we
+				 * would not have to undo anything.  In this case,
+				 * don't bother creating a page.
+				 */
+				goto done;
+			} else {
+				if ((ret = __memp_fget(mpf,
+					&argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
+					goto out;
+			}
+		}
+	} else {
+		if (!DB_UNDO(op)) {
+			printf("I am redo\n");
+		} else if (DB_UNDO(op)) {
+			printf("I am undo\n");
+		}
+		pagep = (PAGE*) info;
 	}
+
 
     if (check_page) {
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
@@ -240,20 +250,19 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 		else
 			LSN(pagep) = argp->pagelsn;
 	}
-    
     if (check_page) {
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
 
-	if ((ret = __memp_fput(mpf, pagep, change)) != 0)
+	if ((info == NULL) && ((ret = __memp_fput(mpf, pagep, change)) != 0))
 		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if ((info == NULL) && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }
@@ -279,24 +288,27 @@ __db_big_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_big_print);
 	REC_INTRO(__db_big_read, 1);
 
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_UNDO(op)) {
-			/*
-			 * We are undoing and the page doesn't exist.  That
-			 * is equivalent to having a pagelsn of 0, so we
-			 * would not have to undo anything.  In this case,
-			 * don't bother creating a page.
-			 */
-			ret = 0;
-			goto ppage;
-		} else
-			if ((ret = __memp_fget(mpf,
-			    &argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
-				goto out;
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op)) {
+				/*
+				 * We are undoing and the page doesn't exist.  That
+				 * is equivalent to having a pagelsn of 0, so we
+				 * would not have to undo anything.  In this case,
+				 * don't bother creating a page.
+				 */
+				ret = 0;
+				goto ppage;
+			} else
+				if ((ret = __memp_fget(mpf,
+					&argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
+					goto out;
+		}
+	} else {
+		pagep = (PAGE*) info;
 	}
 
 	/*
@@ -455,15 +467,18 @@ __db_ovref_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_ovref_print);
 	REC_INTRO(__db_ovref_read, 1);
 
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-		if (DB_UNDO(op))
-			goto done;
-		ret = __db_pgerr(file_dbp, argp->pgno, ret);
-		goto out;
+	if (info == NULL) {
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op))
+				goto done;
+			ret = __db_pgerr(file_dbp, argp->pgno, ret);
+			goto out;
+		}
+	} else {
+		pagep = (PAGE*) info;
 	}
 
 	modified = 0;
@@ -483,7 +498,7 @@ __db_ovref_recover(dbenv, dbtp, lsnp, op, info)
 		pagep->lsn = argp->lsn;
 		modified = 1;
 	}
-	if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
+	if (!info && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
 		goto out;
 	pagep = NULL;
 
@@ -520,7 +535,6 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
 
 	pagep = NULL;
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_relink_print);
 	REC_INTRO(__db_relink_read, 1);
 
@@ -528,6 +542,29 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 		argp->pgno, argp->prev, argp->next, *lsnp) != 0) {
 		logmsg(LOGMSG_FATAL, "%s: fail relink pglogs\n", __func__);
 		abort();
+	}
+
+	if (info != NULL) {
+		pagep = (PAGE*) info;
+
+		if (argp->pgno == PGNO(pagep)) {
+			pagep->next_pgno = argp->next;
+			pagep->prev_pgno = argp->prev;
+			pagep->lsn = argp->lsn;
+		} else if (argp->next == PGNO(pagep)) {
+
+			if (argp->opcode == DB_ADD_PAGE) {
+				pagep->prev_pgno = argp->prev;
+			} else if (argp->opcode == DB_REM_PAGE) {
+				pagep->prev_pgno = argp->pgno;
+			}
+
+			pagep->lsn = argp->lsn_next;
+		} else if (argp->prev == PGNO(pagep)) {
+			pagep->next_pgno = argp->pgno;
+			pagep->lsn = argp->lsn_prev;
+		}
+		return 0;
 	}
 
 	/*
@@ -744,6 +781,7 @@ __db_pg_alloc_recover(dbenv, dbtp, lsnp, op, info)
 	db_recops op;
 	void *info;
 {
+	// TODO
 	__db_pg_alloc_args *argp;
 	DB *file_dbp;
 	DBC *dbc;
@@ -1084,12 +1122,22 @@ __db_pg_free_recover(dbenv, dbtp, lsnp, op, info)
 	DB *file_dbp;
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
+	PAGE *pagep;
 	__db_pg_free_args *argp;
 	int ret;
 
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_pg_free_print);
 	REC_INTRO(__db_pg_free_read, 1);
+	pagep = (PAGE *) info;
+
+	if (pagep != NULL) {
+		if (PGNO(pagep) == argp->pgno) {
+			memcpy(pagep, argp->header.data, argp->header.size);
+		} else {
+			abort();
+		} 
+		goto done;
+	}
 
 	ret = __db_pg_free_recover_int(dbenv,
 	     (__db_pg_freedata_args *)argp, file_dbp, lsnp, mpf, op, 0);
@@ -1160,12 +1208,20 @@ __db_pg_freedata_recover(dbenv, dbtp, lsnp, op, info)
 	DB *file_dbp;
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
+	PAGE *pagep;
 	__db_pg_freedata_args *argp;
 	int ret;
 
-	COMPQUIET(info, NULL);
 	REC_PRINT(__db_pg_freedata_print);
 	REC_INTRO(__db_pg_freedata_read, 1);
+	pagep = (PAGE *) info;
+
+	if (pagep != NULL) {
+		memcpy(pagep, argp->header.data, argp->header.size);
+		memcpy((u_int8_t*)pagep + pagep->hf_offset,
+		     argp->data.data, argp->data.size);
+		goto done;
+	}
 
 	ret = __db_pg_free_recover_int(dbenv, argp, file_dbp, lsnp, mpf, op, 1);
 

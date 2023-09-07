@@ -1161,10 +1161,12 @@ done:	/*
 	 */
 	cp_n = dbc_n == NULL ? dbc_arg->internal : dbc_n->internal;
 	if (!F_ISSET(key, DB_DBT_ISSET)) {
-		if (cp_n->page == NULL && (ret =
-		    __memp_fget(mpf, &cp_n->pgno, 0, &cp_n->page)) != 0)
-			goto err;
-
+		if (cp_n->page == NULL) {
+			PAGEGET(dbc_n, mpf, &cp_n->pgno, 0, &cp_n->page, ret);
+			if (ret != 0) {
+				goto err;
+			}
+		}
 		if ((ret = __db_ret(dbp, cp_n->page, cp_n->indx,
 		    key, &dbc_arg->rkey->data, &dbc_arg->rkey->ulen)) != 0)
 			goto err;
@@ -1922,15 +1924,15 @@ __db_c_cleanup(dbc, dbc_n, failed)
 
 	/* Discard any pages we're holding. */
 	if (internal->page != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc, mpf, internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		internal->page = NULL;
 	}
 	opd = internal->opd;
 	if (opd != NULL && opd->internal->page != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, opd->internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc, mpf, opd->internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		opd->internal->page = NULL;
 	}
@@ -1953,15 +1955,15 @@ __db_c_cleanup(dbc, dbc_n, failed)
 		return (ret);
 
 	if (dbc_n->internal->page != NULL) {
-		if ((t_ret = __memp_fput(
-		    mpf, dbc_n->internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc_n, mpf, dbc_n->internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		dbc_n->internal->page = NULL;
 	}
 	opd = dbc_n->internal->opd;
 	if (opd != NULL && opd->internal->page != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, opd->internal->page, 0)) != 0 && ret == 0)
+		PAGEPUT(dbc_n, mpf, opd->internal->page, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		opd->internal->page = NULL;
 	}

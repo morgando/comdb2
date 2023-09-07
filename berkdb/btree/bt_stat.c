@@ -71,7 +71,8 @@ __bam_stat(dbc, spp, flags)
 	pgno = PGNO_BASE_MD;
 	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &metalock)) != 0)
 		goto err;
-	if ((ret = __memp_fget(mpf, &pgno, 0, &meta)) != 0)
+	PAGEGET(dbc, mpf, &pgno, 0, &meta, ret);
+	if (ret != 0)
 		goto err;
 
 	if (flags == DB_RECORDCOUNT || flags == DB_CACHED_COUNTS)
@@ -83,11 +84,13 @@ __bam_stat(dbc, spp, flags)
 	for (sp->bt_free = 0, pgno = meta->dbmeta.free; pgno != PGNO_INVALID;) {
 		++sp->bt_free;
 
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0)
+		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+		if (ret != 0)
 			goto err;
 
 		pgno = h->next_pgno;
-		if ((ret = __memp_fput(mpf, h, 0)) != 0)
+		PAGEPUT(dbc, mpf, h, 0, ret);
+		if (ret != 0)
 			goto err;
 		h = NULL;
 	}
@@ -96,7 +99,8 @@ __bam_stat(dbc, spp, flags)
 	pgno = cp->root;
 	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &lock)) != 0)
 		goto err;
-	if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0)
+	PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+	if (ret != 0)
 		goto err;
 
 	/* Get the levels from the root page. */
@@ -129,7 +133,8 @@ meta_only:
 		    0, t->bt_meta, write_meta == 0 ?
 		    DB_LOCK_READ : DB_LOCK_WRITE, 0, &metalock)) != 0)
 			goto err;
-		if ((ret = __memp_fget(mpf, &t->bt_meta, 0, &meta)) != 0)
+		PAGEGET(dbc, mpf, &t->bt_meta, 0, &meta, ret);
+		if (ret != 0)
 			goto err;
 	}
 	if (flags == DB_FAST_STAT) {
@@ -138,8 +143,8 @@ meta_only:
 			if ((ret = __db_lget(dbc, 0,
 			    cp->root, DB_LOCK_READ, 0, &lock)) != 0)
 				goto err;
-			if ((ret =
-			    __memp_fget(mpf, &cp->root, 0, (PAGE **)&h)) != 0)
+			PAGEGET(dbc, mpf, &cp->root, 0, &h, ret);
+			if (ret != 0)
 				goto err;
 
 			sp->bt_nkeys = RE_NREC(h);
@@ -167,14 +172,21 @@ meta_only:
 
 err:	/* Discard the second page. */
 	__LPUT(dbc, lock);
-	if (h != NULL && (t_ret = __memp_fput(mpf, h, 0)) != 0 && ret == 0)
-		ret = t_ret;
+	if (h != NULL) {
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
+		if (t_ret != 0 && ret == 0) {
+			ret = t_ret;
+		}
+	}
 
 	/* Discard the metadata page. */
 	__LPUT(dbc, metalock);
-	if (meta != NULL && (t_ret = __memp_fput(
-	    mpf, meta, write_meta == 0 ? 0 : DB_MPOOL_DIRTY)) != 0 && ret == 0)
-		ret = t_ret;
+	if (meta != NULL) {
+		PAGEPUT(dbc, mpf, meta, write_meta == 0 ? 0 : DB_MPOOL_DIRTY, t_ret);
+		if (t_ret != 0 && ret == 0) {
+			ret = t_ret;
+		}
+	}
 
 	if (ret != 0 && sp != NULL) {
 		__os_ufree(dbenv, sp);
@@ -234,7 +246,8 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 
 	if ((ret = __db_lget(dbc, 0, root_pgno, mode, 0, &lock)) != 0)
 		return (ret);
-	if ((ret = __memp_fget(mpf, &root_pgno, 0, &h)) != 0) {
+	PAGEGET(dbc, mpf, &root_pgno, 0, &h, ret);
+	if (ret != 0) {
 		__LPUT(dbc, lock);
 		return (ret);
 	}
@@ -244,7 +257,7 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 		for (indx = 0; indx < NUM_ENT(h); indx += O_INDX) {
 			bi = GET_BINTERNAL(dbp, h, indx);
 			if (B_TYPE(bi) == B_OVERFLOW &&
-			    (ret = __db_traverse_big(dbp,
+			    (ret = __db_traverse_big(dbc, dbp,
 				((BOVERFLOW *)bi->data)->pgno,
 				callback, cookie)) != 0)
 				goto err;
@@ -265,7 +278,7 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 		for (indx = 0; indx < NUM_ENT(h); indx += P_INDX) {
 			bk = GET_BKEYDATA(dbp, h, indx);
 			if (B_TYPE(bk) == B_OVERFLOW &&
-			    (ret = __db_traverse_big(dbp,
+			    (ret = __db_traverse_big(dbc, dbp,
 			    GET_BOVERFLOW(dbp, h, indx)->pgno,
 			    callback, cookie)) != 0)
 				goto err;
@@ -276,7 +289,7 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 			    callback, cookie)) != 0)
 				goto err;
 			if (B_TYPE(bk) == B_OVERFLOW &&
-			    (ret = __db_traverse_big(dbp,
+			    (ret = __db_traverse_big(dbc, dbp,
 			    GET_BOVERFLOW(dbp, h, indx + O_INDX)->pgno,
 			    callback, cookie)) != 0)
 				goto err;
@@ -287,7 +300,7 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 		for (indx = 0; indx < NUM_ENT(h); indx += O_INDX) {
 			bk = GET_BKEYDATA(dbp, h, indx);
 			if (B_TYPE(bk) == B_OVERFLOW &&
-			    (ret = __db_traverse_big(dbp,
+			    (ret = __db_traverse_big(dbc, dbp,
 			    GET_BOVERFLOW(dbp, h, indx)->pgno,
 			    callback, cookie)) != 0)
 				goto err;
@@ -299,8 +312,12 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 
 	ret = callback(dbp, h, cookie, &already_put);
 
-err:	if (!already_put && (t_ret = __memp_fput(mpf, h, 0)) != 0 && ret != 0)
-		ret = t_ret;
+err:	if (!already_put) {
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
+		if (t_ret != 0 && ret != 0) {
+			ret = t_ret;
+		}
+	}
 	__LPUT(dbc, lock);
 
 	return (ret);

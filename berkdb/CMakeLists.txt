@@ -112,6 +112,7 @@ set(BERK_C
   mp/mp_stat.c
   mp/mp_sync.c
   mp/mp_trickle.c
+  mp/mp_versioned.c
 
   mutex/mut_pthread.c
   mutex/mutex.c

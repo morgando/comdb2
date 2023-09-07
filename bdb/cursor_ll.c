@@ -205,6 +205,7 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
     int lwmrc = 0;
     int cmp;
     u_int32_t curflags = 0;
+	//bdb_state_type *env = bdb_state->parent;
 
     *bdberr = 0;
 
@@ -303,6 +304,9 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
                 curflags |= DB_DISCARD_PAGES;
         }
 
+	if (cur->use_snapcur) {
+		curflags |= DB_CUR_SNAPSHOT;
+	}
         dbc =
             get_cursor_for_cursortran_flags(cur->curtran, db, curflags, bdberr);
 
@@ -1666,6 +1670,9 @@ DBC *get_cursor_for_cursortran_flags(cursor_tran_t *curtran, DB *db,
     } else
         assert(dbc != NULL);
 
+	// Set snapshot LSN to the commit LSN of the most recently 
+	// committed transaction.
+    dbc->snapshot_lsn = curtran->last_commit_lsn;
     return dbc;
 }
 

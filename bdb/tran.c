@@ -66,6 +66,7 @@
 static unsigned int curtran_counter = 0;
 extern int gbl_debug_txn_sleep;
 extern int __txn_getpriority(DB_TXN *txnp, int *priority);
+extern int __txn_commit_map_get_highest_commit_lsn(DB_ENV *dbenv, DB_LSN *outlsn);
 
 #if 0
 int __lock_dump_region_lockerid __P((DB_ENV *, const char *, FILE *, u_int32_t lockerid));
@@ -2680,6 +2681,26 @@ int bdb_add_rep_blob(bdb_state_type *bdb_state, tran_type *tran, int session,
         rc = -1;
     }
     return rc;
+}
+
+int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
+                            unsigned int *file, unsigned int *offset)
+{
+        DB_LSN outlsn;
+	int rc;
+
+	rc = 0;
+
+	if ((rc = __txn_commit_map_get_highest_commit_lsn(bdb_state->dbenv, &outlsn)) != 0) {
+            return rc;
+	}
+
+	if (file)
+            *file = outlsn.file;
+        if (offset)
+            *offset = outlsn.offset;
+
+        return rc;
 }
 
 void bdb_upgrade_all_prepared(bdb_state_type *bdb_state)

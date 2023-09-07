@@ -759,6 +759,11 @@ __db_c_idup(dbc_orig, dbcp, flags)
 #if USE_BTPF
 	btpf_copy_dbc(dbc_orig, dbc_n);
 #endif
+
+	// Flag should be set before cursor is positioned.
+	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_SNAPSHOT));
+	dbc_n->snapshot_lsn = dbc_orig->snapshot_lsn;
+
 	/* If the user wants the cursor positioned, do it here.  */
 	if (flags == DB_POSITION) {
 		int_n = dbc_n->internal;

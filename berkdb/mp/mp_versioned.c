@@ -453,7 +453,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
         dummy_lsn.file = 0;
         dummy_lsn.offset = 2;
-        if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
+        if((ret = apply(dbenv, &dbt, &dummy_lsn, DB_TXN_ABORT, page_image)) != 0) {
             if (DEBUG_PAGES) {
                 printf("%s: Failed to undo log record\n", __func__);
             }

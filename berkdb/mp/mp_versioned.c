@@ -395,6 +395,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
     while (!found) 
     {
+        curPageLsn = LSN(page_image);
+
         if (DEBUG_PAGES)
             printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
 
@@ -403,7 +405,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             break;
         }
 
-        if (IS_ZERO_LSN(LSN(page_image))) {
+        if (IS_ZERO_LSN(curPageLsn)) {
             if (DEBUG_PAGES) {
                 printf("%s: Got to page with zero / unlogged LSN\n", __func__);
             }
@@ -412,7 +414,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
         }
         
         /* Move log cursor */
-        ret = logc->get(logc, &LSN(page_image), &dbt, DB_SET);
+        ret = logc->get(logc, &curPageLsn, &dbt, DB_SET);
         if (ret || (dbt.size < sizeof(int))) {
             if (DEBUG_PAGES) {
                 printf("%s: Failed to get log cursor\n", __func__);
@@ -449,7 +451,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             break;
         }
 
-        curPageLsn = LSN(page_image);
         if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
             if (DEBUG_PAGES) {
                 printf("%s: Failed to undo log record\n", __func__);

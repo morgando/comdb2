@@ -307,7 +307,11 @@ static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_ima
     DB_LSN target_lsn;
     PAGE *page_image;
 {
-    return (IS_NOT_LOGGED_LSN(LSN(page_image)));
+	DB_LSN pglsn;
+
+	pglsn = LSN(page_image);
+
+    return (IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < dbenv->txmap->smallest_logfile) || (log_compare(&target_lsn, &dbenv->txmap->highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&dbenv->txmap->highest_commit_lsn_asof_checkpoint, &pglsn) >= 0));
 }
 
 

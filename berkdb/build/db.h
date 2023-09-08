@@ -2844,7 +2844,9 @@ struct __utxnid_track {
 
 struct __txn_commit_map {
 	pthread_mutex_t txmap_mutexp;
+	int64_t smallest_logfile;
 	DB_LSN highest_commit_lsn;
+	DB_LSN highest_commit_lsn_asof_checkpoint;
 	hash_t *transactions;
 	hash_t *logfile_lists;
 };

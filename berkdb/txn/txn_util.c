@@ -367,7 +367,9 @@ int __txn_commit_map_init(dbenv)
 		goto err;
 	}
 
+	LSN_NOT_LOGGED(txmap->highest_commit_lsn_asof_checkpoint);
 	LSN_NOT_LOGGED(txmap->highest_commit_lsn);
+	txmap->smallest_logfile = -1;
 	Pthread_mutex_init(&txmap->txmap_mutexp, NULL);
 	dbenv->txmap = txmap;
 
@@ -534,6 +536,14 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 			}
 		}
 
+		if (del_log == txmap->smallest_logfile) {
+			// TODO: Can this happen?
+			do {
+				txmap->smallest_logfile++;
+				successor = hash_find(txmap->logfile_lists, &txmap->smallest_logfile);
+			} while (!successor);
+		}
+
 		hash_del(txmap->logfile_lists, &del_log);
 		__os_free(dbenv, to_delete);
 	} else {
@@ -640,6 +650,10 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
                 to_delete->file_num = commit_lsn.file;
                 listc_init(&to_delete->commit_utxnids, offsetof(UTXNID, lnk));
                 hash_add(txmap->logfile_lists, to_delete);
+
+				if (commit_lsn.file < txmap->smallest_logfile || txmap->smallest_logfile == -1) {
+						txmap->smallest_logfile = commit_lsn.file;
+				}
         }
 
 	if (log_compare(&txmap->highest_commit_lsn, &commit_lsn) <= 0) {

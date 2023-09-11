@@ -9,7 +9,7 @@
 
 // TODO: Remove prevpagelsn
 
-static int DEBUG_PAGES = 1;
+static int DEBUG_PAGES = 0;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;

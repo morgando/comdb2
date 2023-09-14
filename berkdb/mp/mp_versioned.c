@@ -14,17 +14,38 @@ static int DEBUG_PAGES = 0;
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
 
+extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache, int size);
+extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
+extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
+
 /*
  * __mempv_init --
  *  Initialize versioned memory pool.
  *
  * PUBLIC: int __mempv_init
- * PUBLIC:     __P((DB_ENV *));
+ * PUBLIC:     __P((DB_ENV *, int));
  */
-int __mempv_init(dbenv)
+int __mempv_init(dbenv, size)
     DB_ENV *dbenv;
+	int size;
 {
-    return 0;
+    MEMPV_CACHE *cache;
+    DB_MEMPV *mempv;
+    int ret;
+
+    ret = __os_malloc(dbenv, sizeof(DB_MEMPV), &mempv);
+    if (ret) {
+        goto done;
+    }
+
+    if ((ret = __mempv_cache_init(dbenv, &mempv->cache, size)), ret != 0) {
+        goto done;
+    }
+
+    dbenv->mempv = mempv;
+
+done:
+    return ret;
 }
 
 /*
@@ -307,9 +328,9 @@ static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_ima
     DB_LSN target_lsn;
     PAGE *page_image;
 {
-	DB_LSN pglsn;
+    DB_LSN pglsn;
 
-	pglsn = LSN(page_image);
+    pglsn = LSN(page_image);
 
     return (IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < dbenv->txmap->smallest_logfile) || (log_compare(&target_lsn, &dbenv->txmap->highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&dbenv->txmap->highest_commit_lsn_asof_checkpoint, &pglsn) >= 0));
 }
@@ -330,7 +351,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-    int have_lock, have_page, have_page_image, found, ret;
+    int have_lock, have_page, have_page_image, add_to_cache, found, ret;
     u_int64_t utxnid;
     u_int32_t rectype;
     DB_LOGC *logc;
@@ -344,6 +365,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     dbt.flags = DB_DBT_MALLOC;
     ret = 0;
     found = 0;
+    add_to_cache = 0;
     logc = NULL;
     data_t = NULL;
     *(void **)ret_page = NULL;
@@ -385,6 +407,9 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
         }
         found = 1;
+    } else if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
+        printf("%s: Got page version from cache\n", __func__);
+        found = 1;
     } else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
         if (DEBUG_PAGES) {
             printf("%s: Failed to create log cursor\n", __func__);
@@ -401,6 +426,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
 
         if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
+            add_to_cache = 1;
             found = 1;
             break;
         }
@@ -446,6 +472,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             if (DEBUG_PAGES) {
                 printf("%s: Found the right page version\n", __func__);
             }
+            add_to_cache = 1;
             found = 1;
             ret = 0;
             break;
@@ -462,6 +489,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
     *(void **)ret_page = (void *) page_image;
 done:
+    if (add_to_cache == 1)
+        __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn); 
     if (logc)
         logc->close(logc, 0);
     if (dbt.data)

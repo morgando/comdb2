@@ -179,6 +179,12 @@ struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
 struct __logfile_txn_list; typedef struct __logfile_txn_list LOGFILE_TXN_LIST;
 struct __txn_commit_map; typedef struct __txn_commit_map DB_TXN_COMMIT_MAP;
 
+struct __mempv; typedef struct __mempv DB_MEMPV;
+struct __mempv_cache; typedef struct __mempv_cache MEMPV_CACHE;
+struct __mempv_cache_page_header; typedef struct __mempv_cache_page_header MEMPV_CACHE_PAGE_HEADER;
+struct __mempv_cache_page_key; typedef struct __mempv_cache_page_key MEMPV_CACHE_PAGE_KEY;
+struct __mempv_cache_page_versions; typedef struct __mempv_cache_page_versions MEMPV_CACHE_PAGE_VERSIONS;
+
 struct txn_properties;
 
 #include "db_dbt.h"
@@ -2824,6 +2830,8 @@ struct __db_env {
 	u_int64_t next_utxnid;
 
 	DB_TXN_COMMIT_MAP* txmap;
+
+	DB_MEMPV *mempv;
 };
 
 struct __utxnid {
@@ -2849,6 +2857,38 @@ struct __txn_commit_map {
 	DB_LSN highest_commit_lsn_asof_checkpoint;
 	hash_t *transactions;
 	hash_t *logfile_lists;
+};
+
+struct __mempv_cache_page_key
+{
+	db_pgno_t pgno;
+	u_int8_t ufid[DB_FILE_ID_LEN];
+}; 
+
+struct __mempv_cache
+{
+	hash_t *pages;
+	mspace *msp;
+	pthread_rwlock_t lock;
+	LISTC_T(struct __mempv_cache_page_header) evict_list;
+};
+
+struct __mempv {
+	struct __mempv_cache cache;
+};
+
+struct __mempv_cache_page_versions
+{
+	struct __mempv_cache_page_key key;
+	hash_t *versions;
+};
+
+struct __mempv_cache_page_header
+{
+	DB_LSN snapshot_lsn;
+	struct __mempv_cache_page_versions *cache;
+	LINKC_T(struct __mempv_cache_page_header) evict_link;
+	char page[1];
 };
 
 #ifndef DB_DBM_HSEARCH

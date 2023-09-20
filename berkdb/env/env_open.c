@@ -412,6 +412,8 @@ __dbenv_open(dbenv, db_home, flags, mode)
 		if ((ret = __mempv_init(dbenv, 10*(offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + 20000))) != 0) {
 			goto err;
 		}
+	} else {
+		dbenv->mempv = NULL;
 	}
 
 	if (LF_ISSET(DB_INIT_TXN)) {

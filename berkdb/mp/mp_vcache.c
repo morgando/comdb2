@@ -1,7 +1,9 @@
 #include "db_int.h"
 #include "dbinc/mp.h"
 
-void *gbl_mempv_base = NULL;
+// void *gbl_mempv_base = NULL;
+static int MAX_NUM_CACHED_PAGES = 50;
+static int num_cached_pages = 0;
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
 
@@ -22,15 +24,15 @@ int __mempv_cache_init(dbenv, cache, size)
 
 	listc_init(&cache->evict_list, offsetof(MEMPV_CACHE_PAGE_HEADER, evict_link));
 
-	gbl_mempv_base = malloc(size);
+/*	gbl_mempv_base = malloc(size);
 	if (!gbl_mempv_base) {
 		ret = ENOMEM;
 		goto done;
 	}
 
-	cache->msp = create_mspace_with_base(gbl_mempv_base, size, 1);
+	cache->msp = create_mspace_with_base(gbl_mempv_base, size, 1);*/
 
-	pthread_rwlock_init(&cache->lock, 0);
+	pthread_rwlock_init(&(cache->lock), NULL);
 
 done:
 	return ret;
@@ -49,13 +51,16 @@ static int __mempv_cache_evict_page(dbp, cache, versions)
 	}
 
 	hash_del(to_evict->cache->versions, to_evict);
-	if (versions != to_evict->cache && hash_get_num_entries(to_evict->cache->versions) == 0) {
+	if ((versions != to_evict->cache) && (hash_get_num_entries(to_evict->cache->versions) == 0)) {
 		hash_del(cache->pages, to_evict->cache);
 		__os_free(dbp->dbenv, to_evict->cache);
 	}
 
-	mspace_free(cache->msp, to_evict);
+	// mspace_free(cache->msp, to_evict);
+	__os_free(dbp->dbenv, to_evict);
 
+	num_cached_pages--;
+	
 	return 0;
 }
 
@@ -72,10 +77,13 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	MEMPV_CACHE_PAGE_HEADER *page_header;
 	int ret;
 
+	versions = NULL;
+	page_header = NULL;
+	ret = 0;
 	key.pgno = pgno;
 	memcpy(key.ufid, file_id, DB_FILE_ID_LEN);
 
-	pthread_rwlock_wrlock(&cache->lock);
+	pthread_rwlock_wrlock(&(cache->lock));
 
 	versions = hash_find(cache->pages, &key);
 	if (versions != NULL) {
@@ -102,11 +110,14 @@ create_new_cache:
 	}
 
 put_version:
-	while(!page_header) {
-		page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+	while(!page_header || (num_cached_pages == MAX_NUM_CACHED_PAGES)) {
+		// page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
+		ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
 		if (page_header) { break; }
 
-		__mempv_cache_evict_page(dbp, cache, versions);
+		if (__mempv_cache_evict_page(dbp, cache, versions) != 0) {
+			abort();
+		}
 	}
 
 	memcpy(((char *)(page_header->page)), bhp, offsetof(BH, buf) + dbp->pgsize);
@@ -119,8 +130,10 @@ put_version:
 		goto done;
 	}
 
+	num_cached_pages++;
+
 done:
-	pthread_rwlock_unlock(&cache->lock);
+	pthread_rwlock_unlock(&(cache->lock));
 
 	return ret;
 }
@@ -138,19 +151,21 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	MEMPV_CACHE_PAGE_HEADER *page_header;
 	int ret;
 
+	versions = NULL;
+	page_header = NULL;
 	ret = 0;
 	key.pgno = pgno;
 	memcpy(key.ufid, file_id, DB_FILE_ID_LEN);
 
-	pthread_rwlock_rdlock(&cache->lock);
+	pthread_rwlock_rdlock(&(cache->lock));
 
-	versions = hash_find(cache->pages, &key);
+	versions = hash_find_readonly(cache->pages, &key);
 	if (versions == NULL) {
 		ret = 1; // Better "not found" return code
 		goto done;
 	}
 
-	page_header = hash_find(versions->versions, &target_lsn);
+	page_header = hash_find_readonly(versions->versions, &target_lsn);
 	if (page_header == NULL) {
 		ret = 1;
 		goto done;
@@ -159,7 +174,8 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	memcpy(bhp, (char *)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
 
 done:
-	pthread_rwlock_unlock(&cache->lock);
+	pthread_rwlock_unlock(&(cache->lock));
+
 	return ret;
 }
 

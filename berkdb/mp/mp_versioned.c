@@ -29,7 +29,6 @@ int __mempv_init(dbenv, size)
     DB_ENV *dbenv;
 	int size;
 {
-    MEMPV_CACHE *cache;
     DB_MEMPV *mempv;
     int ret;
 
@@ -38,7 +37,7 @@ int __mempv_init(dbenv, size)
         goto done;
     }
 
-    if ((ret = __mempv_cache_init(dbenv, &mempv->cache, size)), ret != 0) {
+    if ((ret = __mempv_cache_init(dbenv, &(mempv->cache), size)), ret != 0) {
         goto done;
     }
 
@@ -351,7 +350,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-    int have_lock, have_page, have_page_image, add_to_cache, found, ret;
+    int add_to_cache, found, ret;
     u_int64_t utxnid;
     u_int32_t rectype;
     DB_LOGC *logc;
@@ -367,9 +366,11 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     found = 0;
     add_to_cache = 0;
     logc = NULL;
+    page = NULL;
+    dbenv = mpf->dbenv;
+    bhp = NULL;
     data_t = NULL;
     *(void **)ret_page = NULL;
-    dbenv = mpf->dbenv;
     __os_malloc(dbenv, offsetof(BH, buf) + dbp->pgsize, (void *) &bhp);
     page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
@@ -408,7 +409,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
         }
         found = 1;
     } else if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
-        printf("%s: Got page version from cache\n", __func__);
         found = 1;
     } else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
         if (DEBUG_PAGES) {
@@ -490,7 +490,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     *(void **)ret_page = (void *) page_image;
 done:
     if (add_to_cache == 1)
-        __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn); 
+        ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
     if (logc)
         logc->close(logc, 0);
     if (dbt.data)

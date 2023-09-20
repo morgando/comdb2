@@ -18,6 +18,12 @@ extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache, int size);
 extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
 extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
 
+int gbl_modsnap_cache_hits = 0;
+int gbl_modsnap_cache_misses = 0;
+int gbl_modsnap_total_requests = 0;
+
+pthread_mutex_t gbl_modsnap_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /*
  * __mempv_init --
  *  Initialize versioned memory pool.
@@ -350,7 +356,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-    int add_to_cache, found, ret;
+    int add_to_cache, found, ret, cache_hit, cache_miss;
     u_int64_t utxnid;
     u_int32_t rectype;
     DB_LOGC *logc;
@@ -365,6 +371,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     ret = 0;
     found = 0;
     add_to_cache = 0;
+	cache_hit = 0;
+	cache_miss = 0;
     logc = NULL;
     page = NULL;
     dbenv = mpf->dbenv;
@@ -409,13 +417,18 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
         }
         found = 1;
     } else if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
+		cache_hit = 1;
         found = 1;
-    } else if ((ret = __log_cursor(dbenv, &logc)) != 0) {
-        if (DEBUG_PAGES) {
-            printf("%s: Failed to create log cursor\n", __func__);
-        }
-        ret = 1;
-        goto done;
+    } else {
+		cache_miss = 1;
+
+		if ((ret = __log_cursor(dbenv, &logc)) != 0) {
+			if (DEBUG_PAGES) {
+				printf("%s: Failed to create log cursor\n", __func__);
+			}
+			ret = 1;
+			goto done;
+		}
     }
 
     while (!found) 
@@ -489,12 +502,23 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
     *(void **)ret_page = (void *) page_image;
 done:
-    if (add_to_cache == 1)
+    if (add_to_cache == 1) {
         ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
-    if (logc)
+	}
+    if (logc) {
         logc->close(logc, 0);
-    if (dbt.data)
+	}
+    if (dbt.data) {
         __os_free(dbenv, dbt.data);
+	}
+	pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+	gbl_modsnap_total_requests++;
+	if (cache_hit) {
+		gbl_modsnap_cache_hits++;
+	} else if (cache_miss) {
+		gbl_modsnap_cache_misses++;
+	}
+	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
     return ret;
 }
 

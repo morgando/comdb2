@@ -103,9 +103,9 @@ struct comdb2_metrics_store {
     int64_t minimum_truncation_timestamp;
 	int64_t modsnap_cache_hits;
 	int64_t modsnap_cache_misses;
-	double modsnap_cache_hit_rate;
+	int64_t modsnap_cache_hit_rate;
 	int64_t modsnap_total_requests;
-	double modsnap_rollback_rate;
+	int64_t modsnap_rollback_rate;
     int64_t reprepares;
     int64_t nonsql;
     int64_t vreplays;
@@ -402,11 +402,11 @@ comdb2_metric gbl_metrics[] = {
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_cache_hits, NULL},
     {"modsnap_cache_misses", "Count of modsnap cache misses", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_cache_misses, NULL},
-    {"modsnap_cache_hit_rate", "Modsnap cache hit rate", STATISTIC_DOUBLE,
+    {"modsnap_cache_hit_rate", "Modsnap cache hit rate", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_cache_hit_rate, NULL},
     {"modsnap_total_requests", "Total number of modsnap requests", STATISTIC_INTEGER,
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_total_requests, NULL},
-    {"modsnap_rollback_rate", "Modsnap rollback rate", STATISTIC_DOUBLE, 
+    {"modsnap_rollback_rate", "Modsnap rollback rate", STATISTIC_INTEGER, 
 	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_rollback_rate, NULL},
 };
 
@@ -753,12 +753,12 @@ int refresh_metrics(void)
 	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
 
 	if (stats.modsnap_cache_misses+stats.modsnap_cache_hits != 0) {
-		stats.modsnap_cache_hit_rate = (stats.modsnap_cache_hits)/((double)(stats.modsnap_cache_misses+stats.modsnap_cache_hits));
+		stats.modsnap_cache_hit_rate = 100*((double)stats.modsnap_cache_hits)/((double)(stats.modsnap_cache_misses+stats.modsnap_cache_hits));
 	} else {
 		stats.modsnap_cache_hit_rate = 0;
 	}
 	if (stats.modsnap_total_requests != 0) {
-		stats.modsnap_rollback_rate = (stats.modsnap_cache_hits+stats.modsnap_cache_misses)/((double)stats.modsnap_total_requests);
+		stats.modsnap_rollback_rate = 100*((double)stats.modsnap_cache_hits+stats.modsnap_cache_misses)/((double)stats.modsnap_total_requests);
 	} else {
 		stats.modsnap_rollback_rate = 0;
 	}

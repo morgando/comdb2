@@ -335,7 +335,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     u_int32_t rectype;
     DB_LOGC *logc;
     PAGE *page, *page_image;
-    DB_LSN curPageLsn, prevPageLsn, commit_lsn, dummy_lsn;
+    DB_LSN curPageLsn, prevPageLsn, commit_lsn;
     DB_ENV *dbenv;
     BH *bhp;
     void *data_t;
@@ -451,9 +451,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             break;
         }
 
-        dummy_lsn.file = 0;
-        dummy_lsn.offset = 2;
-        if((ret = apply(dbenv, &dbt, &dummy_lsn, DB_TXN_ABORT, page_image)) != 0) {
+        if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
             if (DEBUG_PAGES) {
                 printf("%s: Failed to undo log record\n", __func__);
             }

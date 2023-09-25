@@ -802,10 +802,11 @@ __db_pg_alloc_recover(dbenv, dbtp, lsnp, op, info)
 	 * it on the freelist.
 	 */
 
-	if (lsnp->file == 0 && lsnp->offset == 2 && info != NULL) {
-		PAGE * pagep = (PAGE *) info;
+	// TODO: Need a better way to determine if this was called from modsnap.
+	pagep = (PAGE *) info;
+	if (PGNO(pagep) == argp->pgno) {
 		pagep->lsn = argp->page_lsn;
-
+	
 		return 0;
 	}
 

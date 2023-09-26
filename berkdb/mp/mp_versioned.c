@@ -9,6 +9,8 @@
 
 // TODO: Remove prevpagelsn
 
+#define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) ((log_compare(&target_lsn, &highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0) || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
+
 static int DEBUG_PAGES = 0;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
@@ -328,18 +330,6 @@ done:
     return ret;
 }
 
-static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)
-    DB_ENV *dbenv;
-    DB_LSN target_lsn;
-    PAGE *page_image;
-{
-    DB_LSN pglsn;
-
-    pglsn = LSN(page_image);
-
-    return (IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < dbenv->txmap->smallest_logfile) || (log_compare(&target_lsn, &dbenv->txmap->highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&dbenv->txmap->highest_commit_lsn_asof_checkpoint, &pglsn) >= 0));
-}
-
 
 /*
  * __mempv_fget --
@@ -358,10 +348,11 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
     int add_to_cache, found, ret, cache_hit, cache_miss;
     u_int64_t utxnid;
+    int64_t smallest_logfile;
     u_int32_t rectype;
     DB_LOGC *logc;
     PAGE *page, *page_image;
-    DB_LSN curPageLsn, prevPageLsn, commit_lsn;
+    DB_LSN curPageLsn, prevPageLsn, commit_lsn, highest_commit_lsn_asof_checkpoint;
     DB_ENV *dbenv;
     BH *bhp;
     void *data_t;
@@ -379,6 +370,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     bhp = NULL;
     data_t = NULL;
     *(void **)ret_page = NULL;
+    highest_commit_lsn_asof_checkpoint = dbenv->txmap->highest_commit_lsn_asof_checkpoint;
+    smallest_logfile = dbenv->txmap->smallest_logfile;
     __os_malloc(dbenv, offsetof(BH, buf) + dbp->pgsize, (void *) &bhp);
     page_image = (PAGE *) (((char *) bhp) + offsetof(BH, buf));
 
@@ -411,7 +404,9 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
         goto done;
     }
 
-    if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
+    curPageLsn = LSN(page_image);
+
+    if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, curPageLsn)) {
         if (DEBUG_PAGES) {
             printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
         }
@@ -433,12 +428,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 
     while (!found) 
     {
-        curPageLsn = LSN(page_image);
-
         if (DEBUG_PAGES)
             printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
 
-        if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
+        if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, curPageLsn)) {
             add_to_cache = 1;
             found = 1;
             break;
@@ -498,6 +491,8 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
             ret = 1;
             goto done;
         }
+
+        curPageLsn = LSN(page_image);
     }
 
     *(void **)ret_page = (void *) page_image;

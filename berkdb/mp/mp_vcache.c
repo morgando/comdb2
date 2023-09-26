@@ -110,15 +110,15 @@ create_new_cache:
 	}
 
 put_version:
-	while(!page_header || (num_cached_pages == MAX_NUM_CACHED_PAGES)) {
+	if(num_cached_pages == MAX_NUM_CACHED_PAGES) {
 		// page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
-		ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
-		if (page_header) { break; }
 
 		if (__mempv_cache_evict_page(dbp, cache, versions) != 0) {
 			abort();
 		}
 	}
+
+	ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
 
 	memcpy(((char *)(page_header->page)), bhp, offsetof(BH, buf) + dbp->pgsize);
 	page_header->snapshot_lsn = target_lsn;

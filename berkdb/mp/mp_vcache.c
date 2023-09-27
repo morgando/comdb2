@@ -38,7 +38,7 @@ done:
 	return ret;
 }
 
-static int __mempv_cache_evict_page(dbp, cache, versions)
+static MEMPV_CACHE_PAGE_HEADER* __mempv_cache_evict_page(dbp, cache, versions)
 	DB *dbp;
 	MEMPV_CACHE *cache;
 	MEMPV_CACHE_PAGE_VERSIONS *versions;
@@ -47,21 +47,21 @@ static int __mempv_cache_evict_page(dbp, cache, versions)
 
 	to_evict = listc_rtl(&cache->evict_list);
 	if (to_evict == NULL) {
-		return 1;
+		return NULL;
 	}
 
 	hash_del(to_evict->cache->versions, to_evict);
 	if ((versions != to_evict->cache) && (hash_get_num_entries(to_evict->cache->versions) == 0)) {
+		hash_free(to_evict->cache->versions);
 		hash_del(cache->pages, to_evict->cache);
 		__os_free(dbp->dbenv, to_evict->cache);
 	}
 
 	// mspace_free(cache->msp, to_evict);
-	__os_free(dbp->dbenv, to_evict);
 
 	num_cached_pages--;
 	
-	return 0;
+	return to_evict;
 }
 
 int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
@@ -113,12 +113,20 @@ put_version:
 	if(num_cached_pages == MAX_NUM_CACHED_PAGES) {
 		// page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
 
-		if (__mempv_cache_evict_page(dbp, cache, versions) != 0) {
-			abort();
+		page_header = __mempv_cache_evict_page(dbp, cache, versions);
+
+		if (!page_header) {
+			ret = 1;
+			goto done;
+		}
+	} else {
+		ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
+
+		if (!page_header) {
+			ret = ENOMEM;
+			goto done;
 		}
 	}
-
-	ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
 
 	memcpy(((char *)(page_header->page)), bhp, offsetof(BH, buf) + dbp->pgsize);
 	page_header->snapshot_lsn = target_lsn;

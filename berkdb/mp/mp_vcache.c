@@ -47,6 +47,7 @@ static MEMPV_CACHE_PAGE_HEADER* __mempv_cache_evict_page(dbp, cache, versions)
 
 	to_evict = listc_rtl(&cache->evict_list);
 	if (to_evict == NULL) {
+		printf("%s: No pages to evict\n", __func__);
 		return NULL;
 	}
 
@@ -93,12 +94,14 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 create_new_cache:
 	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions);
 	if (ret) {
+		printf("%s: failed allocate page in cache\n", __func__);
 		goto done;
 	}
 
 	versions->key = key;
 	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN));
 	if (versions->versions == NULL) {
+		printf("%s: failed allocate map for page in cache\n", __func__);
 		ret = ENOMEM;
 		goto done;
 	}
@@ -106,6 +109,7 @@ create_new_cache:
 
 	ret = hash_add(cache->pages, versions);
 	if (ret) {
+		printf("%s: failed to add page to cache\n", __func__);
 		goto done;
 	}
 
@@ -117,12 +121,14 @@ put_version:
 
 		if (!page_header) {
 			ret = 1;
+			printf("%s: failed to evict header from cache\n", __func__);
 			goto done;
 		}
 	} else {
 		ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
 
 		if (!page_header) {
+			printf("%s: failed to allocate cache header\n", __func__);
 			ret = ENOMEM;
 			goto done;
 		}
@@ -135,6 +141,7 @@ put_version:
 
 	ret = hash_add(versions->versions, page_header);
 	if (ret) {
+		printf("%s: failed to add header to cache\n", __func__);
 		goto done;
 	}
 

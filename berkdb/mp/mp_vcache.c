@@ -16,13 +16,13 @@ int __mempv_cache_init(dbenv, cache, size)
 
 	ret = 0;
 
-	cache->pages = hash_init_o(offsetof(MEMPV_CACHE_PAGE_VERSIONS, key), sizeof(MEMPV_CACHE_PAGE_KEY));
+	cache->pages = hash_init_o(offsetof(MEMPV_CACHE_PAGE_VERSIONS, key), sizeof(MEMPV_CACHE_PAGE_KEY)); // A: init
 	if (cache->pages == NULL) {
 		ret = ENOMEM;
 		goto done;
 	}
 
-	listc_init(&cache->evict_list, offsetof(MEMPV_CACHE_PAGE_HEADER, evict_link));
+	listc_init(&cache->evict_list, offsetof(MEMPV_CACHE_PAGE_HEADER, evict_link)); // B: init
 
 /*	gbl_mempv_base = malloc(size);
 	if (!gbl_mempv_base) {
@@ -38,7 +38,7 @@ done:
 	return ret;
 }
 
-static MEMPV_CACHE_PAGE_HEADER* __mempv_cache_evict_page(dbp, cache, versions)
+static int __mempv_cache_evict_page(dbp, cache, versions)
 	DB *dbp;
 	MEMPV_CACHE *cache;
 	MEMPV_CACHE_PAGE_VERSIONS *versions;
@@ -47,22 +47,22 @@ static MEMPV_CACHE_PAGE_HEADER* __mempv_cache_evict_page(dbp, cache, versions)
 
 	to_evict = listc_rtl(&cache->evict_list);
 	if (to_evict == NULL) {
-		printf("%s: No pages to evict\n", __func__);
-		return NULL;
+		return 1;
 	}
 
 	hash_del(to_evict->cache->versions, to_evict);
 	if ((versions != to_evict->cache) && (hash_get_num_entries(to_evict->cache->versions) == 0)) {
-		hash_free(to_evict->cache->versions);
 		hash_del(cache->pages, to_evict->cache);
-		__os_free(dbp->dbenv, to_evict->cache);
+		hash_free(to_evict->cache->versions); // D: destroy
+		__os_free(dbp->dbenv, to_evict->cache); // C: destroy
 	}
 
 	// mspace_free(cache->msp, to_evict);
+	__os_free(dbp->dbenv, to_evict); // E: destroy
 
 	num_cached_pages--;
 	
-	return to_evict;
+	return 0;
 }
 
 int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
@@ -92,16 +92,14 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	}
 
 create_new_cache:
-	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions);
+	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions); // C: init
 	if (ret) {
-		printf("%s: failed allocate page in cache\n", __func__);
 		goto done;
 	}
 
 	versions->key = key;
-	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN));
+	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN)); // D: init
 	if (versions->versions == NULL) {
-		printf("%s: failed allocate map for page in cache\n", __func__);
 		ret = ENOMEM;
 		goto done;
 	}
@@ -109,7 +107,6 @@ create_new_cache:
 
 	ret = hash_add(cache->pages, versions);
 	if (ret) {
-		printf("%s: failed to add page to cache\n", __func__);
 		goto done;
 	}
 
@@ -117,22 +114,12 @@ put_version:
 	if(num_cached_pages == MAX_NUM_CACHED_PAGES) {
 		// page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
 
-		page_header = __mempv_cache_evict_page(dbp, cache, versions);
-
-		if (!page_header) {
-			ret = 1;
-			printf("%s: failed to evict header from cache\n", __func__);
-			goto done;
-		}
-	} else {
-		ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header);
-
-		if (!page_header) {
-			printf("%s: failed to allocate cache header\n", __func__);
-			ret = ENOMEM;
-			goto done;
+		if (__mempv_cache_evict_page(dbp, cache, versions) != 0) {
+			abort();
 		}
 	}
+
+	ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header); // E: Init
 
 	memcpy(((char *)(page_header->page)), bhp, offsetof(BH, buf) + dbp->pgsize);
 	page_header->snapshot_lsn = target_lsn;
@@ -141,7 +128,6 @@ put_version:
 
 	ret = hash_add(versions->versions, page_header);
 	if (ret) {
-		printf("%s: failed to add header to cache\n", __func__);
 		goto done;
 	}
 

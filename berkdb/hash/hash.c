@@ -1105,7 +1105,7 @@ __ham_expand_table(dbc)
 	PAGE *h;
 	db_pgno_t pgno, mpgno;
 	u_int32_t newalloc, new_bucket, old_bucket;
-	int dirty_meta, got_meta, logn, new_double, ret;
+	int dirty_meta, got_meta, logn, new_double, ret, t_ret;
 
 	dbp = dbc->dbp;
 	mpf = dbp->mpf;
@@ -1148,8 +1148,9 @@ __ham_expand_table(dbc)
 	if (!new_double || hcp->hdr->spares[logn + 1] != PGNO_INVALID) {
 		/* Page exists; get it so we can get its LSN */
 		pgno = BUCKET_TO_PAGE(hcp, new_bucket);
-		if ((ret =
-		    __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &h)) != 0)
+
+		PAGEGET(dbc, mpf, &pgno, DB_MPOOL_CREATE, &h, ret);
+		if (ret != 0)
 			goto err;
 		lsn = h->lsn;
 	} else {
@@ -1159,7 +1160,8 @@ __ham_expand_table(dbc)
 			if ((ret = __db_lget(dbc,
 			   0, mpgno, DB_LOCK_WRITE, 0, &metalock)) != 0)
 				goto err;
-			if ((ret = __memp_fget(mpf, &mpgno, 0, &mmeta)) != 0)
+			PAGEGET(dbc, mpf, &mpgno, 0, &mmeta, ret);
+			if (ret != 0)
 				goto err;
 			got_meta = 1;
 		}
@@ -1201,7 +1203,8 @@ __ham_expand_table(dbc)
 		hcp->hdr->spares[logn + 1] = pgno - new_bucket;
 		pgno += hcp->hdr->max_bucket;
 
-		if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &h)) != 0)
+		PAGEGET(dbc, mpf, &pgno, DB_MPOOL_CREATE, &h, ret);
+		if (ret != 0)
 			goto err;
 
 		mmeta->last_pgno = pgno;
@@ -1214,7 +1217,8 @@ __ham_expand_table(dbc)
 
 	/* Write out whatever page we ended up modifying. */
 	h->lsn = lsn;
-	if ((ret = __memp_fput(mpf, h, DB_MPOOL_DIRTY)) != 0)
+	PAGEPUT(dbc, mpf, h, DB_MPOOL_DIRTY, ret);
+	if (ret != 0)
 		goto err;
 	h = NULL;
 
@@ -1230,14 +1234,16 @@ __ham_expand_table(dbc)
 	/* Relocate records to the new bucket */
 	ret = __ham_split_page(dbc, old_bucket, new_bucket);
 
-err:	if (got_meta)
-		(void)__memp_fput(mpf, mmeta, dirty_meta);
+err:	if (got_meta) {
+			PAGEPUT(dbc, mpf, mmeta, dirty_meta, t_ret);
+		}
 
 	if (LOCK_ISSET(metalock))
 		(void)__TLPUT(dbc, metalock);
 
-	if (h != NULL)
-		(void)__memp_fput(mpf, h, 0);
+	if (h != NULL) {
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
+	}
 
 	return (ret);
 }

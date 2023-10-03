@@ -89,14 +89,26 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 
 	if (info != NULL) {
 		db_pgno_t pgin = PGNO((PAGE *) info);
-		if (pgin == argp->root_pgno || pgin == argp->left) {
-			memcpy(info, argp->pg.data, argp->pg.size);
-		} else if (pgin == argp->npgno) {
-			PREV_PGNO((PAGE *) info) = argp->left;
-			LSN((PAGE *) info) = argp->nlsn;
-		} else if (pgin == argp->right) {
-		    LSN((PAGE *) info) = argp->rlsn; 
-        }
+		rootsplit = argp->root_pgno != PGNO_INVALID;
+
+		if (rootsplit) {
+			if (pgin == argp->root_pgno) {
+				memcpy(info, argp->pg.data, argp->pg.size);
+			} else {
+				abort();
+			}
+		} else {
+			if (pgin == argp->left) {
+				memcpy(info, argp->pg.data, argp->pg.size);
+			} else if (pgin == argp->npgno) {
+				PREV_PGNO((PAGE *) info) = argp->left;
+				LSN((PAGE *) info) = argp->nlsn;
+			} else if (pgin == argp->right) {
+		   		 LSN((PAGE *) info) = argp->rlsn; 
+			} else {
+				abort();
+			}
+		}
 		return 0;
 	}
 
@@ -1235,14 +1247,24 @@ __bam_prefix_recover(dbenv, dbtp, lsnp, op, info)
 	REC_INTRO(__bam_prefix_read, 1);
 
 	if (info == NULL) {
-	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
-        if (DB_UNDO(op))
-            goto done;
-        ret = __db_pgerr(file_dbp, argp->pgno, ret);
-		goto out;
-    }
+		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+			if (DB_UNDO(op))
+				goto done;
+			ret = __db_pgerr(file_dbp, argp->pgno, ret);
+			goto out;
+		}
 	} else {
 		pagep = (PAGE*) info;
+
+		if ((ret = __os_calloc(dbenv, 1, dbc->dbp->pgsize, &c)) != 0)
+			goto out;
+		if ((ret = pfx_compress_undo(dbc->dbp, pagep, c, argp)) != 0)
+			goto out;
+		ret = pfx_apply(dbc->dbp, pagep, c);
+		LSN(pagep) = argp->pagelsn;
+		__os_free(dbenv, c);
+
+		return 0;
 	}
 
     if (check_page) {
@@ -1276,17 +1298,17 @@ __bam_prefix_recover(dbenv, dbtp, lsnp, op, info)
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
 
-	if (info == NULL) {
-		if ((ret = __memp_fput(mpf, pagep, modified) != 0))
-			goto out;
-	}
+	if ((ret = __memp_fput(mpf, pagep, modified) != 0))
+		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (info == NULL && pagep != NULL)
+out:
+	if (pagep != NULL) {
 		__memp_fput(mpf, pagep, 0);
+	}
 	__os_free(dbenv, c);
 	REC_CLOSE;
 }

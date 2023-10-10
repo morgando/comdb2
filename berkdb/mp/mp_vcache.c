@@ -119,9 +119,10 @@ put_version:
 		}
 	}
 
-	ret = __os_malloc(dbp->dbenv,offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize, &page_header); // E: Init
+	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-1 + SSZA(BH, buf) + dbp->pgsize, &page_header); // E: Init
 
-	memcpy(((char *)(page_header->page)), bhp, offsetof(BH, buf) + dbp->pgsize);
+	memcpy((char*)(page_header->page), bhp, offsetof(BH, buf) + dbp->pgsize);
+	
 	page_header->snapshot_lsn = target_lsn;
 	page_header->cache = versions;
 	listc_abl(&cache->evict_list, page_header);
@@ -172,7 +173,7 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 		goto done;
 	}
 
-	memcpy(bhp, (char *)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
+	memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
 
 done:
 	pthread_rwlock_unlock(&(cache->lock));

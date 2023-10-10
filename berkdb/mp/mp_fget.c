@@ -844,6 +844,7 @@ alloc:		/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
+
 	return (0);
 
 err:	/*

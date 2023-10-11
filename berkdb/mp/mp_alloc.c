@@ -320,9 +320,15 @@ alloc:	if ((ret = __db_shalloc(memreg->addr, len, MUTEX_ALIGN, &p)) == 0) {
 			c_mp->stat.st_used_bytes += len;
 		}
 		R_UNLOCK(dbenv, memreg);
+		// pthread_cond_init(&((BH *) p)->ref_cond, NULL);
 
 found:		if (offsetp != NULL)
 			*offsetp = R_OFFSET(memreg, p);
+
+		/*((BH *) p)->ref_type = 0;
+		((BH *) p)->ref_type_viewers = 0;
+		((BH *) p)->ref_other_type_waiters = 0;*/
+
 		*(void **)retp = p;
 
 		/*

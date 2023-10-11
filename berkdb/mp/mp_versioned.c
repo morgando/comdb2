@@ -38,11 +38,12 @@
 
 #define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) ((log_compare(&target_lsn, &highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0) || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
 
-static int DEBUG_PAGES = 1;
+static int DEBUG_PAGES = 0;
 static int DEBUG_PAGES1 = 0;
 
 extern int gbl_ref_sync_iterations;
 extern int gbl_ref_sync_pollms;
+extern int gbl_ref_sync_wait_txnlist;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 extern __thread DB *prefault_dbp;
@@ -54,6 +55,10 @@ extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FI
 int gbl_modsnap_cache_hits = 0;
 int gbl_modsnap_cache_misses = 0;
 int gbl_modsnap_total_requests = 0;
+
+#define MAX_TXNARRAY 64
+void collect_txnids(DB_ENV *dbenv, u_int32_t *txnarray, int max, int *count);
+int still_running(DB_ENV *dbenv, u_int32_t *txnarray, int count);
 
 pthread_mutex_t gbl_modsnap_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -233,9 +238,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-    int wait_cnt, add_to_cache, found, ret, cache_hit, cache_miss;
+    int wait_cnt, add_to_cache, found, ret, cache_hit, cache_miss, txncnt, total_txns;
     u_int64_t utxnid;
     int64_t smallest_logfile;
+	u_int32_t txnarray[MAX_TXNARRAY];
     u_int32_t rectype, n_cache, st_hsearch;
     DB_LOGC *logc;
 	DB_MPOOL *dbmp;
@@ -252,6 +258,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     dbt.flags = DB_DBT_REALLOC;
     ret = 0;
     found = 0;
+	total_txns = 0;
     add_to_cache = 0;
 	cache_hit = 0;
 	cache_miss = 0;
@@ -271,15 +278,9 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     __os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
     page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
-	printf("SSZA %d offsetof %ld\n", SSZA(BH, buf), offsetof(BH, buf));
-    if (!page_image) {
-        if (DEBUG_PAGES) {
-            printf("%s: Failed to allocate page image\n", __func__);
-        }
-        ret = ENOMEM;
-        goto done;
-    }
+	// printf("SSZA %d offsetof %ld\n", SSZA(BH, buf), offsetof(BH, buf));
 
+	/*
 	int rs_iters = gbl_ref_sync_iterations;
 	int rs_pollms = gbl_ref_sync_pollms;
 
@@ -287,7 +288,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	rs_pollms = (rs_pollms > 0 ? rs_pollms : 250);
 
 retry:
-    if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
+    if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET, &page)) != 0) {
         if (DEBUG_PAGES) {
             printf("%s: Failed to get initial page version\n", __func__);
         }
@@ -297,7 +298,7 @@ retry:
 
 	src_bhp = (BH *)((u_int8_t *)page - SSZA(BH, buf));
 
-//	printf("%s Got initial page version with %d refs\n", __func__, src_bhp->ref);
+	//printf("%s:%lu Got initial page version with %d refs\n", __func__, pthread_self(), src_bhp->ref);
 
 	n_cache = NCACHE(mp, mfp, pgno);
 	c_mp = dbmp->reginfo[n_cache].primary;
@@ -305,138 +306,100 @@ retry:
 	hp = &hp[NBUCKET(c_mp, mfp, pgno)];
 
 	st_hsearch = 0;
+	int hash_locked = 1;
+	//printf("%s:%lu Locked hash lock\n", __func__, pthread_self());
 	MUTEX_LOCK(dbenv, &hp->hash_mutex);
-	// printf("%s Locked hash lock\n", __func__);
 
-	/*
 	 * The buffer is either pinned or dirty.
 	 *
 	 * Set the sync wait-for count, used to count down outstanding
 	 * references to this buffer as they are returned to the cache.
-	 */
 
-	/* Pin the buffer into memory and lock it. */
-	if (F_ISSET(src_bhp, BH_LOCKED)) {
+	 Pin the buffer into memory and lock it.
+	if (F_ISSET(src_bhp, BH_LOCKED) && !src_bhp->read_only_lock) {
 		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-		if ((ret = __memp_fput(mpf, page, 0)) != 0) {
+		if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
 			printf("%s: Failed to return initial page version\n", __func__);
 			ret = 1;
 			goto done;
 		}
-		poll(NULL, 0, rs_pollms);
-	//	printf("%s Buffer already locked. Retrying page access\n", __func__);
+	//	printf("%s:%lu Buffer already locked. Retrying page access\n", __func__, pthread_self());
 		goto retry;
 	}
-	MUTEX_LOCK(dbenv, &src_bhp->mutex);
+	F_SET(src_bhp, BH_LOCKED); 
+	src_bhp->read_only_lock = 1;
+
+	if (src_bhp->ref == 1 || (src_bhp->ref == src_bhp->ref_snap)) {
+		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+		hash_locked = 0;
+		goto copy;
+	}
 
 	src_bhp->ref_sync = src_bhp->ref-1; // Must subtract 1 to account for our ref.
-	F_SET(src_bhp, BH_LOCKED); 
 	if (src_bhp->ref == 0) {
+		printf("%s:%lu Zero refs on page. Aborting\n", __func__, pthread_self());
 		abort();
 	}
 
-	/*
-	 * Unlock the hash bucket and wait for the wait-for count to
-	 * go to 0.   No new thread can acquire the buffer because we
-	 * have it locked.
-	 *
-	 * If a thread attempts to re-pin a page, the wait-for count
-	 * will never go to 0 (the thread spins on our buffer lock,
-	 * while we spin on the thread's ref count).  Give up if we
-	 * don't get the buffer in 3 seconds, we can try again later.
-	 *
-	 * If, when the wait-for count goes to 0, the buffer is found
-	 * to be dirty, write it.
-	 */
 	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+	hash_locked = 0;
 
 	//printf("%s: Waiting for %d other refs to go away\n", __func__, src_bhp->ref_sync);
 	for (wait_cnt = 0; src_bhp->ref_sync != 0 && wait_cnt < rs_iters;
 			++wait_cnt) {
+		printf("WAITING\n");
 		poll(NULL, 0, rs_pollms);
 	}
 
-	MUTEX_LOCK(dbenv, &hp->hash_mutex);
 
 	if (src_bhp->ref_sync != 0) {
-		abort(); // TODO: Do txnwait stuff that sync code does.
+		printf("COLLECTING TXNIDS\n");
+		collect_txnids(dbenv, txnarray, MAX_TXNARRAY, &txncnt);
+		total_txns += txncnt;
+
+		int c=0, cnt;
+		while(1 &&
+				(cnt = still_running(dbenv, txnarray, txncnt)) > 0) {
+			c++;
+			if (c > 2) {
+				fprintf(stderr, "%s: waiting for %d txns to complete, cnt %d\n",
+						__func__, cnt, c);
+			}
+			__os_sleep(dbenv, 1, 0);
+		}
+		txncnt = 0;
+		if (total_txns > 20) {
+			fprintf(stderr, "%s: waited on %d total txns so far\n",
+					__func__, total_txns);
+		}
 	}
 	
-	if (src_bhp) {
+copy:
+	if (src_bhp != NULL) {
 		memcpy(bhp, src_bhp, SSZA(BH, buf) + dbp->pgsize);
 	} else {
-		abort();
+		printf("BHP IS NULL\n");
 	}
 
-	if (F_ISSET(src_bhp, BH_LOCKED)) {
+	if (!hash_locked)
+		MUTEX_LOCK(dbenv, &hp->hash_mutex);
+
+	if (F_ISSET(src_bhp, BH_LOCKED) && (src_bhp->ref_snap == 0)) {
 		F_CLR(src_bhp, BH_LOCKED);
-		MUTEX_UNLOCK(dbenv, &src_bhp->mutex);
 	}
 
 	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-
-	if ((ret = __memp_fput(mpf, page, 0)) != 0) {
-        printf("%s: Failed to return initial page version\n", __func__);
-        ret = 1;
-        goto done;
-	}
-
-/*
-    memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
-
-
-	n_cache = NCACHE(mp, mfp, pgno);
-	c_mp = dbmp->reginfo[n_cache].primary;
-	hp = R_ADDR(&dbmp->reginfo[n_cache], c_mp->htab);
-	hp = &hp[NBUCKET(c_mp, mfp, pgno)];
-
-	st_hsearch = 0;
-	MUTEX_LOCK(dbenv, &hp->hash_mutex);
-	for (src_bhp = SH_TAILQ_FIRST(&hp->hash_bucket, __bh);
-	    src_bhp != NULL; src_bhp = SH_TAILQ_NEXT(src_bhp, hq, __bh)) {
-		++st_hsearch;
-		if (src_bhp->pgno != pgno || src_bhp->mpf != mfp)
-			continue;
-
-		 * The buffer is either pinned or dirty.
-		 *
-		 * Set the sync wait-for count, used to count down outstanding
-		 * references to this buffer as they are returned to the cache.
-		src_bhp->ref_sync = src_bhp->ref;
-
-		Pin the buffer into memory and lock it.
-		++src_bhp->ref;
-		F_SET(src_bhp, BH_LOCKED);
-		MUTEX_LOCK(dbenv, &src_bhp->mutex);
-
-		 * Unlock the hash bucket and wait for the wait-for count to
-		 * go to 0.   No new thread can acquire the buffer because we
-		 * have it locked.
-		 *
-		 * If a thread attempts to re-pin a page, the wait-for count
-		 * will never go to 0 (the thread spins on our buffer lock,
-		 * while we spin on the thread's ref count).  Give up if we
-		 * don't get the buffer in 3 seconds, we can try again later.
-		 *
-		 * If, when the wait-for count goes to 0, the buffer is found
-		 * to be dirty, write it.
-		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-
-		int rs_iters = gbl_ref_sync_iterations;
-		int rs_pollms = gbl_ref_sync_pollms;
-
-		rs_iters = (rs_iters > 0 ? rs_iters : 4);
-		rs_pollms = (rs_pollms > 0 ? rs_pollms : 250);
-
-		for (wait_cnt = 0; src_bhp->ref_sync != 0 && wait_cnt < rs_iters;
-				++wait_cnt) {
-			poll(NULL, 0, rs_pollms);
- 		}
-
-		MUTEX_LOCK(dbenv, &hp->hash_mutex);
-	}
-
+	*/
     // Get current version of the page
+
+    if (!page_image) {
+        if (DEBUG_PAGES) {
+            printf("%s: Failed to allocate page image\n", __func__);
+        }
+        ret = ENOMEM;
+        goto done;
+    }
+
     if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
         if (DEBUG_PAGES) {
             printf("%s: Failed to get initial page version\n", __func__);
@@ -444,15 +407,14 @@ retry:
         ret = 1;
         goto done;
     }
+
     memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
-	*/
 
-
-    /*if ((ret = __memp_fput(mpf, page, 0)) != 0) {
+    if ((ret = __memp_fput(mpf, page, 0)) != 0) {
         printf("%s: Failed to return initial page version\n", __func__);
         ret = 1;
         goto done;
-    }*/
+    }
 
     if (ret) {
         goto done;

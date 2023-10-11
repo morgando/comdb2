@@ -746,6 +746,7 @@ struct __db_log_stat {
 #define	DB_MPOOL_PROBE		0x008	/* Fail at first miss. */
 #define	DB_MPOOL_RECP		0x010	/* Restore from a recovery page */
 #define	DB_MPOOL_PFGET		0x020	/* Prefault a page */
+#define	DB_MPOOL_SNAPGET	0x040	/* page got by snapshot cursor */
 
 /* Flag values for DB_MPOOLFILE->put, DB_MPOOLFILE->get. */
 #define DB_MPOOL_NOCACHE	0x040	/* Discard low-priority. */
@@ -758,6 +759,7 @@ struct __db_log_stat {
 #define	DB_MPOOL_DIRTY		0x002	/* Page is modified. */
 #define	DB_MPOOL_DISCARD	0x004	/* Don't cache the page. */
 #define	DB_MPOOL_PFPUT		0x008	/* page got by prefault */
+#define	DB_MPOOL_SNAPPUT	0x010	/* page got by snapshot cursor */
 
 /* Flag values for DB_MPOOLFILE->alloc. */
 #define DB_MPOOL_LOWPRI		0x001   /* Evict low-priority pages. */

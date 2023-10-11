@@ -312,6 +312,7 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 		++mfp->stat.st_map;
 		if (gbl_bb_berkdb_enable_memp_timing)
 			bb_memp_hit(start_time_us);
+		printf("MMAP\n");
 		return (0);
 	}
 
@@ -349,8 +350,41 @@ retry:	st_hsearch = 0;
 			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 			goto err;
 		}
+
 		++bhp->ref;
 		b_incr = 1;
+
+		/*if (flags == DB_MPOOL_SNAPGET) {
+			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
+				// Snapshot and can enter
+				
+				bhp->ref_type = 1;
+				bhp->ref_type_viewers++;
+			} else {
+				// Snapshot and can't enter
+
+				bhp->ref_other_type_waiters++;
+
+				while (bhp->ref_type != 1)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+			}
+		} else {
+			if (bhp->ref_type == 0 || bhp->ref_type == 2) {
+				// Regular and can enter
+				
+				bhp->ref_type = 2;
+				bhp->ref_type_viewers++;
+			} else {
+				// Regular and can't enter
+				//
+				printf("Can't enter oh no\n");
+
+				bhp->ref_other_type_waiters++;
+
+				while (bhp->ref_type != 2)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+			}
+		}*/
 
 		/*
 		 * BH_LOCKED --
@@ -361,6 +395,10 @@ retry:	st_hsearch = 0;
 		 */
 		for (first = 1; F_ISSET(bhp, BH_LOCKED) &&
 		    !F_ISSET(dbenv, DB_ENV_NOLOCKING); first = 0) {
+
+			/*if (flags == DB_MPOOL_SNAPGET && bhp->read_only_lock == 1) {
+				goto skip;
+			}*/
 			/*
 			 * If someone is trying to sync this buffer and the
 			 * buffer is hot, they may never get in.  Give up
@@ -389,6 +427,8 @@ retry:	st_hsearch = 0;
 			MUTEX_UNLOCK(dbenv, &bhp->mutex);
 			MUTEX_LOCK(dbenv, &hp->hash_mutex);
 		}
+
+skip:
 
 		/* Layer violation */
 		if (ISINTERNAL(bhp->buf))
@@ -497,8 +537,10 @@ alloc:		/*
 			break;
 		}
 		R_UNLOCK(dbenv, dbmp->reginfo);
-		if (ret != 0)
+		if (ret != 0) {
+			printf("err1\n");
 			goto err;
+		}
 
 		/*
 		 * !!!
@@ -512,15 +554,18 @@ alloc:		/*
 		/* Allocate a new buffer header and data space. */
 		if ((ret = __memp_alloc_flags(dbmp,
 			    &dbmp->reginfo[n_cache], mfp, 0, NULL, alloc_flags,
-			    &alloc_bhp)) != 0)
+			    &alloc_bhp)) != 0) {
+			printf("err2\n");
 			 goto err;
 
+		}
 #ifdef DIAGNOSTIC
 		if ((db_alignp_t) alloc_bhp->buf & (sizeof(size_t) - 1)) {
 			__db_err(dbenv,
 			    "DB_MPOOLFILE->get: buffer data is NOT size_t aligned");
 			ret = EINVAL;
 
+			printf("err3\n");
 			goto err;
 		}
 #endif
@@ -594,8 +639,10 @@ alloc:		/*
 				    falloc_len);
 			}
 
-			if (ret != 0)
+			if (ret != 0) {
+				printf("err4\n");
 				goto err;
+			}
 		}
 		goto hb_search;
 	case SECOND_FOUND:
@@ -746,8 +793,10 @@ alloc:		/*
 		 * will call __memp_bhfree.
 		 */
 		if ((ret = __db_mutex_setup(dbenv,
-		    &dbmp->reginfo[n_cache], &bhp->mutex, 0)) != 0)
+		    &dbmp->reginfo[n_cache], &bhp->mutex, 0)) != 0) {
+			printf("err5\n");
 			goto err;
+		}
 	}
 
 	DB_ASSERT(bhp->ref != 0);
@@ -800,8 +849,10 @@ alloc:		/*
 		if ((ret = __memp_pgread(dbmfp,
 				hp, bhp,
 			    LF_ISSET(DB_MPOOL_CREATE) ? 1 : 0,
-			    is_recovery_page)) != 0)
+			    is_recovery_page)) != 0) {
+			printf("err6\n");
 			 goto err;
+		}
 
 		if (state == SECOND_MISS) {
 			if (ISINTERNAL(bhp->buf))
@@ -817,9 +868,15 @@ alloc:		/*
 	 * to be re-converted for use.
 	 */
 	if (F_ISSET(bhp, BH_CALLPGIN)) {
-		if ((ret = __memp_pg(dbmfp, bhp, 1)) != 0)
+		if ((ret = __memp_pg(dbmfp, bhp, 1)) != 0) {
+			printf("err7\n");
 			goto err;
+		}
 		F_CLR(bhp, BH_CALLPGIN);
+	}
+
+	if (bhp->ref == 0) {
+		abort();
 	}
 
 	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
@@ -871,6 +928,8 @@ err:	/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
+
+	printf("ERR\n");
 	return (ret);
 }
 

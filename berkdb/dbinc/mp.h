@@ -323,6 +323,11 @@ struct __bh {
 	   marked the page from clean to dirty. */
 	DB_LSN first_dirty_tx_begin_lsn;
 
+	u_int16_t	ref_type;
+	u_int16_t	ref_type_viewers;
+	u_int16_t	ref_other_type_waiters;
+	pthread_cond_t ref_cond;
+
 	/*
 	 * !!!
 	 * This array must be at least size_t aligned -- the DB access methods

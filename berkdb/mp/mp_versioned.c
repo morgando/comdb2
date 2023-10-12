@@ -400,7 +400,7 @@ copy:
         goto done;
     }
 
-    if ((ret = __memp_fget(mpf, &pgno, 0, &page)) != 0) {
+    if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET, &page)) != 0) {
         if (DEBUG_PAGES) {
             printf("%s: Failed to get initial page version\n", __func__);
         }
@@ -410,7 +410,7 @@ copy:
 
     memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
 
-    if ((ret = __memp_fput(mpf, page, 0)) != 0) {
+    if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
         printf("%s: Failed to return initial page version\n", __func__);
         ret = 1;
         goto done;

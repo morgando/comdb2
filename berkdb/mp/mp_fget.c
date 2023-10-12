@@ -354,37 +354,46 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		/*if (flags == DB_MPOOL_SNAPGET) {
+		if (flags == DB_MPOOL_SNAPGET) {
 			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
 				// Snapshot and can enter
+
+				// printf("pgno %lu: Ref type was %d I can enter snapshot\n",(u_long)bhp->pgno, bhp->ref_type);
 				
 				bhp->ref_type = 1;
 				bhp->ref_type_viewers++;
 			} else {
 				// Snapshot and can't enter
 
+				// printf("Snapshot I am waiting\n");
+
 				bhp->ref_other_type_waiters++;
 
-				while (bhp->ref_type != 1)
-					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+				/*while (bhp->ref_type != 1)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);*/
+
+				// printf("Snapshot I am waking up\n");
 			}
 		} else {
 			if (bhp->ref_type == 0 || bhp->ref_type == 2) {
 				// Regular and can enter
+				bhp->ref_type_viewers++;
+				// printf("pgno %lu: %u Ref type was %d I can enter regular\n",(u_long)bhp->pgno, bhp->ref_type_viewers, bhp->ref_type);
 				
 				bhp->ref_type = 2;
-				bhp->ref_type_viewers++;
 			} else {
 				// Regular and can't enter
 				//
-				printf("Can't enter oh no\n");
+				// printf("Regular I am waiting\n");
 
 				bhp->ref_other_type_waiters++;
 
-				while (bhp->ref_type != 2)
-					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+		/*		while (bhp->ref_type != 2)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);*/
+
+				// printf("Regular I am waking up\n");
 			}
-		}*/
+		}
 
 		/*
 		 * BH_LOCKED --
@@ -700,6 +709,13 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
+		if (flags == DB_MPOOL_SNAPGET) {
+			bhp->ref_type = 1;
+		} else {
+			bhp->ref_type = 2;
+		}
+		pthread_cond_init(&bhp->ref_cond, NULL);
+		bhp->ref_type_viewers = 1;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;

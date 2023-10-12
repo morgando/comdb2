@@ -326,7 +326,9 @@ struct __bh {
 	u_int16_t	ref_type;
 	u_int16_t	ref_type_viewers;
 	u_int16_t	ref_other_type_waiters;
+	u_int32_t pad;
 	pthread_cond_t ref_cond;
+	
 
 	/*
 	 * !!!

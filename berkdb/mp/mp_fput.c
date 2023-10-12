@@ -194,7 +194,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 */
 
 	// If there's starvation problems then do handoff after each or after each n.
-	if (--bhp->ref_type_viewers == 0) {
+	/*if (--bhp->ref_type_viewers == 0) {
 		if (bhp->ref_other_type_waiters > 0) {
 			// printf("%lu Opening door for other type\n",(u_long) bhp->pgno);
 
@@ -208,7 +208,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 
 			bhp->ref_type = 0;
 		}
-	} /*else {
+	} else {
 		// printf("%lu %d Other viewers of my type %u. Keeping door open for them\n", (u_long) bhp->pgno, bhp->ref_type_viewers, bhp->ref_type);
 	}*/
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {

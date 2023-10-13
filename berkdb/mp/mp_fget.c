@@ -354,7 +354,7 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		/*if (flags == DB_MPOOL_SNAPGET) {
+		if (flags == DB_MPOOL_SNAPGET) {
 			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
 				// Snapshot and can enter
 
@@ -393,7 +393,7 @@ retry:	st_hsearch = 0;
 
 				// printf("Regular I am waking up\n");
 			}
-		}*/
+		}
 
 		/*
 		 * BH_LOCKED --
@@ -709,13 +709,13 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
-		/*if (flags == DB_MPOOL_SNAPGET) {
+		if (flags == DB_MPOOL_SNAPGET) {
 			bhp->ref_type = 1;
 		} else {
 			bhp->ref_type = 2;
 		}
 		pthread_cond_init(&bhp->ref_cond, NULL);
-		bhp->ref_type_viewers = 1;*/
+		bhp->ref_type_viewers = 1;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;

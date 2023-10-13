@@ -535,7 +535,7 @@ __ham_check_move(dbc, add_len)
 	/* Add new page at the end of the chain. */
 	if (P_FREESPACE(dbp, next_pagep) < new_datalen && (ret =
 	    __ham_add_ovflpage(dbc, next_pagep, 1, &next_pagep)) != 0) {
-		PAGEPUT(dbc, mpf, next_pagep, 0, ret);
+		PAGEPUT(dbc, mpf, next_pagep, 0, t_ret);
 		return (ret);
 	}
 

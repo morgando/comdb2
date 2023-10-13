@@ -502,7 +502,7 @@ __ham_new_subdb(mdbp, dbp, txn)
 	mpgno = PGNO_BASE_MD;
 	if ((ret = __db_lget(dbc, 0, mpgno, DB_LOCK_WRITE, 0, &mmlock)) != 0)
 		goto err;
-	PAGEGET(dbc, mpf, &mpgno, 0, &meta, ret);
+	PAGEGET(dbc, mpf, &mpgno, 0, &mmeta, ret);
 	if (ret != 0)
 		goto err;
 

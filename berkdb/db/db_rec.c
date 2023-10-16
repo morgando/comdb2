@@ -535,13 +535,11 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 	REC_PRINT(__db_relink_print);
 	REC_INTRO(__db_relink_read, 1);
 
-	if (mpf && bdb_relink_pglogs(dbenv->app_private, mpf->fileid,
-		argp->pgno, argp->prev, argp->next, *lsnp) != 0) {
-		logmsg(LOGMSG_FATAL, "%s: fail relink pglogs\n", __func__);
-		abort();
-	}
-
 	if (info != NULL) {
+		if (argp->opcode == DB_ADD_PAGE) {
+			abort();
+		}
+
 		pagep = (PAGE*) info;
 
 		if (argp->pgno == PGNO(pagep)) {
@@ -549,19 +547,19 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 			pagep->prev_pgno = argp->prev;
 			pagep->lsn = argp->lsn;
 		} else if (argp->next == PGNO(pagep)) {
-
-			if (argp->opcode == DB_ADD_PAGE) {
-				pagep->prev_pgno = argp->prev;
-			} else if (argp->opcode == DB_REM_PAGE) {
-				pagep->prev_pgno = argp->pgno;
-			}
-
+			pagep->prev_pgno = argp->pgno;
 			pagep->lsn = argp->lsn_next;
 		} else if (argp->prev == PGNO(pagep)) {
 			pagep->next_pgno = argp->pgno;
 			pagep->lsn = argp->lsn_prev;
 		}
 		return 0;
+	}
+
+	if (mpf && bdb_relink_pglogs(dbenv->app_private, mpf->fileid,
+		argp->pgno, argp->prev, argp->next, *lsnp) != 0) {
+		logmsg(LOGMSG_FATAL, "%s: fail relink pglogs\n", __func__);
+		abort();
 	}
 
 	/*

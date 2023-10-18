@@ -2888,9 +2888,10 @@ struct __mempv_cache_page_versions
 struct __mempv_cache_page_header
 {
 	DB_LSN snapshot_lsn;
+	u_int8_t checksum[20];
 	struct __mempv_cache_page_versions *cache;
 	LINKC_T(struct __mempv_cache_page_header) evict_link;
-	char page[1];
+	u_int8_t page[1];
 };
 
 #ifndef DB_DBM_HSEARCH

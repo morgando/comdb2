@@ -285,7 +285,7 @@ inspect_internal_page(DB *dbp, PAGE *p)
 
 void inspect_page_hdr(DB *, PAGE *);
 
-static void
+void
 dopage(DB *dbp, PAGE *p)
 {
 	/* don't check checksum - pages in cache have that reset to

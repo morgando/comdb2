@@ -1,11 +1,47 @@
+#include <unistd.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <alloca.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <limits.h>
+#include <string.h>
+#include <pthread.h>
+#include <poll.h>
+
+#include "db_config.h"
 #include "db_int.h"
+#include "dbinc/btree.h"
 #include "dbinc/mp.h"
+#include "dbinc/log.h"
+#include "dbinc/txn.h"
+#include "dbinc/db_swap.h"
+#include "dbinc/lock.h"
+#include "dbinc/mutex.h"
+#include "btree/bt_cache.h"
+#include "dbinc/db_shash.h"
+#include "dbinc/hmac.h"
+#include "dbinc_auto/hmac_ext.h"
+
+#include "thdpool.h"
+#include "ctrace.h"
+#include "logmsg.h"
+#include "comdb2_atomic.h"
+#include "thrman.h"
+#include "thread_util.h"
+#include "thread_stats.h"
+#include <pool.h>
+#include "locks_wrap.h"
 
 // void *gbl_mempv_base = NULL;
 static int MAX_NUM_CACHED_PAGES = 50;
 static int num_cached_pages = 0;
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
+extern void dopage(DB *dbp, PAGE *p);
+
+extern int __db_check_chksum_no_crypto __P((DB_ENV *, DB_CIPHER *, u_int8_t *, void *, size_t, int));
+extern void __db_chksum_no_crypto __P((u_int8_t *, size_t, u_int8_t *));
 
 int __mempv_cache_init(dbenv, cache, size)
 	DB_ENV *dbenv;
@@ -76,15 +112,20 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	MEMPV_CACHE_PAGE_VERSIONS *versions;
 	MEMPV_CACHE_PAGE_KEY key;
 	MEMPV_CACHE_PAGE_HEADER *page_header;
-	int ret;
+	int ret, allocd_versions, allocd_header;
 
 	versions = NULL;
 	page_header = NULL;
 	ret = 0;
+	allocd_versions = 0;
+	allocd_header = 0;
 	key.pgno = pgno;
 	memcpy(key.ufid, file_id, DB_FILE_ID_LEN);
 
 	pthread_rwlock_wrlock(&(cache->lock));
+
+    PAGE *page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
+	// memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
 
 	versions = hash_find(cache->pages, &key);
 	if (versions != NULL) {
@@ -94,23 +135,29 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 create_new_cache:
 	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions); // C: init
 	if (ret) {
-		goto done;
+		goto err;
 	}
+	allocd_versions = 1;
 
 	versions->key = key;
 	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN)); // D: init
 	if (versions->versions == NULL) {
 		ret = ENOMEM;
-		goto done;
+		goto err;
 	}
 
 
 	ret = hash_add(cache->pages, versions);
 	if (ret) {
-		goto done;
+		goto err;
 	}
 
 put_version:
+	page_header = hash_find_readonly(versions->versions, &target_lsn);
+	if (page_header != NULL) {
+		goto done;
+	}
+
 	if(num_cached_pages == MAX_NUM_CACHED_PAGES) {
 		// page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
 
@@ -119,23 +166,40 @@ put_version:
 		}
 	}
 
-	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-1 + SSZA(BH, buf) + dbp->pgsize, &page_header); // E: Init
+
+	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-sizeof(u_int8_t) + SSZA(BH, buf) + dbp->pgsize, &page_header); // E: Init
+	if (ret) {
+		goto err;
+	}
+	allocd_header = 1;
 
 	memcpy((char*)(page_header->page), bhp, offsetof(BH, buf) + dbp->pgsize);
-	
+
+	page_image =(PAGE *) (page_header->page + offsetof(BH, buf));
+	// memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
+
+/*	printf("Taking checksum from ptr %p\n", page_image);
+	__db_chksum_no_crypto((u_int8_t *) page_image, dbp->pgsize, page_header->checksum);*/
 	page_header->snapshot_lsn = target_lsn;
 	page_header->cache = versions;
 	listc_abl(&cache->evict_list, page_header);
 
+
 	ret = hash_add(versions->versions, page_header);
 	if (ret) {
-		goto done;
+		goto err;
 	}
 
 	num_cached_pages++;
 
 done:
 	pthread_rwlock_unlock(&(cache->lock));
+	return ret;
+	
+err:
+	pthread_rwlock_unlock(&(cache->lock));
+	printf("ERR\n");
+	abort();
 
 	return ret;
 }
@@ -152,6 +216,7 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	MEMPV_CACHE_PAGE_KEY key;
 	MEMPV_CACHE_PAGE_HEADER *page_header;
 	int ret;
+	u_int8_t cks;
 
 	versions = NULL;
 	page_header = NULL;
@@ -159,7 +224,7 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	key.pgno = pgno;
 	memcpy(key.ufid, file_id, DB_FILE_ID_LEN);
 
-	pthread_rwlock_rdlock(&(cache->lock));
+	pthread_rwlock_wrlock(&(cache->lock));
 
 	versions = hash_find_readonly(cache->pages, &key);
 	if (versions == NULL) {
@@ -174,10 +239,34 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	}
 
 	memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
+	PAGE *page_image = (PAGE *) (bhp + offsetof(BH, buf));
+
+	page_image =(PAGE *) (page_header->page + offsetof(BH, buf));
+
+	/*u_int8_t chksum[20];
+	memcpy((void *) chksum, (void *) page_header->checksum, sizeof(u_int8_t)*20);
+	// printf("Checking checksum from ptr %p\n", (page_header->page + offsetof(BH, buf)));
+	int c_rval = __db_check_chksum_no_crypto(dbp->dbenv, NULL, page_header->checksum, (void *) (page_header->page + offsetof(BH, buf)), dbp->pgsize, 0);
+	if (c_rval == -1) {
+		printf("checksum neq %p\n", (page_header->page + offsetof(BH, buf)));
+		abort();
+	} else if (c_rval > 0) {
+		printf("checksum err\n");
+		abort();
+	} else {
+	//	printf("checksum eq\n");
+		int i=0;
+	}
+	memcpy((void *) page_header->checksum, (void *) chksum, sizeof(u_int8_t)*20);*/
 
 done:
 	pthread_rwlock_unlock(&(cache->lock));
 
+	return ret;
+
+err:
+	printf("ERR\n");
+	abort();
 	return ret;
 }
 

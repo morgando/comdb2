@@ -839,7 +839,15 @@ __bam_cdel_recover(dbenv, dbtp, lsnp, op, info)
 			goto out;
 		}
 	} else {
+		// printf("I AM DOING CDEL RECOVERY\n");
 		pagep = (PAGE*) info;
+		indx = argp->indx + (TYPE(pagep) == P_LBTREE ? O_INDX : 0);
+		B_DCLR(GET_BKEYDATA(file_dbp, pagep, indx));
+
+//		(void)__bam_ca_delete(file_dbp, argp->pgno, argp->indx, 0);
+
+		LSN(pagep) = argp->lsn;
+		return 0;
 	}
 
 	modified = 0;

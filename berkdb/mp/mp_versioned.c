@@ -52,6 +52,10 @@ extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache, int size);
 extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
 extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
 
+extern void hexdump(loglvl lvl, const char *key, int keylen);
+
+extern void dopage(DB *dbp, PAGE *p);
+
 int gbl_modsnap_cache_hits = 0;
 int gbl_modsnap_cache_misses = 0;
 int gbl_modsnap_total_requests = 0;
@@ -123,6 +127,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
     switch (rectype) {
         case DB___db_addrem:
             if (DEBUG_PAGES1) {
+				int i=0;
                 logmsg(LOGMSG_USER, "Op type of log record is addrem \n");
             }
             *apply = __db_addrem_recover;
@@ -153,6 +158,7 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
             break;
         case DB___bam_split:
             if (DEBUG_PAGES1) {
+				int i=0;
                 logmsg(LOGMSG_USER, "Op type of log record is bam split\n");
             }
            *apply = __bam_split_recover;
@@ -238,7 +244,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-    int wait_cnt, add_to_cache, found, ret, cache_hit, cache_miss, txncnt, total_txns;
+    int wait_cnt, add_to_cache, found, ret, cache_hit, cache_miss, txncnt, total_txns, got_cache_page;
     u_int64_t utxnid;
     int64_t smallest_logfile;
 	u_int32_t txnarray[MAX_TXNARRAY];
@@ -248,10 +254,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	MPOOL *c_mp, *mp;
 	DB_MPOOL_HASH *hp;
 	MPOOLFILE *mfp;
-    PAGE *page, *page_image;
+    PAGE *page, *page_image, *cache_page_image;
     DB_LSN curPageLsn, prevPageLsn, commit_lsn, highest_commit_lsn_asof_checkpoint;
     DB_ENV *dbenv;
-    BH *bhp, *src_bhp;
+    BH *bhp, *src_bhp, *cache_bhp;
     void *data_t;
 
     DBT dbt = {0};
@@ -260,12 +266,14 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     found = 0;
 	total_txns = 0;
     add_to_cache = 0;
+	got_cache_page = 0;
 	cache_hit = 0;
 	cache_miss = 0;
     logc = NULL;
     page = NULL;
     dbenv = mpf->dbenv;
     bhp = NULL;
+	cache_bhp = NULL;
 	src_bhp = NULL;
     data_t = NULL;
 	dbmp = dbenv->mp_handle;
@@ -278,118 +286,11 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
     __os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
     page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
-	// printf("SSZA %d offsetof %ld\n", SSZA(BH, buf), offsetof(BH, buf));
-
 	/*
-	int rs_iters = gbl_ref_sync_iterations;
-	int rs_pollms = gbl_ref_sync_pollms;
-
-	rs_iters = (rs_iters > 0 ? rs_iters : 4);
-	rs_pollms = (rs_pollms > 0 ? rs_pollms : 250);
-
-retry:
-    if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET, &page)) != 0) {
-        if (DEBUG_PAGES) {
-            printf("%s: Failed to get initial page version\n", __func__);
-        }
-        ret = 1;
-        goto done;
-    }
-
-	src_bhp = (BH *)((u_int8_t *)page - SSZA(BH, buf));
-
-	//printf("%s:%lu Got initial page version with %d refs\n", __func__, pthread_self(), src_bhp->ref);
-
-	n_cache = NCACHE(mp, mfp, pgno);
-	c_mp = dbmp->reginfo[n_cache].primary;
-	hp = R_ADDR(&dbmp->reginfo[n_cache], c_mp->htab);
-	hp = &hp[NBUCKET(c_mp, mfp, pgno)];
-
-	st_hsearch = 0;
-	int hash_locked = 1;
-	//printf("%s:%lu Locked hash lock\n", __func__, pthread_self());
-	MUTEX_LOCK(dbenv, &hp->hash_mutex);
-
-	 * The buffer is either pinned or dirty.
-	 *
-	 * Set the sync wait-for count, used to count down outstanding
-	 * references to this buffer as they are returned to the cache.
-
-	 Pin the buffer into memory and lock it.
-	if (F_ISSET(src_bhp, BH_LOCKED) && !src_bhp->read_only_lock) {
-		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-		if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
-			printf("%s: Failed to return initial page version\n", __func__);
-			ret = 1;
-			goto done;
-		}
-	//	printf("%s:%lu Buffer already locked. Retrying page access\n", __func__, pthread_self());
-		goto retry;
-	}
-	F_SET(src_bhp, BH_LOCKED); 
-	src_bhp->read_only_lock = 1;
-
-	if (src_bhp->ref == 1 || (src_bhp->ref == src_bhp->ref_snap)) {
-		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-		hash_locked = 0;
-		goto copy;
-	}
-
-	src_bhp->ref_sync = src_bhp->ref-1; // Must subtract 1 to account for our ref.
-	if (src_bhp->ref == 0) {
-		printf("%s:%lu Zero refs on page. Aborting\n", __func__, pthread_self());
-		abort();
-	}
-
-	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-	hash_locked = 0;
-
-	//printf("%s: Waiting for %d other refs to go away\n", __func__, src_bhp->ref_sync);
-	for (wait_cnt = 0; src_bhp->ref_sync != 0 && wait_cnt < rs_iters;
-			++wait_cnt) {
-		printf("WAITING\n");
-		poll(NULL, 0, rs_pollms);
-	}
-
-
-	if (src_bhp->ref_sync != 0) {
-		printf("COLLECTING TXNIDS\n");
-		collect_txnids(dbenv, txnarray, MAX_TXNARRAY, &txncnt);
-		total_txns += txncnt;
-
-		int c=0, cnt;
-		while(1 &&
-				(cnt = still_running(dbenv, txnarray, txncnt)) > 0) {
-			c++;
-			if (c > 2) {
-				fprintf(stderr, "%s: waiting for %d txns to complete, cnt %d\n",
-						__func__, cnt, c);
-			}
-			__os_sleep(dbenv, 1, 0);
-		}
-		txncnt = 0;
-		if (total_txns > 20) {
-			fprintf(stderr, "%s: waited on %d total txns so far\n",
-					__func__, total_txns);
-		}
-	}
-	
-copy:
-	if (src_bhp != NULL) {
-		memcpy(bhp, src_bhp, SSZA(BH, buf) + dbp->pgsize);
-	} else {
-		printf("BHP IS NULL\n");
-	}
-
-	if (!hash_locked)
-		MUTEX_LOCK(dbenv, &hp->hash_mutex);
-
-	if (F_ISSET(src_bhp, BH_LOCKED) && (src_bhp->ref_snap == 0)) {
-		F_CLR(src_bhp, BH_LOCKED);
-	}
-
-	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+    __os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &cache_bhp);
+    cache_page_image = (PAGE *) (((u_int8_t *) cache_bhp) + SSZA(BH, buf) );
 	*/
+
     // Get current version of the page
 
     if (!page_image) {
@@ -424,11 +325,11 @@ copy:
 
     if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, curPageLsn)) {
         if (DEBUG_PAGES) {
-            printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
+        //    printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
+			int i=0;
         }
         found = 1;
-    } else if (0/*!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)*/) {
-		printf("Cache hit\n");
+    } else if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
 		cache_hit = 1;
         found = 1;
     } else {
@@ -447,7 +348,7 @@ search:
     while (!found) 
     {
         if (DEBUG_PAGES)
-            printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset);
+            printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d. Highest asof checkpoint %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset, highest_commit_lsn_asof_checkpoint.file,highest_commit_lsn_asof_checkpoint.offset);
 
         if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, curPageLsn)) {
             add_to_cache = 1;
@@ -482,9 +383,9 @@ search:
         }
 
          // If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page.
-        if (__txn_commit_map_get(dbenv, utxnid, &commit_lsn) || (log_compare(&commit_lsn, &target_lsn) <= 0)) {
+        if (!__txn_commit_map_get(dbenv, utxnid, &commit_lsn) && (log_compare(&commit_lsn, &target_lsn) <= 0)) {
             if (DEBUG_PAGES) {
-                printf("%s: Found the right page version\n", __func__);
+                printf("%s: %u Found the right page version\n", __func__, PGNO(page_image));
             }
             add_to_cache = 1;
             found = 1;
@@ -492,7 +393,18 @@ search:
             break;
         }
 
-        if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
+
+		if (*apply == __bam_cdel_recover) {
+			__bam_cdel_args *argp;
+			__bam_cdel_read(dbenv, dbt.data, &argp);
+			// printf("I AM DOING CDEL RECOVERY\n");
+			int indx = argp->indx + (TYPE(page_image) == P_LBTREE ? O_INDX : 0);
+			B_DCLR(GET_BKEYDATA(dbp, page_image, indx));
+
+	//		(void)__bam_ca_delete(file_dbp, argp->pgno, argp->indx, 0);
+
+			LSN(page_image) = argp->lsn;
+		} else if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
             if (DEBUG_PAGES) {
                 printf("%s: Failed to undo log record\n", __func__);
             }
@@ -505,10 +417,21 @@ search:
 
     *(void **)ret_page = (void *) page_image;
 done:
-    if (add_to_cache == 1) {
-       // ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
-	   int i=0;
+	/*if (got_cache_page) {
+		if (memcmp(page_image, cache_page_image, dbp->pgsize) != 0) {
+			printf("pages don't match pgno cache %u lsn cache %u:%u pgno reconstructed %u lsn %u:%u\n", PGNO(cache_page_image), LSN(cache_page_image).file, LSN(cache_page_image).offset, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset);
+			dopage(dbp, page_image);
+			dopage(dbp, cache_page_image);
+			hexdump(LOGMSG_ERROR, (const char *) page_image, dbp->pgsize);
+			hexdump(LOGMSG_ERROR, (const char *) cache_page_image, dbp->pgsize);
+			// sleep(1);
+			// abort();
+		}
+	}*/
+    if (/*!got_cache_page && */add_to_cache == 1) {
+	   ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
+	// __os_free(dbenv, cache_bhp);
     if (logc) {
 		__log_c_close(logc);
 	}

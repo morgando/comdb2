@@ -49,7 +49,8 @@ enum transaction_level {
     */
     TRANLEVEL_RECOM = 10,
     TRANLEVEL_SERIAL = 11,
-    TRANLEVEL_SNAPISOL = 12
+    TRANLEVEL_SNAPISOL = 12,
+	TRANLEVEL_MODSNAP = 13
 };
 
 /* I'm now splitting handle_fastsql_requests into two functions.  The

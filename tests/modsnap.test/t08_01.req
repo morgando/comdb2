@@ -1,7 +1,7 @@
 1 drop table if exists t8
 1 create table t8(i int primary key)
-1 set transaction read committed isolation
-2 set transaction read committed isolation
+1 set transaction modsnap isolation
+2 set transaction modsnap isolation
 1 begin
 2 begin
 1 put analyze coverage t8 10

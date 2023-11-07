@@ -1570,7 +1570,11 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                             logmsg(LOGMSG_ERROR, "Enabling snapshot isolation "
                                                  "high availability\n");
                         }
-                    }
+                    } else if (strncasecmp(sqlstr, "mod", 3) == 0) {
+                        sqlstr += 3;
+                        clnt->dbtran.mode = TRANLEVEL_MODSNAP; 
+                        clnt->verify_retries = 0;
+					}
                     if (clnt->dbtran.mode == TRANLEVEL_INVALID) {
                         rc = ii + 1;
                     } else if (clnt->dbtran.mode != TRANLEVEL_SOSQL && clnt->dbtran.maxchunksize) {

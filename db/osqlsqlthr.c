@@ -150,7 +150,8 @@ static inline int osql_should_restart(struct sqlclntstate *clnt, int rc,
 {
     if (rc == OSQL_SEND_ERROR_WRONGMASTER &&
         (clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-         clnt->dbtran.mode == TRANLEVEL_RECOM)) {
+         clnt->dbtran.mode == TRANLEVEL_RECOM ||
+		 clnt->dbtran.mode == TRANLEVEL_MODSNAP)) {
         return 1;
     }
 

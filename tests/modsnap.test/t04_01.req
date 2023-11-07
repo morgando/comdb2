@@ -1,7 +1,7 @@
-1 set transaction read committed isolation
+1 set transaction modsnap isolation
 1 insert into t values (1, '11')
 1 insert into t values (2, '22')
-2 set transaction read committed isolation
+2 set transaction modsnap isolation
 2 begin
 2 select count(*) from t
 2 select * from t

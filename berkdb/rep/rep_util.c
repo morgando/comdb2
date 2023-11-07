@@ -1202,7 +1202,8 @@ __rep_send_file(dbenv, rec, eid)
 		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &lk)) != 0)
 			goto err;
 
-		if ((ret = __memp_fget(mpf, &pgno, 0, &pagep)) != 0)
+		PAGEGET(dbc, mpf, &pgno, 0, &pagep, ret);
+		if (ret != 0)
 			goto err;
 
 		if (pgno == 0)
@@ -1214,7 +1215,7 @@ __rep_send_file(dbenv, rec, eid)
 			REP_FILE, NULL, &rec_dbt, pgno == last_pgno) != 0)
 			break;
 
-		ret = __memp_fput(mpf, pagep, 0);
+		PAGEPUT(dbc, mpf, pagep, 0, ret);
 		pagep = NULL;
 
 		if (ret != 0)
@@ -1229,9 +1230,12 @@ err:	if (LOCK_ISSET(lk) && (t_ret = __LPUT(dbc, lk)) != 0 && ret == 0)
 		ret = t_ret;
 	if (dbc != NULL && (t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;
-	if (pagep != NULL &&
-		(t_ret = __memp_fput(mpf, pagep, 0)) != 0 && ret == 0)
-		ret = t_ret;
+	if (pagep != NULL) {
+		PAGEPUT(dbc, mpf, pagep, 0, t_ret);
+		if (t_ret != 0 && ret == 0) {
+			ret = t_ret;
+		}
+	}
 	if (dbp != NULL && (t_ret = __db_close(dbp, NULL, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	return (ret);

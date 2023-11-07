@@ -257,8 +257,10 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if ((info == NULL) && pagep != NULL)
+out:
+	if ((info == NULL) && pagep != NULL) {
 		(void)__memp_fput(mpf, pagep, 0);
+	}
 	REC_CLOSE;
 }
 

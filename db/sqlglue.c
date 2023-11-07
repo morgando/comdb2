@@ -4710,6 +4710,7 @@ int initialize_shadow_trans(struct sqlclntstate *clnt, struct sql_thread *thd)
     /* we handle communication with a blockprocess when all is over */
 
     case TRANLEVEL_RECOM:
+	case TRANLEVEL_MODSNAP:
         /* create our special bdb transaction
          * (i.e. w/out berkdb transaction */
         clnt->dbtran.shadow_tran =
@@ -5009,6 +5010,7 @@ int sqlite3BtreeCommit(Btree *pBt)
         goto done;
 
     case TRANLEVEL_RECOM:
+	case TRANLEVEL_MODSNAP:
 
         /*
          * Because we don't see begin/commit here, this is processed only
@@ -5176,6 +5178,7 @@ int rollback_tran(struct sql_thread *thd, struct sqlclntstate *clnt)
         break;
 
     case TRANLEVEL_RECOM:
+	case TRANLEVEL_MODSNAP:
         if (clnt->dbtran.shadow_tran) {
             rc = recom_abort(clnt);
             if (rc)
@@ -5245,7 +5248,7 @@ int sqlite3BtreeRollback(Btree *pBt, int dummy, int writeOnlyDummy)
     clear_session_tbls(clnt);
 
     /* UPSERT: Restore the isolation level back to what it was. */
-    if (clnt->dbtran.mode == TRANLEVEL_RECOM && clnt->translevel_changed) {
+    if ((clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_MODSNAP /* ? */) && clnt->translevel_changed) {
         clnt->dbtran.mode = TRANLEVEL_SOSQL;
         clnt->translevel_changed = 0;
         logmsg(LOGMSG_DEBUG, "%s: switched back to %s\n", __func__,
@@ -8301,7 +8304,8 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     if (clnt->dbtran.mode == TRANLEVEL_SOSQL ||
         clnt->dbtran.mode == TRANLEVEL_RECOM ||
         clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
-        clnt->dbtran.mode == TRANLEVEL_SERIAL) {
+        clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+		clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
         shadow_tran = clnt->dbtran.shadow_tran;
     }
 
@@ -8320,7 +8324,7 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
         rowlocks ? &clnt->holding_pagelocks_flag : NULL,
         rowlocks ? pause_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
         rowlocks ? count_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
-        clnt->bdb_osql_trak, &bdberr, clnt->dbtran.mode == TRANLEVEL_RECOM ? 1 : 0); // TODO: add tran type here?
+        clnt->bdb_osql_trak, &bdberr, (clnt->dbtran.mode == TRANLEVEL_MODSNAP || clnt->dbtran.mode == TRANLEVEL_RECOM) ? 1 : 0); // TODO: add tran type here?
     if (cur->bdbcur == NULL) {
         logmsg(LOGMSG_ERROR, "%s: bdb_cursor_open rc %d\n", __func__, bdberr);
         if (bdberr == BDBERR_DEADLOCK)
@@ -10623,7 +10627,8 @@ static int is_sql_update_mode(int mode)
     case TRANLEVEL_SOSQL:
     case TRANLEVEL_RECOM:
     case TRANLEVEL_SNAPISOL:
-    case TRANLEVEL_SERIAL: return 1;
+    case TRANLEVEL_SERIAL:
+	case TRANLEVEL_MODSNAP: return 1;
     default: return 0;
     }
 }
@@ -10818,7 +10823,7 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
                 break;
             }
 
-            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_RECOM ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset);
+            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_MODSNAP ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset);
             if (rc == BDBERR_DEADLOCK &&
                 recover_deadlock(thedb->bdb_env, thd, NULL, 0)) {
                 break;

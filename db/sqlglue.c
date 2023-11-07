@@ -10834,7 +10834,7 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
                 break;
             }
 
-            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, (pCur->clnt->dbtran.mode == TRANLEVEL_RECOM || pCur->clnt->dbtran.mode == TRANLEVEL_MODSNAP) ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset);
+            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_MODSNAP ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset);
             if (rc == BDBERR_DEADLOCK &&
                 recover_deadlock(thedb->bdb_env, thd, NULL, 0)) {
                 break;

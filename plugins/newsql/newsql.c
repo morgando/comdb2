@@ -1563,7 +1563,7 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                         clnt->dbtran.mode = TRANLEVEL_SOSQL;
                     } else if (strncasecmp(sqlstr, "snap", 4) == 0) {
                         sqlstr += 4;
-                        clnt->dbtran.mode = TRANLEVEL_SNAPISOL; // TODO: make a new isolation level lol
+                        clnt->dbtran.mode = TRANLEVEL_SNAPISOL;
                         clnt->verify_retries = 0;
                         if (clnt->hasql_on == 1) {
                             newsql_set_high_availability(clnt);

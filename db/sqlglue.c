@@ -4848,6 +4848,7 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
     /* Latch last commit LSN */
     if (!clnt->last_commit_lsn_isset && (db->handle != NULL)) {
             bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
+            bdb_get_highest_commit_lsn_asof_checkpoint(db->handle, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
             clnt->last_commit_lsn_isset = 1;
     }
 
@@ -8179,6 +8180,8 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     assert(clnt->last_commit_lsn_isset);
     clnt->dbtran.cursor_tran->last_commit_lsn.file = clnt->last_commit_lsn_file;
     clnt->dbtran.cursor_tran->last_commit_lsn.offset = clnt->last_commit_lsn_offset;
+    clnt->dbtran.cursor_tran->highest_ckpt_commit_lsn.file = clnt->highest_ckpt_commit_lsn_file;
+    clnt->dbtran.cursor_tran->highest_ckpt_commit_lsn.offset = clnt->highest_ckpt_commit_lsn_offset;
 
     /* initialize the shadow, if any  */
     cur->shadtbl = osql_get_shadow_bydb(thd->clnt, cur->db);
@@ -10834,7 +10837,8 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
                 break;
             }
 
-            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_MODSNAP ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset);
+            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_MODSNAP ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset, 
+                    pCur->clnt->highest_ckpt_commit_lsn_file, pCur->clnt->highest_ckpt_commit_lsn_offset);
             if (rc == BDBERR_DEADLOCK &&
                 recover_deadlock(thedb->bdb_env, thd, NULL, 0)) {
                 break;

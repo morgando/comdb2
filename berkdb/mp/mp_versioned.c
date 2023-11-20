@@ -38,8 +38,8 @@
 
 #define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) ((log_compare(&target_lsn, &highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0) || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
 
-static int DEBUG_PAGES = 0;
-static int DEBUG_PAGES1 = 0;
+static int DEBUG_PAGES = 1;
+static int DEBUG_PAGES1 = 1;
 
 extern int gbl_ref_sync_iterations;
 extern int gbl_ref_sync_pollms;
@@ -228,19 +228,19 @@ done:
     return ret;
 }
 
-
 /*
  * __mempv_fget --
  *  Return a page in the version that it was at a past LSN.
  *
  * PUBLIC: int __mempv_fget
- * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, DB_LSN, void *));
  */
-int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
+int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
     DB_MPOOLFILE *mpf;
     DB *dbp;
     db_pgno_t pgno;
     DB_LSN target_lsn;
+	DB_LSN highest_ckpt_commit_lsn;
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
@@ -281,7 +281,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
 	c_mp = NULL;
 	mfp = mpf->mfp;
     *(void **)ret_page = NULL;
-    highest_commit_lsn_asof_checkpoint = dbenv->txmap->highest_commit_lsn_asof_checkpoint;
+    highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
     smallest_logfile = dbenv->txmap->smallest_logfile;
     __os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
     page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );

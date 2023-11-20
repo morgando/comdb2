@@ -935,6 +935,8 @@ struct sqlclntstate {
     
     u_int32_t last_commit_lsn_file;
     u_int32_t last_commit_lsn_offset;
+    u_int32_t highest_ckpt_commit_lsn_file;
+    u_int32_t highest_ckpt_commit_lsn_offset;
     int last_commit_lsn_isset;
 
     int lastresptype;

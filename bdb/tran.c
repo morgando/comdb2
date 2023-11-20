@@ -2712,11 +2712,14 @@ int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
     rc = 0;
     txmap = bdb_state->dbenv->txmap;
 
-    if (file)
+    if (file) {
         *file = txmap->highest_commit_lsn_asof_checkpoint.file;
-    if (offset)
+    }
+    if (offset) {
         *offset = txmap->highest_commit_lsn_asof_checkpoint.offset;
+    }
 
+    printf("set lsn to %d:%d\n", txmap->highest_commit_lsn_asof_checkpoint.file,txmap->highest_commit_lsn_asof_checkpoint.offset);
     return rc;
 }
 

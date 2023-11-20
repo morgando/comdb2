@@ -763,6 +763,7 @@ __db_c_idup(dbc_orig, dbcp, flags)
 	// Flag should be set before cursor is positioned.
 	F_SET(dbc_n, F_ISSET(dbc_orig, DBC_SNAPSHOT));
 	dbc_n->snapshot_lsn = dbc_orig->snapshot_lsn;
+	dbc_n->highest_ckpt_commit_lsn = dbc_orig->highest_ckpt_commit_lsn;
 
 	/* If the user wants the cursor positioned, do it here.  */
 	if (flags == DB_POSITION) {

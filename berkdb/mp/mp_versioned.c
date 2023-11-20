@@ -159,16 +159,17 @@ done:
     return ret;
 }
 
-static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)
+static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image, highest_ckpt_commit_lsn)
     DB_ENV *dbenv;
     DB_LSN target_lsn;
     PAGE *page_image;
+	DB_LSN highest_ckpt_commit_lsn;
 {
 	DB_LSN pglsn;
 
 	pglsn = LSN(page_image);
 
-    return (IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < dbenv->txmap->smallest_logfile) || (log_compare(&target_lsn, &dbenv->txmap->highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&dbenv->txmap->highest_commit_lsn_asof_checkpoint, &pglsn) >= 0));
+    return (IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < dbenv->txmap->smallest_logfile) || (log_compare(&target_lsn, &highest_ckpt_commit_lsn) >= 0 && log_compare(&highest_ckpt_commit_lsn, &pglsn) >= 0));
 }
 
 
@@ -177,13 +178,14 @@ static int __mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_ima
  *  Return a page in the version that it was at a past LSN.
  *
  * PUBLIC: int __mempv_fget
- * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, DB_LSN, void *));
  */
-int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
+int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
     DB_MPOOLFILE *mpf;
     DB *dbp;
     db_pgno_t pgno;
     DB_LSN target_lsn;
+	DB_LSN highest_ckpt_commit_lsn;
     void *ret_page;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
@@ -237,7 +239,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, ret_page)
         goto done;
     }
 
-    if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image)) {
+    if (__mempv_page_version_is_guaranteed_target(dbenv, target_lsn, page_image, highest_ckpt_commit_lsn)) {
         if (DEBUG_PAGES) {
             printf("%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
         }

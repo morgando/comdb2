@@ -1163,7 +1163,7 @@ done:	/*
 	cp_n = dbc_n == NULL ? dbc_arg->internal : dbc_n->internal;
 	if (!F_ISSET(key, DB_DBT_ISSET)) {
 		if (cp_n->page == NULL) {
-			PAGEGET(dbc_n, mpf, &cp_n->pgno, 0, &cp_n->page, ret);
+			PAGEGET(dbc_arg, mpf, &cp_n->pgno, 0, &cp_n->page, ret);
 			if (ret != 0) {
 				goto err;
 			}

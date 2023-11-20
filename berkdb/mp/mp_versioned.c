@@ -446,6 +446,11 @@ done:
 	} else if (cache_miss) {
 		gbl_modsnap_cache_misses++;
 	}
+	if (gbl_modsnap_total_requests == 1000000000) {
+		gbl_modsnap_total_requests = 0;
+		gbl_modsnap_cache_hits = 0;
+		gbl_modsnap_cache_misses = 0;
+	}
 	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
     return ret;
 }

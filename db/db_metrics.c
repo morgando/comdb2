@@ -753,12 +753,12 @@ int refresh_metrics(void)
 	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
 
 	if (stats.modsnap_cache_misses+stats.modsnap_cache_hits != 0) {
-		stats.modsnap_cache_hit_rate = 100*((double)stats.modsnap_cache_hits)/((double)(stats.modsnap_cache_misses+stats.modsnap_cache_hits));
+		stats.modsnap_cache_hit_rate = 100000*((double)stats.modsnap_cache_hits)/((double)(stats.modsnap_cache_misses+stats.modsnap_cache_hits));
 	} else {
 		stats.modsnap_cache_hit_rate = 0;
 	}
 	if (stats.modsnap_total_requests != 0) {
-		stats.modsnap_rollback_rate = 100*((double)stats.modsnap_cache_hits+stats.modsnap_cache_misses)/((double)stats.modsnap_total_requests);
+		stats.modsnap_rollback_rate = 100000*((double)stats.modsnap_cache_misses)/((double)stats.modsnap_total_requests);
 	} else {
 		stats.modsnap_rollback_rate = 0;
 	}

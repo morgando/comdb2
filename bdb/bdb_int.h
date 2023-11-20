@@ -1693,6 +1693,7 @@ struct cursor_tran {
     uint32_t lockerid;
     uint32_t flags;
 	DB_LSN last_commit_lsn;
+    DB_LSN highest_ckpt_commit_lsn;
     int id; /* debugging */
 };
 

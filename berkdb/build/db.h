@@ -2072,6 +2072,7 @@ struct __dbc {
 	db_pgno_t   lastpage; // pgno of last move
 
 	DB_LSN snapshot_lsn;
+	DB_LSN highest_ckpt_commit_lsn;
 };
 extern pthread_key_t DBG_FREE_CURSOR;
 

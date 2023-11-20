@@ -2703,6 +2703,23 @@ int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
         return rc;
 }
 
+int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
+                            unsigned int *file, unsigned int *offset)
+{
+    int rc;
+    DB_TXN_COMMIT_MAP *txmap;
+
+    rc = 0;
+    txmap = bdb_state->dbenv->txmap;
+
+    if (file)
+        *file = txmap->highest_commit_lsn_asof_checkpoint.file;
+    if (offset)
+        *offset = txmap->highest_commit_lsn_asof_checkpoint.offset;
+
+    return rc;
+}
+
 void bdb_upgrade_all_prepared(bdb_state_type *bdb_state)
 {
     if (bdb_state->parent)

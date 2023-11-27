@@ -81,11 +81,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	if (flags) {
 		if ((ret = __db_fchk(dbenv, "memp_fput", flags,
 		    DB_MPOOL_CLEAN | DB_MPOOL_DIRTY |DB_MPOOL_DISCARD |
-		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT | DB_MPOOL_SNAPPUT)) != 0)
+		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT | DB_MPOOL_SNAPPUT)) != 0) {
 			 return (ret);
+		}
 		if ((ret = __db_fcchk(dbenv, "memp_fput",
-		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0)
+		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0) {
 			 return (ret);
+		}
 
 		if (LF_ISSET(DB_MPOOL_DIRTY) && F_ISSET(dbmfp, MP_READONLY)) {
 			__db_err(dbenv,
@@ -198,6 +200,9 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		if (bhp->ref_other_type_waiters > 0) {
 			// printf("%lu Opening door for other type\n",(u_long) bhp->pgno);
 
+			// printf("Opening door for %d waiters\n", bhp->ref_other_type_waiters);
+			// abort();
+			
 			bhp->ref_type = bhp->ref_type == 2 ? 1 : 2;
 			bhp->ref_type_viewers = bhp->ref_other_type_waiters;
 			bhp->ref_other_type_waiters = 0;
@@ -206,6 +211,9 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		} else {
 			// printf("%lu Setting type to neutral\n", (u_long) bhp->pgno);
 
+			if (bhp->ref_other_type_waiters < 0) {
+				abort();
+			}
 			bhp->ref_type = 0;
 		}
 	} else {

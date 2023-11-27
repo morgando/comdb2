@@ -233,15 +233,16 @@ done:
  *  Return a page in the version that it was at a past LSN.
  *
  * PUBLIC: int __mempv_fget
- * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, DB_LSN, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, DB_LSN, void *, u_int32_t));
  */
-int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
+int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, flags)
     DB_MPOOLFILE *mpf;
     DB *dbp;
     db_pgno_t pgno;
     DB_LSN target_lsn;
 	DB_LSN highest_ckpt_commit_lsn;
     void *ret_page;
+	u_int32_t flags;
 {
     int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
     int wait_cnt, add_to_cache, found, ret, cache_hit, cache_miss, txncnt, total_txns, got_cache_page;
@@ -283,8 +284,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
     *(void **)ret_page = NULL;
     highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
     smallest_logfile = dbenv->txmap->smallest_logfile;
-    __os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
-    page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
 	/*
     __os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &cache_bhp);
@@ -293,15 +292,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
 
     // Get current version of the page
 
-    if (!page_image) {
-        if (DEBUG_PAGES) {
-            printf("%s: Failed to allocate page image\n", __func__);
-        }
-        ret = ENOMEM;
-        goto done;
-    }
-
-    if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET, &page)) != 0) {
+    if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET | flags, &page)) != 0) {
         if (DEBUG_PAGES) {
             printf("%s: Failed to get initial page version\n", __func__);
         }
@@ -309,19 +300,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
         goto done;
     }
 
-    memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
-
-    if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
-        printf("%s: Failed to return initial page version\n", __func__);
-        ret = 1;
-        goto done;
-    }
-
-    if (ret) {
-        goto done;
-    }
-
-    curPageLsn = LSN(page_image);
+    curPageLsn = LSN(page);
 
     if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, curPageLsn)) {
         if (DEBUG_PAGES) {
@@ -329,20 +308,54 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page)
 			int i=0;
         }
         found = 1;
-    } else if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
-		cache_hit = 1;
-        found = 1;
+		page_image = page;
+		goto search;
     } else {
-		cache_miss = 1;
+		__os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
+		page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
-		if ((ret = __log_cursor(dbenv, &logc)) != 0) {
+		if (!page_image) {
 			if (DEBUG_PAGES) {
-				printf("%s: Failed to create log cursor\n", __func__);
+				printf("%s: Failed to allocate page image\n", __func__);
 			}
-			ret = 1;
+			ret = ENOMEM;
 			goto done;
 		}
-    }
+
+		if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
+			if (DEBUG_PAGES) {
+				printf("%s: Found in cache\n", __func__);
+			}
+			cache_hit = 1;
+			found = 1;
+
+			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
+				printf("%s: Failed to return initial page version\n", __func__);
+				ret = 1;
+				goto done;
+			}
+		} else {
+			cache_miss = 1;
+
+			memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
+			bhp->ref_type = 3; // I am a copy
+
+			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
+				printf("%s: Failed to return initial page version\n", __func__);
+				ret = 1;
+				goto done;
+			}
+
+			if ((ret = __log_cursor(dbenv, &logc)) != 0) {
+				if (DEBUG_PAGES) {
+					printf("%s: Failed to create log cursor\n", __func__);
+				}
+				ret = 1;
+				goto done;
+			}
+		}
+
+	}
 
 search:
     while (!found) 
@@ -460,21 +473,37 @@ done:
  *  Release a page accessed with __mempv_fget.
  *
  * PUBLIC: int __mempv_fput
- * PUBLIC:     __P((DB_MPOOLFILE *, void *));
+ * PUBLIC:     __P((DB_MPOOLFILE *, void *, u_int32_t));
  */
-int __mempv_fput(mpf, page)
+int __mempv_fput(mpf, page, flags)
     DB_MPOOLFILE *mpf;
     void *page;
+	u_int32_t flags;
 {
     BH *bhp;
     DB_ENV *dbenv;
+	int rc;
+
+	if (flags != 0) {
+		printf("flags %d\n", flags);
+		abort();
+	}
 
     dbenv = mpf->dbenv;
+	rc = 0;
 
     if (page != NULL) {
 		bhp = (BH *)((u_int8_t *)page - SSZA(BH, buf));
-        __os_free(dbenv, bhp);
+
+		if (bhp->ref_type == 3) {
+			// I am a copy
+			__os_free(dbenv, bhp);
+		} else if (__memp_fput(mpf, page, DB_MPOOL_SNAPPUT) != 0) {
+			printf("%s: Failed to return initial page version\n", __func__);
+			rc = 1;
+		}
+
         page = NULL;
     }
-    return 0;
+    return rc;
 }

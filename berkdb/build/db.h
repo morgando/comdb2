@@ -746,13 +746,15 @@ struct __db_log_stat {
 #define	DB_MPOOL_PROBE		0x008	/* Fail at first miss. */
 #define	DB_MPOOL_RECP		0x010	/* Restore from a recovery page */
 #define	DB_MPOOL_PFGET		0x020	/* Prefault a page */
-#define	DB_MPOOL_SNAPGET	0x040	/* page got by snapshot cursor */
 
 /* Flag values for DB_MPOOLFILE->put, DB_MPOOLFILE->get. */
 #define DB_MPOOL_NOCACHE	0x040	/* Discard low-priority. */
 
 /* Flag values for DB_MPOOLFILE->get. */
 #define	DB_MPOOL_COMPACT	0x080   /* Compact a page if necessary */
+
+/* Flag values for DB_MPOOLFILE->get. */
+#define	DB_MPOOL_SNAPGET	0x100	/* page got by snapshot cursor */
 
 /* Flag values for DB_MPOOLFILE->put, DB_MPOOLFILE->set. */
 #define	DB_MPOOL_CLEAN		0x001	/* Page is not modified. */
@@ -3259,6 +3261,7 @@ typedef struct {
 } touch_pg;
 
 int enqueue_touch_page(DB_MPOOLFILE *mpf, db_pgno_t pgno);
+/* Flag values for DB_MPOOLFILE->get. */
 void touch_page(DB_MPOOLFILE *mpf, db_pgno_t pgno);
 
 //#############################################

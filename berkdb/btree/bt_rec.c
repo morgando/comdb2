@@ -450,18 +450,26 @@ done:	*lsnp = argp->prev_lsn;
 	}
 
 out:	/* Free any pages that weren't dirtied. */
-	PAGEPUT(dbc, mpf, pp, 0, t_ret);
-	if (pp != NULL && (t_ret != 0 && ret == 0))
-		ret = t_ret;
-	PAGEPUT(dbc, mpf, lp, 0, t_ret);
-	if (lp != NULL && (t_ret != 0 && ret == 0))
-		ret = t_ret;
-	PAGEPUT(dbc, mpf, np, 0, t_ret);
-	if (np != NULL && (t_ret != 0 && ret == 0))
-		ret = t_ret;
-	PAGEPUT(dbc, mpf, rp, 0, t_ret);
-	if (rp != NULL && (t_ret != 0 && ret == 0))
-		ret = t_ret;
+	if (pp != NULL) {
+		PAGEPUT(dbc, mpf, pp, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
+			ret = t_ret;
+	}
+	if (lp != NULL) {
+		PAGEPUT(dbc, mpf, lp, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
+			ret = t_ret;
+	}
+	if (np != NULL) {
+		PAGEPUT(dbc, mpf, np, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
+			ret = t_ret;
+	}
+	if (rp != NULL) {
+		PAGEPUT(dbc, mpf, rp, 0, t_ret);
+		if (t_ret != 0 && ret == 0)
+			ret = t_ret;
+	}
 
 	/* Free any allocated space. */
 	if (_lp != NULL)
@@ -814,9 +822,11 @@ __bam_cadjust_recover(dbenv, dbtp, lsnp, op, info)
 		LSN(pagep) = argp->lsn;
 		modified = 1;
 	}
-	PAGEPUT(dbc, mpf, pagep, modified ? DB_MPOOL_DIRTY : 0, ret);
-	if (info == NULL && (ret != 0))
-		goto out;
+	if (info == NULL) {
+		PAGEPUT(dbc, mpf, pagep, modified ? DB_MPOOL_DIRTY : 0, ret);
+		if(ret != 0)
+			goto out;
+	}
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;

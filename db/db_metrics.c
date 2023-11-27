@@ -34,6 +34,8 @@
 extern int gbl_modsnap_cache_hits;
 extern int gbl_modsnap_cache_misses;
 extern int gbl_modsnap_total_requests;
+extern long gbl_modsnap_buffer_wait_time;
+extern int gbl_modsnap_buffer_waits;
 extern pthread_mutex_t gbl_modsnap_stats_mutex;
 
 struct comdb2_metrics_store {
@@ -106,6 +108,8 @@ struct comdb2_metrics_store {
 	int64_t modsnap_cache_hit_rate;
 	int64_t modsnap_total_requests;
 	int64_t modsnap_rollback_rate;
+	int64_t modsnap_buffer_waits;
+	long modsnap_buffer_wait_time;
     int64_t reprepares;
     int64_t nonsql;
     int64_t vreplays;
@@ -408,6 +412,10 @@ comdb2_metric gbl_metrics[] = {
      STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_total_requests, NULL},
     {"modsnap_rollback_rate", "Modsnap rollback rate", STATISTIC_INTEGER, 
 	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_rollback_rate, NULL},
+    {"modsnap_buffer_waits", "Number of times a thread has blocked in fget", STATISTIC_INTEGER, 
+	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_buffer_waits, NULL},
+    {"modsnap_buffer_wait_time", "Total amount of time threads have blocked in fget", STATISTIC_INTEGER, 
+	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_buffer_wait_time, NULL},
 };
 
 const char *metric_collection_type_string(comdb2_collection_type t) {
@@ -750,18 +758,12 @@ int refresh_metrics(void)
 	stats.modsnap_cache_hits = gbl_modsnap_cache_hits;
 	stats.modsnap_cache_misses = gbl_modsnap_cache_misses;
 	stats.modsnap_total_requests = gbl_modsnap_total_requests;
+	stats.modsnap_buffer_wait_time = gbl_modsnap_buffer_wait_time;
+	stats.modsnap_buffer_waits = gbl_modsnap_buffer_waits;
 	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
 
-	if (stats.modsnap_cache_misses+stats.modsnap_cache_hits != 0) {
-		stats.modsnap_cache_hit_rate = 100000*((double)stats.modsnap_cache_hits)/((double)(stats.modsnap_cache_misses+stats.modsnap_cache_hits));
-	} else {
-		stats.modsnap_cache_hit_rate = 0;
-	}
-	if (stats.modsnap_total_requests != 0) {
-		stats.modsnap_rollback_rate = 100000*((double)stats.modsnap_cache_misses)/((double)stats.modsnap_total_requests);
-	} else {
-		stats.modsnap_rollback_rate = 0;
-	}
+	stats.modsnap_cache_hit_rate = (double)stats.modsnap_cache_hits;
+	stats.modsnap_rollback_rate = (double)stats.modsnap_cache_misses;
 
     update_fastsql_metrics();
 

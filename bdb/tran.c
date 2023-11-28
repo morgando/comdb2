@@ -1106,6 +1106,7 @@ static tran_type *bdb_tran_begin_ll_int(bdb_state_type *bdb_state,
 
     case TRANCLASS_SOSQL:
     case TRANCLASS_READCOMMITTED:
+    case TRANCLASS_MODSNAP:
         break;
 
     case TRANCLASS_PHYSICAL:
@@ -1211,7 +1212,8 @@ tran_type *bdb_tran_begin_shadow_int(bdb_state_type *bdb_state, int tranclass,
         tran->trak = trak;
 
         if (tran->tranclass == TRANCLASS_SNAPISOL ||
-            tran->tranclass == TRANCLASS_SERIALIZABLE) {
+            tran->tranclass == TRANCLASS_SERIALIZABLE ||
+			tran->tranclass == TRANCLASS_MODSNAP) {
             rc = bdb_osql_cache_table_versions(bdb_state, tran, trak, bdberr);
             if (rc) {
                 logmsg(LOGMSG_ERROR,
@@ -1369,6 +1371,13 @@ tran_type *bdb_tran_begin_socksql(bdb_state_type *bdb_state, int trak,
 {
     return bdb_tran_begin_shadow_int(bdb_state, TRANCLASS_SOSQL, trak, bdberr,
                                      0, 0, 0, 0);
+}
+
+tran_type *bdb_tran_begin_modsnap(bdb_state_type *bdb_state, int trak,
+                                       int *bdberr)
+{
+    return bdb_tran_begin_shadow_int(bdb_state, TRANCLASS_MODSNAP, trak,
+                                     bdberr, 0, 0, 0, 0);
 }
 
 tran_type *bdb_tran_begin_snapisol(bdb_state_type *bdb_state, int trak,
@@ -1567,6 +1576,7 @@ int bdb_tran_commit_with_seqnum_int(bdb_state_type *bdb_state, tran_type *tran,
     /* fallthrough */
     case TRANCLASS_SOSQL:
     case TRANCLASS_READCOMMITTED:
+    case TRANCLASS_MODSNAP:
         bdb_tran_free_shadows(bdb_state, tran);
         break;
 
@@ -2197,6 +2207,8 @@ int bdb_tran_commit(bdb_state_type *bdb_state, tran_type *tran, int *bdberr)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_READCOMMITTED)
         has_bdblock = 0;
+    else if (tran->tranclass == TRANCLASS_MODSNAP)
+        has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_SNAPISOL)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_SERIALIZABLE)
@@ -2278,6 +2290,7 @@ int bdb_tran_abort_int_int(bdb_state_type *bdb_state, tran_type *tran,
     /* fallthrough */
     case TRANCLASS_SOSQL:
     case TRANCLASS_READCOMMITTED:
+    case TRANCLASS_MODSNAP:
         bdb_tran_free_shadows(bdb_state, tran);
         break;
 
@@ -2399,6 +2412,8 @@ int bdb_tran_abort_wrap(bdb_state_type *bdb_state, tran_type *tran, int *bdberr,
     else if (tran->tranclass == TRANCLASS_SOSQL)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_READCOMMITTED)
+        has_bdblock = 0;
+    else if (tran->tranclass == TRANCLASS_MODSNAP)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_SNAPISOL)
         has_bdblock = 0;

@@ -4705,7 +4705,6 @@ int initialize_shadow_trans(struct sqlclntstate *clnt, struct sql_thread *thd)
     /* we handle communication with a blockprocess when all is over */
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
         /* create our special bdb transaction
          * (i.e. w/out berkdb transaction */
         clnt->dbtran.shadow_tran =
@@ -4719,6 +4718,19 @@ int initialize_shadow_trans(struct sqlclntstate *clnt, struct sql_thread *thd)
         break;
     /* we handle communication with a blockprocess when all is over */
 
+    case TRANLEVEL_MODSNAP:
+        /* create our special bdb transaction
+         * (i.e. w/out berkdb transaction */
+        clnt->dbtran.shadow_tran =
+            trans_start_modsnap(&iq, clnt->bdb_osql_trak);
+
+        if (!clnt->dbtran.shadow_tran) {
+           logmsg(LOGMSG_ERROR, "%s:trans_start_modsnap error\n", __func__);
+           return SQLITE_INTERNAL;
+        }
+
+        break;
+    /* we handle communication with a blockprocess when all is over */
     case TRANLEVEL_SOSQL:
         /* this is the first update of the transaction, open a
          * block processor on the master */
@@ -7814,7 +7826,8 @@ static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
         /* in snapshot and stronger isolations, check cached table versions */
         if (clnt->dbtran.shadow_tran &&
             (clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
-             clnt->dbtran.mode == TRANLEVEL_SERIAL)) {
+             clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+			 clnt->dbtran.mode == TRANLEVEL_MODSNAP)) {
             /* make sure btrees have not changed since the transaction started
              */
             rc = bdb_osql_check_table_version(

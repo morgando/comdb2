@@ -263,10 +263,8 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 	b_incr = extending = ret = is_recovery_page = 0;
 
 	if (LF_ISSET(DB_MPOOL_SNAPGET) && (LF_ISSET(DB_MPOOL_NEW) || LF_ISSET(DB_MPOOL_LAST) || LF_ISSET(DB_MPOOL_NOCACHE))) {
-		printf("snapget and other flag\n");
 		abort();
 	}
-
 	switch (flags) {
 	case DB_MPOOL_LAST:
 		/* Get the last page number in the file. */
@@ -320,7 +318,6 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 		++mfp->stat.st_map;
 		if (gbl_bb_berkdb_enable_memp_timing)
 			bb_memp_hit(start_time_us);
-		printf("MMAP\n");
 		return (0);
 	}
 
@@ -358,7 +355,6 @@ retry:	st_hsearch = 0;
 			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 			goto err;
 		}
-
 		++bhp->ref;
 		b_incr = 1;
 
@@ -586,10 +582,9 @@ alloc:		/*
 		/* Allocate a new buffer header and data space. */
 		if ((ret = __memp_alloc_flags(dbmp,
 			    &dbmp->reginfo[n_cache], mfp, 0, NULL, alloc_flags,
-			    &alloc_bhp)) != 0) {
+			    &alloc_bhp)) != 0)
 			 goto err;
 
-		}
 #ifdef DIAGNOSTIC
 		if ((db_alignp_t) alloc_bhp->buf & (sizeof(size_t) - 1)) {
 			__db_err(dbenv,

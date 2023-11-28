@@ -366,14 +366,10 @@ retry:	st_hsearch = 0;
 			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
 				// Snapshot and can enter
 
-				// printf("pgno %lu: Ref type was %d I can enter snapshot\n",(u_long)bhp->pgno, bhp->ref_type);
-				
 				bhp->ref_type = 1;
 				bhp->ref_type_viewers++;
 			} else {
 				// Snapshot and can't enter
-
-				// printf("Snapshot I am waiting\n");
 
 				struct timeval start_time, end_time;
 
@@ -388,35 +384,29 @@ retry:	st_hsearch = 0;
 
 				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
 
-				/*pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+				pthread_mutex_lock(&gbl_modsnap_stats_mutex);
 				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
 					gbl_modsnap_buffer_wait_time = 0;
 					gbl_modsnap_buffer_waits = 0;
 				} 
 				gbl_modsnap_buffer_wait_time += elapsed;
 				gbl_modsnap_buffer_waits++;
-				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);*/
-
-				// printf("Snapshot I am waking up\n");
+				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
 			}
 		} else {
 			if (bhp->ref_type == 0 || bhp->ref_type == 2) {
 				// Regular and can enter
+
 				bhp->ref_type_viewers++;
-				// printf("pgno %lu: %u Ref type was %d I can enter regular\n",(u_long)bhp->pgno, bhp->ref_type_viewers, bhp->ref_type);
-				
 				bhp->ref_type = 2;
 			} else {
 				// Regular and can't enter
-				//
-				// printf("Regular I am waiting\n");
 
 				struct timeval start_time, end_time;
 
 				bhp->ref_other_type_waiters++;
 
 				gettimeofday(&start_time, NULL);
-
 
 				while (bhp->ref_type != 2)
 					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
@@ -433,8 +423,6 @@ retry:	st_hsearch = 0;
 				gbl_modsnap_buffer_wait_time += elapsed;
 				gbl_modsnap_buffer_waits++;
 				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
-
-				// printf("Regular I am waking up\n");
 			}
 		}
 
@@ -590,7 +578,6 @@ alloc:		/*
 		}
 		R_UNLOCK(dbenv, dbmp->reginfo);
 		if (ret != 0) {
-			printf("err1\n");
 			goto err;
 		}
 
@@ -607,7 +594,6 @@ alloc:		/*
 		if ((ret = __memp_alloc_flags(dbmp,
 			    &dbmp->reginfo[n_cache], mfp, 0, NULL, alloc_flags,
 			    &alloc_bhp)) != 0) {
-			printf("err2\n");
 			 goto err;
 
 		}
@@ -617,7 +603,6 @@ alloc:		/*
 			    "DB_MPOOLFILE->get: buffer data is NOT size_t aligned");
 			ret = EINVAL;
 
-			printf("err3\n");
 			goto err;
 		}
 #endif
@@ -692,7 +677,6 @@ alloc:		/*
 			}
 
 			if (ret != 0) {
-				printf("err4\n");
 				goto err;
 			}
 		}
@@ -852,10 +836,8 @@ alloc:		/*
 		 * will call __memp_bhfree.
 		 */
 		if ((ret = __db_mutex_setup(dbenv,
-		    &dbmp->reginfo[n_cache], &bhp->mutex, 0)) != 0) {
-			printf("err5\n");
+		    &dbmp->reginfo[n_cache], &bhp->mutex, 0)) != 0)
 			goto err;
-		}
 	}
 
 	DB_ASSERT(bhp->ref != 0);
@@ -908,10 +890,8 @@ alloc:		/*
 		if ((ret = __memp_pgread(dbmfp,
 				hp, bhp,
 			    LF_ISSET(DB_MPOOL_CREATE) ? 1 : 0,
-			    is_recovery_page)) != 0) {
-			printf("err6\n");
+			    is_recovery_page)) != 0)
 			 goto err;
-		}
 
 		if (state == SECOND_MISS) {
 			if (ISINTERNAL(bhp->buf))
@@ -927,15 +907,9 @@ alloc:		/*
 	 * to be re-converted for use.
 	 */
 	if (F_ISSET(bhp, BH_CALLPGIN)) {
-		if ((ret = __memp_pg(dbmfp, bhp, 1)) != 0) {
-			printf("err7\n");
+		if ((ret = __memp_pg(dbmfp, bhp, 1)) != 0)
 			goto err;
-		}
 		F_CLR(bhp, BH_CALLPGIN);
-	}
-
-	if (bhp->ref == 0) {
-		abort();
 	}
 
 	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
@@ -960,7 +934,6 @@ alloc:		/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
-
 	return (0);
 
 err:	/*
@@ -987,8 +960,6 @@ err:	/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
-
-	printf("ERR\n");
 	return (ret);
 }
 

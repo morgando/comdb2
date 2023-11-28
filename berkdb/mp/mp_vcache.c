@@ -124,8 +124,7 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 
 	pthread_rwlock_wrlock(&(cache->lock));
 
-    PAGE *page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
-	// memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
+	PAGE *page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
 	versions = hash_find(cache->pages, &key);
 	if (versions != NULL) {
@@ -175,11 +174,6 @@ put_version:
 
 	memcpy((char*)(page_header->page), bhp, offsetof(BH, buf) + dbp->pgsize);
 
-	page_image =(PAGE *) (page_header->page + offsetof(BH, buf));
-	// memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
-
-/*	printf("Taking checksum from ptr %p\n", page_image);
-	__db_chksum_no_crypto((u_int8_t *) page_image, dbp->pgsize, page_header->checksum);*/
 	page_header->snapshot_lsn = target_lsn;
 	page_header->cache = versions;
 	listc_abl(&cache->evict_list, page_header);
@@ -242,22 +236,6 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	PAGE *page_image = (PAGE *) (bhp + offsetof(BH, buf));
 
 	page_image =(PAGE *) (page_header->page + offsetof(BH, buf));
-
-	/*u_int8_t chksum[20];
-	memcpy((void *) chksum, (void *) page_header->checksum, sizeof(u_int8_t)*20);
-	// printf("Checking checksum from ptr %p\n", (page_header->page + offsetof(BH, buf)));
-	int c_rval = __db_check_chksum_no_crypto(dbp->dbenv, NULL, page_header->checksum, (void *) (page_header->page + offsetof(BH, buf)), dbp->pgsize, 0);
-	if (c_rval == -1) {
-		printf("checksum neq %p\n", (page_header->page + offsetof(BH, buf)));
-		abort();
-	} else if (c_rval > 0) {
-		printf("checksum err\n");
-		abort();
-	} else {
-	//	printf("checksum eq\n");
-		int i=0;
-	}
-	memcpy((void *) page_header->checksum, (void *) chksum, sizeof(u_int8_t)*20);*/
 
 done:
 	pthread_rwlock_unlock(&(cache->lock));

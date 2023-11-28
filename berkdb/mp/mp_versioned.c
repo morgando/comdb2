@@ -41,26 +41,15 @@
 static int DEBUG_PAGES = 0;
 static int DEBUG_PAGES1 = 0;
 
-extern int gbl_ref_sync_iterations;
-extern int gbl_ref_sync_pollms;
-extern int gbl_ref_sync_wait_txnlist;
-
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
-extern __thread DB *prefault_dbp;
 
 extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache, int size);
 extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
 extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
 
-extern void hexdump(loglvl lvl, const char *key, int keylen);
-
 int gbl_modsnap_cache_hits = 0;
 int gbl_modsnap_cache_misses = 0;
 int gbl_modsnap_total_requests = 0;
-
-#define MAX_TXNARRAY 64
-void collect_txnids(DB_ENV *dbenv, u_int32_t *txnarray, int max, int *count);
-int still_running(DB_ENV *dbenv, u_int32_t *txnarray, int count);
 
 pthread_mutex_t gbl_modsnap_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -243,50 +232,28 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	u_int32_t flags;
 {
 	int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, void *);
-	int wait_cnt, add_to_cache, found, ret, cache_hit, cache_miss, txncnt, total_txns, got_cache_page;
+	int add_to_cache, found, ret, cache_hit, cache_miss;
 	u_int64_t utxnid;
 	int64_t smallest_logfile;
-	u_int32_t txnarray[MAX_TXNARRAY];
-	u_int32_t rectype, n_cache, st_hsearch;
+	u_int32_t rectype;
 	DB_LOGC *logc;
-	DB_MPOOL *dbmp;
-	MPOOL *c_mp, *mp;
-	DB_MPOOL_HASH *hp;
-	MPOOLFILE *mfp;
-	PAGE *page, *page_image, *cache_page_image;
+	PAGE *page, *page_image;
 	DB_LSN curPageLsn, prevPageLsn, commit_lsn, highest_commit_lsn_asof_checkpoint;
 	DB_ENV *dbenv;
-	BH *bhp, *src_bhp, *cache_bhp;
+	BH *bhp;
 	void *data_t;
 
+	ret = found = add_to_cache = cache_hit = cache_miss = 0;
+	logc = NULL;
+	page = page_image = NULL;
+	bhp = NULL;
+	data_t = NULL;
+	*(void **)ret_page = NULL;
 	DBT dbt = {0};
 	dbt.flags = DB_DBT_REALLOC;
-	ret = 0;
-	found = 0;
-	total_txns = 0;
-	add_to_cache = 0;
-	got_cache_page = 0;
-	cache_hit = 0;
-	cache_miss = 0;
-	logc = NULL;
-	page = NULL;
 	dbenv = mpf->dbenv;
-	bhp = NULL;
-	cache_bhp = NULL;
-	src_bhp = NULL;
-	data_t = NULL;
-	dbmp = dbenv->mp_handle;
-	mp = dbmp->reginfo[0].primary;
-	c_mp = NULL;
-	mfp = mpf->mfp;
-	*(void **)ret_page = NULL;
 	highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
 	smallest_logfile = dbenv->txmap->smallest_logfile;
-
-	/*
-	__os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &cache_bhp);
-	cache_page_image = (PAGE *) (((u_int8_t *) cache_bhp) + SSZA(BH, buf) );
-	*/
 
 	// Get current version of the page
 
@@ -408,12 +375,8 @@ search:
 		if (*apply == __bam_cdel_recover) {
 			__bam_cdel_args *argp;
 			__bam_cdel_read(dbenv, dbt.data, &argp);
-			// printf("I AM DOING CDEL RECOVERY\n");
 			int indx = argp->indx + (TYPE(page_image) == P_LBTREE ? O_INDX : 0);
 			B_DCLR(GET_BKEYDATA(dbp, page_image, indx));
-
-	//		(void)__bam_ca_delete(file_dbp, argp->pgno, argp->indx, 0);
-
 			LSN(page_image) = argp->lsn;
 		} else if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
 			if (DEBUG_PAGES) {
@@ -428,10 +391,9 @@ search:
 
 	*(void **)ret_page = (void *) page_image;
 done:
-	if (/*!got_cache_page && */add_to_cache == 1) {
+	if (add_to_cache == 1) {
 	   ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
-	// __os_free(dbenv, cache_bhp);
 	if (logc) {
 		__log_c_close(logc);
 	}

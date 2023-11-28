@@ -323,6 +323,7 @@ alloc:	if ((ret = __db_shalloc(memreg->addr, len, MUTEX_ALIGN, &p)) == 0) {
 
 found:		if (offsetp != NULL)
 			*offsetp = R_OFFSET(memreg, p);
+
 		*(void **)retp = p;
 
 		/*

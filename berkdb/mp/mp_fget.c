@@ -435,10 +435,6 @@ retry:	st_hsearch = 0;
 		 */
 		for (first = 1; F_ISSET(bhp, BH_LOCKED) &&
 		    !F_ISSET(dbenv, DB_ENV_NOLOCKING); first = 0) {
-
-			/*if (flags == DB_MPOOL_SNAPGET && bhp->read_only_lock == 1) {
-				goto skip;
-			}*/
 			/*
 			 * If someone is trying to sync this buffer and the
 			 * buffer is hot, they may never get in.  Give up
@@ -467,8 +463,6 @@ retry:	st_hsearch = 0;
 			MUTEX_UNLOCK(dbenv, &bhp->mutex);
 			MUTEX_LOCK(dbenv, &hp->hash_mutex);
 		}
-
-skip:
 
 		/* Layer violation */
 		if (ISINTERNAL(bhp->buf))
@@ -577,9 +571,8 @@ alloc:		/*
 			break;
 		}
 		R_UNLOCK(dbenv, dbmp->reginfo);
-		if (ret != 0) {
+		if (ret != 0)
 			goto err;
-		}
 
 		/*
 		 * !!!
@@ -676,9 +669,8 @@ alloc:		/*
 				    falloc_len);
 			}
 
-			if (ret != 0) {
+			if (ret != 0)
 				goto err;
-			}
 		}
 		goto hb_search;
 	case SECOND_FOUND:

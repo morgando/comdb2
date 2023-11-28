@@ -1,5 +1,5 @@
-1 set transaction read committed isolation
-2 set transaction read committed isolation
+1 set transaction modsnap isolation
+2 set transaction modsnap isolation
 1 drop table if exists t5
 1 create table t5 (d decimal32 primary key, i int)
 1 insert into t5 values (1, 5)

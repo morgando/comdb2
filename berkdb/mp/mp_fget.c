@@ -49,6 +49,7 @@ static const char revid[] = "$Id: mp_fget.c,v 11.81 2003/09/25 02:15:16 sue Exp 
 struct bdb_state_tag;
 typedef struct bdb_state_tag bdb_state_type;
 
+extern pthread_mutex_t gbl_modsnap_stats_mutex;
 extern int gbl_prefault_udp;
 extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
@@ -212,6 +213,8 @@ __memp_falloc_len(mfp, offset, len)
 	}
 }
 
+long gbl_modsnap_buffer_wait_time;
+int gbl_modsnap_buffer_waits;
 u_int64_t gbl_memp_pgreads = 0;
 
 /*
@@ -258,6 +261,11 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 	alloc_bhp = bhp = NULL;
 	hp = NULL;
 	b_incr = extending = ret = is_recovery_page = 0;
+
+	if (LF_ISSET(DB_MPOOL_SNAPGET) && (LF_ISSET(DB_MPOOL_NEW) || LF_ISSET(DB_MPOOL_LAST) || LF_ISSET(DB_MPOOL_NOCACHE))) {
+		printf("snapget and other flag\n");
+		abort();
+	}
 
 	switch (flags) {
 	case DB_MPOOL_LAST:
@@ -312,6 +320,7 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 		++mfp->stat.st_map;
 		if (gbl_bb_berkdb_enable_memp_timing)
 			bb_memp_hit(start_time_us);
+		printf("MMAP\n");
 		return (0);
 	}
 
@@ -349,8 +358,85 @@ retry:	st_hsearch = 0;
 			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 			goto err;
 		}
+
 		++bhp->ref;
 		b_incr = 1;
+
+		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
+			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
+				// Snapshot and can enter
+
+				// printf("pgno %lu: Ref type was %d I can enter snapshot\n",(u_long)bhp->pgno, bhp->ref_type);
+				
+				bhp->ref_type = 1;
+				bhp->ref_type_viewers++;
+			} else {
+				// Snapshot and can't enter
+
+				// printf("Snapshot I am waiting\n");
+
+				struct timeval start_time, end_time;
+
+				bhp->ref_other_type_waiters++;
+
+				gettimeofday(&start_time, NULL);
+
+				while (bhp->ref_type != 1)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+
+				gettimeofday(&end_time, NULL);
+
+				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
+
+				/*pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
+					gbl_modsnap_buffer_wait_time = 0;
+					gbl_modsnap_buffer_waits = 0;
+				} 
+				gbl_modsnap_buffer_wait_time += elapsed;
+				gbl_modsnap_buffer_waits++;
+				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);*/
+
+				// printf("Snapshot I am waking up\n");
+			}
+		} else {
+			if (bhp->ref_type == 0 || bhp->ref_type == 2) {
+				// Regular and can enter
+				bhp->ref_type_viewers++;
+				// printf("pgno %lu: %u Ref type was %d I can enter regular\n",(u_long)bhp->pgno, bhp->ref_type_viewers, bhp->ref_type);
+				
+				bhp->ref_type = 2;
+			} else {
+				// Regular and can't enter
+				//
+				// printf("Regular I am waiting\n");
+
+				struct timeval start_time, end_time;
+
+				bhp->ref_other_type_waiters++;
+
+				gettimeofday(&start_time, NULL);
+
+
+				while (bhp->ref_type != 2)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+
+				gettimeofday(&end_time, NULL);
+
+				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
+
+				pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
+					gbl_modsnap_buffer_wait_time = 0;
+					gbl_modsnap_buffer_waits = 0;
+				} 
+				gbl_modsnap_buffer_wait_time += elapsed;
+				gbl_modsnap_buffer_waits++;
+				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
+
+				// printf("Regular I am waking up\n");
+			}
+		}
 
 		/*
 		 * BH_LOCKED --
@@ -361,6 +447,10 @@ retry:	st_hsearch = 0;
 		 */
 		for (first = 1; F_ISSET(bhp, BH_LOCKED) &&
 		    !F_ISSET(dbenv, DB_ENV_NOLOCKING); first = 0) {
+
+			/*if (flags == DB_MPOOL_SNAPGET && bhp->read_only_lock == 1) {
+				goto skip;
+			}*/
 			/*
 			 * If someone is trying to sync this buffer and the
 			 * buffer is hot, they may never get in.  Give up
@@ -389,6 +479,8 @@ retry:	st_hsearch = 0;
 			MUTEX_UNLOCK(dbenv, &bhp->mutex);
 			MUTEX_LOCK(dbenv, &hp->hash_mutex);
 		}
+
+skip:
 
 		/* Layer violation */
 		if (ISINTERNAL(bhp->buf))
@@ -497,8 +589,10 @@ alloc:		/*
 			break;
 		}
 		R_UNLOCK(dbenv, dbmp->reginfo);
-		if (ret != 0)
+		if (ret != 0) {
+			printf("err1\n");
 			goto err;
+		}
 
 		/*
 		 * !!!
@@ -512,15 +606,18 @@ alloc:		/*
 		/* Allocate a new buffer header and data space. */
 		if ((ret = __memp_alloc_flags(dbmp,
 			    &dbmp->reginfo[n_cache], mfp, 0, NULL, alloc_flags,
-			    &alloc_bhp)) != 0)
+			    &alloc_bhp)) != 0) {
+			printf("err2\n");
 			 goto err;
 
+		}
 #ifdef DIAGNOSTIC
 		if ((db_alignp_t) alloc_bhp->buf & (sizeof(size_t) - 1)) {
 			__db_err(dbenv,
 			    "DB_MPOOLFILE->get: buffer data is NOT size_t aligned");
 			ret = EINVAL;
 
+			printf("err3\n");
 			goto err;
 		}
 #endif
@@ -594,8 +691,10 @@ alloc:		/*
 				    falloc_len);
 			}
 
-			if (ret != 0)
+			if (ret != 0) {
+				printf("err4\n");
 				goto err;
+			}
 		}
 		goto hb_search;
 	case SECOND_FOUND:
@@ -653,6 +752,13 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
+		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
+			bhp->ref_type = 1;
+		} else {
+			bhp->ref_type = 2;
+		}
+		pthread_cond_init(&bhp->ref_cond, NULL);
+		bhp->ref_type_viewers = 1;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;
@@ -746,8 +852,10 @@ alloc:		/*
 		 * will call __memp_bhfree.
 		 */
 		if ((ret = __db_mutex_setup(dbenv,
-		    &dbmp->reginfo[n_cache], &bhp->mutex, 0)) != 0)
+		    &dbmp->reginfo[n_cache], &bhp->mutex, 0)) != 0) {
+			printf("err5\n");
 			goto err;
+		}
 	}
 
 	DB_ASSERT(bhp->ref != 0);
@@ -800,8 +908,10 @@ alloc:		/*
 		if ((ret = __memp_pgread(dbmfp,
 				hp, bhp,
 			    LF_ISSET(DB_MPOOL_CREATE) ? 1 : 0,
-			    is_recovery_page)) != 0)
+			    is_recovery_page)) != 0) {
+			printf("err6\n");
 			 goto err;
+		}
 
 		if (state == SECOND_MISS) {
 			if (ISINTERNAL(bhp->buf))
@@ -817,9 +927,15 @@ alloc:		/*
 	 * to be re-converted for use.
 	 */
 	if (F_ISSET(bhp, BH_CALLPGIN)) {
-		if ((ret = __memp_pg(dbmfp, bhp, 1)) != 0)
+		if ((ret = __memp_pg(dbmfp, bhp, 1)) != 0) {
+			printf("err7\n");
 			goto err;
+		}
 		F_CLR(bhp, BH_CALLPGIN);
+	}
+
+	if (bhp->ref == 0) {
+		abort();
 	}
 
 	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
@@ -844,6 +960,7 @@ alloc:		/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
+
 	return (0);
 
 err:	/*
@@ -870,6 +987,8 @@ err:	/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
+
+	printf("ERR\n");
 	return (ret);
 }
 

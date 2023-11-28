@@ -65,6 +65,7 @@
 static unsigned int curtran_counter = 0;
 extern int gbl_debug_txn_sleep;
 extern int __txn_getpriority(DB_TXN *txnp, int *priority);
+extern int __txn_commit_map_get_highest_commit_lsn(DB_ENV *dbenv, DB_LSN *outlsn);
 
 #if 0
 int __lock_dump_region_lockerid __P((DB_ENV *, const char *, FILE *, u_int32_t lockerid));
@@ -2666,6 +2667,45 @@ int bdb_add_rep_blob(bdb_state_type *bdb_state, tran_type *tran, int session,
         *bdberr = BDBERR_MISC;
         rc = -1;
     }
+    return rc;
+}
+
+int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
+                            unsigned int *file, unsigned int *offset)
+{
+        DB_LSN outlsn;
+	int rc;
+
+	rc = 0;
+
+	if ((rc = __txn_commit_map_get_highest_commit_lsn(bdb_state->dbenv, &outlsn)) != 0) {
+            return rc;
+	}
+
+	if (file)
+            *file = outlsn.file;
+        if (offset)
+            *offset = outlsn.offset;
+
+        return rc;
+}
+
+int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
+                            unsigned int *file, unsigned int *offset)
+{
+    int rc;
+    DB_TXN_COMMIT_MAP *txmap;
+
+    rc = 0;
+    txmap = bdb_state->dbenv->txmap;
+
+    if (file) {
+        *file = txmap->highest_commit_lsn_asof_checkpoint.file;
+    }
+    if (offset) {
+        *offset = txmap->highest_commit_lsn_asof_checkpoint.offset;
+    }
+
     return rc;
 }
 

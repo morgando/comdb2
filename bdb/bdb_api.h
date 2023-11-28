@@ -1403,6 +1403,14 @@ unsigned long long bdb_get_current_lsn(bdb_state_type *bdb_state,
                                        unsigned int *file,
                                        unsigned int *offset);
 
+int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
+                                     unsigned int *file,
+                                     unsigned int *offset);
+
+int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
+                                    unsigned int *file,
+                                    unsigned int *offset);
+
 void bdb_set_tran_verify_updateid(tran_type *tran);
 
 int bdb_am_i_coherent(bdb_state_type *bdb_state);

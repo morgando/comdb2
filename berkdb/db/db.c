@@ -478,8 +478,8 @@ __db_master_update(mdbp, sdbp, txn, subdb, type, action, newname, flags)
 		 */
 		memcpy(&sdbp->meta_pgno, data.data, sizeof(db_pgno_t));
 		sdbp->meta_pgno = ntohl(sdbp->meta_pgno);
-		if ((ret =
-		    __memp_fget(mdbp->mpf, &sdbp->meta_pgno, 0, &p)) != 0)
+		PAGEGET(dbc, mdbp->mpf, &sdbp->meta_pgno, 0, &p, ret);
+		if (ret != 0)
 			goto err;
 
 		/* Free and put the page. */
@@ -594,8 +594,8 @@ done:	/*
 	 */
 	if (p != NULL) {
 		if (ret == 0) {
-			if ((t_ret =
-			    __memp_fput(mdbp->mpf, p, DB_MPOOL_DIRTY)) != 0)
+			PAGEPUT(dbc, mdbp->mpf, p, DB_MPOOL_DIRTY, t_ret);
+			if (t_ret != 0)
 				ret = t_ret;
 			/*
 			 * Since we cannot close this file until after
@@ -606,7 +606,7 @@ done:	/*
 			if ((t_ret = __db_sync(mdbp)) != 0 && ret == 0)
 				ret = t_ret;
 		} else
-			(void)__memp_fput(mdbp->mpf, p, 0);
+			PAGEPUT(dbc, mdbp->mpf, p, 0, t_ret);
 	}
 
 	/* Discard the cursor(s) and data. */

@@ -211,6 +211,10 @@ __checkpoint_save(DB_ENV *dbenv, DB_LSN *lsn, int in_recovery)
 		return EINVAL;
 	}
 
+	if (dbenv->txmap != NULL) {
+		dbenv->txmap->highest_commit_lsn_asof_checkpoint = dbenv->txmap->highest_commit_lsn;
+	}
+
 	return 0;
 }
 

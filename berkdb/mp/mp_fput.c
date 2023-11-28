@@ -81,11 +81,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	if (flags) {
 		if ((ret = __db_fchk(dbenv, "memp_fput", flags,
 		    DB_MPOOL_CLEAN | DB_MPOOL_DIRTY |DB_MPOOL_DISCARD |
-		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT)) != 0)
+		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT | DB_MPOOL_SNAPPUT)) != 0) {
 			 return (ret);
+		}
 		if ((ret = __db_fcchk(dbenv, "memp_fput",
-		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0)
+		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0) {
 			 return (ret);
+		}
 
 		if (LF_ISSET(DB_MPOOL_DIRTY) && F_ISSET(dbmfp, MP_READONLY)) {
 			__db_err(dbenv,
@@ -192,6 +194,22 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 * thread waiting to flush the buffer to disk, we're done.  Ignore the
 	 * discard flags (for now) and leave the buffer's priority alone.
 	 */
+
+	// If there's starvation problems then do handoff after each or after each n.
+	if (--bhp->ref_type_viewers == 0) {
+		if (bhp->ref_other_type_waiters > 0) {
+			bhp->ref_type = bhp->ref_type == 2 ? 1 : 2;
+			bhp->ref_type_viewers = bhp->ref_other_type_waiters;
+			bhp->ref_other_type_waiters = 0;
+
+			pthread_cond_broadcast(&bhp->ref_cond);
+		} else {
+			if (bhp->ref_other_type_waiters < 0) {
+				abort();
+			}
+			bhp->ref_type = 0;
+		}
+	}
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {
 #ifdef REF_SYNC_TEST
 		if (F_ISSET(bhp, BH_LOCKED) && bhp->ref_sync) {

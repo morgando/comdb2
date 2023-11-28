@@ -600,6 +600,7 @@ char *tranlevel_tostr(int lvl)
     case TRANLEVEL_SOSQL:
         return "TRANLEVEL_SOSQL";
     case TRANLEVEL_RECOM:
+	case TRANLEVEL_MODSNAP: /* ? */
         return "TRANLEVEL_RECOM";
     case TRANLEVEL_SERIAL:
         return "TRANLEVEL_SERIAL";
@@ -1732,6 +1733,13 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     reqlog_logf(thd->logger, REQL_QUERY, "\"%s\" new transaction\n",
                 (clnt->sql) ? clnt->sql : "(???.)");
 
+    /* Latch the last commit LSN */
+    struct dbtable *db = &thedb->static_table;
+    assert(db->handle);
+    bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
+    bdb_get_highest_commit_lsn_asof_checkpoint(db->handle, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
+    clnt->last_commit_lsn_isset = 1;
+
     if (clnt->osql.replay)
         goto done;
 
@@ -1789,7 +1797,7 @@ void reset_query_effects(struct sqlclntstate *clnt)
     bzero(&clnt->chunk_effects, sizeof(clnt->chunk_effects));
 }
 
-static char *sqlenginestate_tostr(int state)
+char *sqlenginestate_tostr(int state)
 {
     switch (state) {
     case SQLENG_NORMAL_PROCESS:
@@ -1892,6 +1900,7 @@ void abort_dbtran(struct sqlclntstate *clnt)
         break;
 
     case TRANLEVEL_RECOM:
+	case TRANLEVEL_MODSNAP:
         recom_abort(clnt);
         break;
 
@@ -1930,6 +1939,8 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 {
     int irc = 0, rc = 0, bdberr = 0;
 
+    clnt->last_commit_lsn_isset = 0;
+
     if (!clnt->intrans) {
         reqlog_logf(thd->logger, REQL_QUERY, "\"%s\" ignore (no transaction)\n",
                     (clnt->sql) ? clnt->sql : "(???.)");
@@ -1941,7 +1952,8 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
         sql_debug_logf(clnt, __func__, __LINE__, "starting\n");
 
         switch (clnt->dbtran.mode) {
-        case TRANLEVEL_RECOM: {
+        case TRANLEVEL_RECOM:
+		case TRANLEVEL_MODSNAP: {
             /* here we handle the communication with bp */
             if (clnt->ctrl_sqlengine == SQLENG_FNSH_STATE) {
                 rc = recom_commit(clnt, thd->sqlthd, clnt->tzname, 0);
@@ -2233,8 +2245,11 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
                               struct sqlclntstate *clnt,
                               enum trans_clntcomm sideeffects)
 {
+
     int rc = 0;
     int outrc = 0;
+
+    clnt->last_commit_lsn_isset = 0;
 
     if (sideeffects == TRANS_CLNTCOMM_NORMAL) {
     /* Don't setup(reset) logger for commits of individual chunks,
@@ -5455,6 +5470,8 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
     if (gbl_sockbplog) {
         init_bplog_socket(clnt);
     }
+
+    clnt->last_commit_lsn_isset = 0;
 }
 
 void reset_clnt_flags(struct sqlclntstate *clnt)
@@ -5463,6 +5480,7 @@ void reset_clnt_flags(struct sqlclntstate *clnt)
     clnt->has_recording = 0;
     clnt->statement_timedout = 0;
     clnt->writeTransaction = 0;
+    clnt->last_commit_lsn_isset = 0;
 }
 
 int sbuf_is_local(SBUF2 *sb)
@@ -5997,14 +6015,16 @@ static int execute_sql_query_offload_inner_loop(struct sqlclntstate *clnt,
             Get the LOCK!
             */
             if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-                clnt->dbtran.mode == TRANLEVEL_SERIAL) {
+                clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+				clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
                 Pthread_mutex_lock(&clnt->dtran_mtx);
             }
 
             ret = next_row(clnt, stmt);
 
             if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-                clnt->dbtran.mode == TRANLEVEL_SERIAL) {
+                clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+				clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
                 Pthread_mutex_unlock(&clnt->dtran_mtx);
             }
 

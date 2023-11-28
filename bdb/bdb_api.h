@@ -667,6 +667,9 @@ tran_type *bdb_tran_begin_socksql(bdb_state_type *, int trak, int *bdberr);
 tran_type *bdb_tran_begin_readcommitted(bdb_state_type *, int trak,
                                         int *bdberr);
 
+tran_type *bdb_tran_begin_modsnap(bdb_state_type *, int trak,
+                                        int *bdberr);
+
 tran_type *bdb_tran_begin_serializable(bdb_state_type *bdb_state, int trak,
                                        int *bdberr, int epoch, int file,
                                        int offset, int is_ha_retry);
@@ -1401,6 +1404,14 @@ int bdb_genid_exists(bdb_state_type *bdb_state, unsigned long long genid,
 unsigned long long bdb_get_current_lsn(bdb_state_type *bdb_state,
                                        unsigned int *file,
                                        unsigned int *offset);
+
+int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
+                                     unsigned int *file,
+                                     unsigned int *offset);
+
+int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
+                                    unsigned int *file,
+                                    unsigned int *offset);
 
 void bdb_set_tran_verify_updateid(tran_type *tran);
 

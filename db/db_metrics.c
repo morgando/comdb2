@@ -31,6 +31,13 @@
 #include <sys/resource.h>
 #include "comdb2_query_preparer.h"
 
+extern int gbl_modsnap_cache_hits;
+extern int gbl_modsnap_cache_misses;
+extern int gbl_modsnap_total_requests;
+extern long gbl_modsnap_buffer_wait_time;
+extern int gbl_modsnap_buffer_waits;
+extern pthread_mutex_t gbl_modsnap_stats_mutex;
+
 struct comdb2_metrics_store {
     int64_t cache_hits;
     int64_t cache_misses;
@@ -96,6 +103,13 @@ struct comdb2_metrics_store {
     int64_t minimum_truncation_file;
     int64_t minimum_truncation_offset;
     int64_t minimum_truncation_timestamp;
+	int64_t modsnap_cache_hits;
+	int64_t modsnap_cache_misses;
+	int64_t modsnap_cache_hit_rate;
+	int64_t modsnap_total_requests;
+	int64_t modsnap_rollback_rate;
+	int64_t modsnap_buffer_waits;
+	long modsnap_buffer_wait_time;
     int64_t reprepares;
     int64_t nonsql;
     int64_t vreplays;
@@ -388,6 +402,20 @@ comdb2_metric gbl_metrics[] = {
     {"fastsql_execute_stop", "Number of fastsql 'execute stop' requests",
      STATISTIC_INTEGER, STATISTIC_COLLECTION_TYPE_CUMULATIVE,
      &stats.fastsql_execute_stop, NULL},
+    {"modsnap_cache_hits", "Count of modsnap cache hits", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_cache_hits, NULL},
+    {"modsnap_cache_misses", "Count of modsnap cache misses", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_cache_misses, NULL},
+    {"modsnap_cache_hit_rate", "Modsnap cache hit rate", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_cache_hit_rate, NULL},
+    {"modsnap_total_requests", "Total number of modsnap requests", STATISTIC_INTEGER,
+     STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_total_requests, NULL},
+    {"modsnap_rollback_rate", "Modsnap rollback rate", STATISTIC_INTEGER, 
+	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_rollback_rate, NULL},
+    {"modsnap_buffer_waits", "Number of times a thread has blocked in fget", STATISTIC_INTEGER, 
+	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_buffer_waits, NULL},
+    {"modsnap_buffer_wait_time", "Total amount of time threads have blocked in fget", STATISTIC_INTEGER, 
+	STATISTIC_COLLECTION_TYPE_LATEST, &stats.modsnap_buffer_wait_time, NULL},
 };
 
 const char *metric_collection_type_string(comdb2_collection_type t) {
@@ -725,6 +753,17 @@ int refresh_metrics(void)
     stats.auth_allowed = gbl_num_auth_allowed;
     stats.auth_denied = gbl_num_auth_denied;
     curtran_puttran(trans);
+
+	pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+	stats.modsnap_cache_hits = gbl_modsnap_cache_hits;
+	stats.modsnap_cache_misses = gbl_modsnap_cache_misses;
+	stats.modsnap_total_requests = gbl_modsnap_total_requests;
+	stats.modsnap_buffer_wait_time = gbl_modsnap_buffer_wait_time;
+	stats.modsnap_buffer_waits = gbl_modsnap_buffer_waits;
+	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
+
+	stats.modsnap_cache_hit_rate = (double)stats.modsnap_cache_hits;
+	stats.modsnap_rollback_rate = (double)stats.modsnap_cache_misses;
 
     update_fastsql_metrics();
 

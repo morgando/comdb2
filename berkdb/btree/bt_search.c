@@ -190,7 +190,7 @@ __bam_cmp_inline(dbp, dbt, h, indx, func, cmpp, buf)
 	/*
 	 * Overflow.
 	 */
-	return (__db_moff(dbp, dbt,
+	return (__db_moff(NULL, dbp, dbt,
 		bo->pgno, bo->tlen, func == __bam_defcmp ? NULL : func, cmpp));
 }
 
@@ -333,7 +333,7 @@ __bam_search(dbc, root_pgno, key, flags, stop, recnop, exactp)
 	db_lockmode_t lock_mode;
 	db_pgno_t pg;
 	db_recno_t recno;
-	int adjust, cmp, deloffset, ret, stack;
+	int adjust, cmp, deloffset, ret, t_ret, stack;
 	int (*func) __P((DB *, const DBT *, const DBT *));
 	void *cached_pg = NULL;
 	void *bfpool_pg = NULL;
@@ -355,7 +355,6 @@ __bam_search(dbc, root_pgno, key, flags, stop, recnop, exactp)
 	cp = (BTREE_CURSOR *)dbc->internal;
 	t = dbp->bt_internal;
 	recno = 0;
-
 
 	BT_STK_CLR(cp);
 
@@ -476,7 +475,7 @@ hash_backup:
 			return (ret);
 		}
 	}
-	ret = __memp_fget(mpf, &pg, 0, &h);
+	PAGEGET(dbc, mpf, &pg, 0, &h, ret);
 	if (ret != 0) {
 		/* Did not read it, so we can release the lock */
 		(void)__LPUT(dbc, lock);
@@ -494,7 +493,7 @@ hash_backup:
 		if ((genidcmp(hashtbl[hh].genid, key->data) != 0) ||
 		    ((hash_pg = hashtbl[hh].pgno) != h->pgno)) {
 			// hash page changed between searching the hash and getting page lock
-			(void)__memp_fput(mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0, t_ret);
 			(void)__LPUT(dbc, lock);
 			if (genidcmp(hashtbl[hh].genid, key->data) == 0) {
 				// use the new hash pg
@@ -539,13 +538,13 @@ hash_backup:
 	if (!stack &&
 	    ((LF_ISSET(S_PARENT) && (u_int8_t)(stop + 1) >= h->level) ||
 		(LF_ISSET(S_WRITE) && h->level == LEAFLEVEL))) {
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 		(void)__LPUT(dbc, lock);
 		INTERNAL_PTR_CHECK(cp == dbc->internal);
 		lock_mode = DB_LOCK_WRITE;
 		if ((ret = __db_lget(dbc, 0, pg, lock_mode, 0, &lock)) != 0)
 			return (ret);
-		ret = __memp_fget(mpf, &pg, 0, &h);
+		PAGEGET(dbc, mpf, &pg, 0, &h, ret);
 		if (ret != 0) {
 			/* Did not read it, so we can release the lock */
 			(void)__LPUT(dbc, lock);
@@ -556,7 +555,7 @@ hash_backup:
 			(LF_ISSET(S_WRITE) && h->level == LEAFLEVEL))) {
 			/* Someone else split the root, start over. */
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
-			(void)__memp_fput(mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0, t_ret);
 			(void)__LPUT(dbc, lock);
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
 			goto try_again;
@@ -617,7 +616,7 @@ got_pg:func = t->bt_compare;
 			if (LF_ISSET(S_STK_ONLY)) {
 				BT_STK_NUM(dbp->dbenv, cp, h, base, ret);
 				__LPUT(dbc, lock);
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				return (ret);
 			}
 
@@ -664,13 +663,13 @@ next:		if (recnop != NULL)
 				INTERNAL_PTR_CHECK(cp == dbc->internal);
 				BT_STK_NUM(dbp->dbenv, cp, h, indx, ret);
 				__LPUT(dbc, lock);
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				INTERNAL_PTR_CHECK(cp == dbc->internal);
 				return (ret);
 			}
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
 			BT_STK_NUMPUSH(dbp->dbenv, cp, h, indx, ret);
-			(void)__memp_fput(mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0, t_ret);
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
 			if ((ret = __db_lget(dbc,
 				    LCK_COUPLE_ALWAYS, pg, lock_mode, 0,
@@ -733,7 +732,7 @@ next:		if (recnop != NULL)
 					    &lock)) != 0)
 					goto err;
 			} else {
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				if ((ret = __db_lget(dbc,
 					    LCK_COUPLE_ALWAYS, pg, lock_mode, 0,
 					    &lock)) != 0) {
@@ -753,7 +752,7 @@ next:		if (recnop != NULL)
 #if 0
 		printf("GETTING %s:%d\n", dbc->dbp->fname, pg);
 #endif
-		ret = __memp_fget(mpf, &pg, 0, &h);
+		PAGEGET(dbc, mpf, &pg, 0, &h, ret);
 		if (ret != 0) {
 			if (cached_pg) {
 				/*
@@ -780,7 +779,7 @@ next:		if (recnop != NULL)
 			    ) {
 				;
 			} else {
-				__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				__LPUT(dbc, lock);
 				rcache_invalidate(slot);
 				goto try_again;
@@ -886,7 +885,7 @@ found:	*exactp = 1;
 		BT_STK_NUM(dbp->dbenv, cp, h, indx, ret);
 
 		__LPUT(dbc, lock);
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 		INTERNAL_PTR_CHECK(cp == dbc->internal);
 	} else {
 
@@ -931,7 +930,7 @@ notfound:
 	/* Keep the page locked for serializability. */
 	dbc->lastpage = h->pgno;
 
-	(void)__memp_fput(mpf, h, 0);
+	PAGEPUT(dbc, mpf, h, 0, t_ret);
 	(void)__TLPUT(dbc, lock);
 	ret = DB_NOTFOUND;
 
@@ -980,8 +979,8 @@ __bam_stkrel(dbc, flags)
 				cp->page = NULL;
 				LOCK_INIT(cp->lock);
 			}
-			if ((t_ret =
-			    __memp_fput(mpf, epg->page, 0)) != 0 && ret == 0)
+			PAGEPUT(dbc, mpf, epg->page, 0, t_ret);
+			if (t_ret != 0 && ret == 0)
 				ret = t_ret;
 			/*
 			 * XXX

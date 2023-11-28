@@ -503,6 +503,7 @@ advance_on_tree(DBC *dbc)
 	db_lockmode_t lock_mode = DB_LOCK_READ;
 	u_int8_t up_level = 1;
 	int ret = 0;
+	int t_ret = 0;
 	
 	while (up_level < RMBR_LVL && 
 	       (pf->curindx[up_level] >= pf->maxindx[up_level] -1 ) && 
@@ -531,18 +532,19 @@ advance_on_tree(DBC *dbc)
 		if ((ret = __db_lget(dbc, 0, pgno, lock_mode, 0, &lock)) != 0)
 			goto end;
 
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) == 0)
+		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+		if (ret == 0)
 		{   
 			if (memcmp(&h->lsn, &pf->lsn[up_level], sizeof(DB_LSN)) == 0)
 			{
 				pgno = GET_BINTERNAL(dbp, h, pf->curindx[up_level])->pgno; 
 				pf->curlf[up_level -1] = pgno;
 
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				ret = tree_walk(dbc, FIRST, pf->curlf[up_level - 1], up_level );
 			} else 
 			{
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				ret = DIFF_LSN;
 			}
             
@@ -570,6 +572,7 @@ advanceb_on_tree(DBC *dbc)
 
 	u_int8_t up_level = 1;
 	int ret = 0;
+	int t_ret = 0;
 
 	up_level = 1;
 
@@ -594,7 +597,8 @@ advanceb_on_tree(DBC *dbc)
 		if ((ret = __db_lget(dbc, 0, pgno, lock_mode, 0, &lock)) != 0)
 			goto end;
         
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) == 0)
+		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+		if (ret == 0)
 		{    
             
 			if (memcmp(&h->lsn, &pf->lsn[up_level], sizeof(DB_LSN)) == 0)
@@ -602,11 +606,11 @@ advanceb_on_tree(DBC *dbc)
 				pgno = GET_BINTERNAL(dbp, h, pf->curindx[up_level])->pgno; 
 				pf->curlf[up_level -1] = pgno; 
               
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				ret = tree_walk(dbc, LAST, pf->curlf[up_level - 1], up_level); 
 			} else
 			{
-				(void)__memp_fput(mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0, t_ret);
 				ret = DIFF_LSN;
 			}
 		} 
@@ -632,6 +636,7 @@ page_load_f(btpf * pf, DBC *dbc)
 	db_pgno_t t_pgno;
 	db_lockmode_t lock_mode = DB_LOCK_READ;
 	int ret = 0;
+	int t_ret = 0;
 	db_indx_t p_cnt = 0;
 	db_indx_t c = 0;
 	db_indx_t i;
@@ -645,9 +650,10 @@ page_load_f(btpf * pf, DBC *dbc)
 			goto end;
 
         
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0 || memcmp(&h->lsn, &pf->lsn[1], sizeof(DB_LSN)) != 0)
+		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+		if (ret != 0 || memcmp(&h->lsn, &pf->lsn[1], sizeof(DB_LSN)) != 0)
 		{
-			(void)__memp_fput(mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0, t_ret);
 			(void)__LPUT(dbc, lock);
 			ret = DIFF_LSN;
 			goto end;
@@ -668,7 +674,7 @@ page_load_f(btpf * pf, DBC *dbc)
 
 		c += p_cnt;
 		pf->curindx[1] += p_cnt;
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 		(void)__LPUT(dbc, lock);
 
 		if (c >= pf->wndw)
@@ -714,6 +720,7 @@ page_load_b(btpf * pf, DBC *dbc)
 
 
 	int ret = 0;
+	int t_ret = 0;
 	db_indx_t p_cnt = 0;
 	db_indx_t c = 0;
 	db_indx_t i;
@@ -727,9 +734,10 @@ page_load_b(btpf * pf, DBC *dbc)
 			(void)__LPUT(dbc, lock);
 			goto end;
 		}
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0 ||
+		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
+		if (ret != 0 ||
 		    memcmp(&h->lsn, &pf->lsn[1], sizeof(DB_LSN)) != 0) {
-			(void)__memp_fput(mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0, t_ret);
 			(void)__LPUT(dbc, lock);
 			ret = DIFF_LSN;
 			goto end;
@@ -754,7 +762,7 @@ page_load_b(btpf * pf, DBC *dbc)
 		c += (pf->curindx[1] - p_cnt);
 		pf->curindx[1] = p_cnt;
 
-		(void)__memp_fput(mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0, t_ret);
 		(void)__LPUT(dbc, lock);  // release lock
 
 		if (c >= pf->wndw)

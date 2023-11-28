@@ -49,6 +49,7 @@ static const char revid[] = "$Id: mp_fget.c,v 11.81 2003/09/25 02:15:16 sue Exp 
 struct bdb_state_tag;
 typedef struct bdb_state_tag bdb_state_type;
 
+extern pthread_mutex_t gbl_modsnap_stats_mutex;
 extern int gbl_prefault_udp;
 extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
@@ -212,6 +213,8 @@ __memp_falloc_len(mfp, offset, len)
 	}
 }
 
+long gbl_modsnap_buffer_wait_time;
+int gbl_modsnap_buffer_waits;
 u_int64_t gbl_memp_pgreads = 0;
 
 /*
@@ -259,6 +262,9 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 	hp = NULL;
 	b_incr = extending = ret = is_recovery_page = 0;
 
+	if (LF_ISSET(DB_MPOOL_SNAPGET) && (LF_ISSET(DB_MPOOL_NEW) || LF_ISSET(DB_MPOOL_LAST) || LF_ISSET(DB_MPOOL_NOCACHE))) {
+		abort();
+	}
 	switch (flags) {
 	case DB_MPOOL_LAST:
 		/* Get the last page number in the file. */
@@ -351,6 +357,70 @@ retry:	st_hsearch = 0;
 		}
 		++bhp->ref;
 		b_incr = 1;
+
+		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
+			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
+				// Snapshot and can enter
+
+				bhp->ref_type = 1;
+				bhp->ref_type_viewers++;
+			} else {
+				// Snapshot and can't enter
+
+				struct timeval start_time, end_time;
+
+				bhp->ref_other_type_waiters++;
+
+				gettimeofday(&start_time, NULL);
+
+				while (bhp->ref_type != 1)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+
+				gettimeofday(&end_time, NULL);
+
+				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
+
+				pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
+					gbl_modsnap_buffer_wait_time = 0;
+					gbl_modsnap_buffer_waits = 0;
+				} 
+				gbl_modsnap_buffer_wait_time += elapsed;
+				gbl_modsnap_buffer_waits++;
+				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
+			}
+		} else {
+			if (bhp->ref_type == 0 || bhp->ref_type == 2) {
+				// Regular and can enter
+
+				bhp->ref_type_viewers++;
+				bhp->ref_type = 2;
+			} else {
+				// Regular and can't enter
+
+				struct timeval start_time, end_time;
+
+				bhp->ref_other_type_waiters++;
+
+				gettimeofday(&start_time, NULL);
+
+				while (bhp->ref_type != 2)
+					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
+
+				gettimeofday(&end_time, NULL);
+
+				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
+
+				pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
+					gbl_modsnap_buffer_wait_time = 0;
+					gbl_modsnap_buffer_waits = 0;
+				} 
+				gbl_modsnap_buffer_wait_time += elapsed;
+				gbl_modsnap_buffer_waits++;
+				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
+			}
+		}
 
 		/*
 		 * BH_LOCKED --
@@ -653,6 +723,13 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
+		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
+			bhp->ref_type = 1;
+		} else {
+			bhp->ref_type = 2;
+		}
+		pthread_cond_init(&bhp->ref_cond, NULL);
+		bhp->ref_type_viewers = 1;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;

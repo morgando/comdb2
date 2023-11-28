@@ -320,8 +320,9 @@ __db_pitem_opcode(dbc, pagep, indx, nbytes, hdr, data, opcode)
 	++NUM_ENT(pagep);
 	p = P_ENTRY(dbp, pagep, indx);
 	memcpy(p, hdr->data, hdr->size);
-	if (data != NULL)
+	if (data != NULL) {
 		memcpy(p + hdr->size, data->data, data->size);
+	}
 	return (0);
 }
 
@@ -364,7 +365,7 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 	DB_LOCK npl, ppl;
 	DB_LSN *nlsnp, *plsnp, ret_lsn;
 	DB_MPOOLFILE *mpf;
-	int ret;
+	int ret, t_ret;
 
 	dbp = dbc->dbp;
 	np = pp = NULL;
@@ -372,7 +373,7 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 	LOCK_INIT(ppl);
 	nlsnp = plsnp = NULL;
 	mpf = dbp->mpf;
-	ret = 0;
+	ret = t_ret = 0;
 
 	/*
 	 * Retrieve and lock the one/two pages.  For a remove, we may need
@@ -383,7 +384,8 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 		if (needlock && (ret = __db_lget(dbc,
 		    0, pagep->next_pgno, DB_LOCK_WRITE, 0, &npl)) != 0)
 			goto err;
-		if ((ret = __memp_fget(mpf, &pagep->next_pgno, 0, &np)) != 0) {
+		PAGEGET(dbc, mpf, &pagep->next_pgno, 0, &np, ret);
+		if (ret != 0) {
 			ret = __db_pgerr(dbp, pagep->next_pgno, ret);
 			goto err;
 		}
@@ -393,7 +395,8 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 		if (needlock && (ret = __db_lget(dbc,
 		    0, pagep->prev_pgno, DB_LOCK_WRITE, 0, &ppl)) != 0)
 			goto err;
-		if ((ret = __memp_fget(mpf, &pagep->prev_pgno, 0, &pp)) != 0) {
+		PAGEGET(dbc, mpf, &pagep->prev_pgno, 0, &pp, ret);
+		if (ret != 0) {
 			ret = __db_pgerr(dbp, pagep->prev_pgno, ret);
 			goto err;
 		}
@@ -436,7 +439,7 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 		else
 			np->prev_pgno = pagep->prev_pgno;
 		if (new_next == NULL) {
-			ret = __memp_fput(mpf, np, DB_MPOOL_DIRTY);
+			PAGEPUT(dbc, mpf, np, DB_MPOOL_DIRTY, ret);
 		} else {
 			*new_next = np;
 			ret = __memp_fset(mpf, np, DB_MPOOL_DIRTY);
@@ -450,7 +453,8 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 
 	if (pp != NULL) {
 		pp->next_pgno = pagep->next_pgno;
-		if ((ret = __memp_fput(mpf, pp, DB_MPOOL_DIRTY)) != 0)
+		PAGEPUT(dbc, mpf, pp, DB_MPOOL_DIRTY, ret);
+		if (ret != 0)
 			goto err;
 		if (needlock)
 			(void)__TLPUT(dbc, ppl);
@@ -458,11 +462,11 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 	return (0);
 
 err:	if (np != NULL)
-		(void)__memp_fput(mpf, np, 0);
+		PAGEPUT(dbc, mpf, np, 0, t_ret);
 	if (needlock)
 		(void)__TLPUT(dbc, npl);
 	if (pp != NULL)
-		(void)__memp_fput(mpf, pp, 0);
+		PAGEPUT(dbc, mpf, pp, 0, t_ret);
 	if (needlock)
 		(void)__TLPUT(dbc, ppl);
 	return (ret);

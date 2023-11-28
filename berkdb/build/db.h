@@ -179,6 +179,12 @@ struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
 struct __logfile_txn_list; typedef struct __logfile_txn_list LOGFILE_TXN_LIST;
 struct __txn_commit_map; typedef struct __txn_commit_map DB_TXN_COMMIT_MAP;
 
+struct __mempv; typedef struct __mempv DB_MEMPV;
+struct __mempv_cache; typedef struct __mempv_cache MEMPV_CACHE;
+struct __mempv_cache_page_header; typedef struct __mempv_cache_page_header MEMPV_CACHE_PAGE_HEADER;
+struct __mempv_cache_page_key; typedef struct __mempv_cache_page_key MEMPV_CACHE_PAGE_KEY;
+struct __mempv_cache_page_versions; typedef struct __mempv_cache_page_versions MEMPV_CACHE_PAGE_VERSIONS;
+
 struct txn_properties;
 
 #include "db_dbt.h"
@@ -747,11 +753,15 @@ struct __db_log_stat {
 /* Flag values for DB_MPOOLFILE->get. */
 #define	DB_MPOOL_COMPACT	0x080   /* Compact a page if necessary */
 
+/* Flag values for DB_MPOOLFILE->get. */
+#define	DB_MPOOL_SNAPGET	0x100	/* page got by snapshot cursor */
+
 /* Flag values for DB_MPOOLFILE->put, DB_MPOOLFILE->set. */
 #define	DB_MPOOL_CLEAN		0x001	/* Page is not modified. */
 #define	DB_MPOOL_DIRTY		0x002	/* Page is modified. */
 #define	DB_MPOOL_DISCARD	0x004	/* Don't cache the page. */
 #define	DB_MPOOL_PFPUT		0x008	/* page got by prefault */
+#define	DB_MPOOL_SNAPPUT	0x010	/* page got by snapshot cursor */
 
 /* Flag values for DB_MPOOLFILE->alloc. */
 #define DB_MPOOL_LOWPRI		0x001   /* Evict low-priority pages. */
@@ -1360,6 +1370,7 @@ typedef enum {
 #define	DB_MULTIPLE	0x04000000	/* Return multiple data values. */
 #define	DB_MULTIPLE_KEY	0x08000000	/* Return multiple data/key pairs. */
 #define	DB_RMW		0x10000000	/* Acquire write flag immediately. */
+#define DB_CUR_SNAPSHOT 0x20000000       /* Use modsnap cursors */
 
 /*
  * DB (user visible) error return codes.
@@ -2055,6 +2066,7 @@ struct __dbc {
 #define	DBC_PAGE_ORDER	 0x1000		/* Traverse btree in page-order. */
 #define	DBC_DISCARD_PAGES 0x2000	/* Fast discard pages after reading. */
 #define	DBC_PAUSIBLE	 0x4000		/* Never considered for curadj */
+#define DBC_SNAPSHOT     0x8000         /* Cursor in snapshot mode. */
 	u_int32_t flags;
 
 	int pp_allocated;   /* the owner of the cursor tracking structure */
@@ -2068,6 +2080,9 @@ struct __dbc {
 	
 	char*	   pf; // Added by Fabio for prefaulting the index pages
 	db_pgno_t   lastpage; // pgno of last move
+
+	DB_LSN snapshot_lsn;
+	DB_LSN highest_ckpt_commit_lsn;
 };
 extern pthread_key_t DBG_FREE_CURSOR;
 
@@ -2814,10 +2829,14 @@ struct __db_env {
 	int (*pgin[DB_TYPE_MAX]) __P((DB_ENV *, db_pgno_t, void *, DBT *));
 	int (*pgout[DB_TYPE_MAX]) __P((DB_ENV *, db_pgno_t, void *, DBT *));
 
+	int (*last_commit_lsn) __P((DB_ENV *, DB_LSN *));
+
 	pthread_mutex_t utxnid_lock;
 	u_int64_t next_utxnid;
 
 	DB_TXN_COMMIT_MAP* txmap;
+
+	DB_MEMPV *mempv;
 };
 
 struct __utxnid {
@@ -2827,6 +2846,7 @@ struct __utxnid {
 
 struct __logfile_txn_list {
 	u_int32_t file_num;
+	DB_LSN highest_commit_lsn;
 	LISTC_T(struct __utxnid) commit_utxnids;
 };
 
@@ -2837,8 +2857,44 @@ struct __utxnid_track {
 
 struct __txn_commit_map {
 	pthread_mutex_t txmap_mutexp;
+	int64_t smallest_logfile;
+	DB_LSN highest_commit_lsn;
+	DB_LSN highest_commit_lsn_asof_checkpoint;
 	hash_t *transactions;
 	hash_t *logfile_lists;
+};
+
+struct __mempv_cache_page_key
+{
+	db_pgno_t pgno;
+	u_int8_t ufid[DB_FILE_ID_LEN];
+}; 
+
+struct __mempv_cache
+{
+	hash_t *pages;
+	mspace *msp;
+	pthread_rwlock_t lock;
+	LISTC_T(struct __mempv_cache_page_header) evict_list;
+};
+
+struct __mempv {
+	struct __mempv_cache cache;
+};
+
+struct __mempv_cache_page_versions
+{
+	struct __mempv_cache_page_key key;
+	hash_t *versions;
+};
+
+struct __mempv_cache_page_header
+{
+	DB_LSN snapshot_lsn;
+	u_int8_t checksum[20];
+	struct __mempv_cache_page_versions *cache;
+	LINKC_T(struct __mempv_cache_page_header) evict_link;
+	u_int8_t page[1];
 };
 
 #ifndef DB_DBM_HSEARCH
@@ -3205,6 +3261,7 @@ typedef struct {
 } touch_pg;
 
 int enqueue_touch_page(DB_MPOOLFILE *mpf, db_pgno_t pgno);
+/* Flag values for DB_MPOOLFILE->get. */
 void touch_page(DB_MPOOLFILE *mpf, db_pgno_t pgno);
 
 //#############################################

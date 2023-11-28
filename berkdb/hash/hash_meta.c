@@ -56,8 +56,8 @@ __ham_get_meta(dbc)
 
 	}
 
-	if ((ret = __memp_fget(mpf,
-	    &hashp->meta_pgno, DB_MPOOL_CREATE, &(hcp->hdr))) != 0 &&
+	PAGEGET(dbc, mpf, &hashp->meta_pgno, DB_MPOOL_CREATE, &(hcp->hdr), ret);
+	if (ret != 0 &&
 	    LOCK_ISSET(hcp->hlock))
 		(void)__lock_put(dbenv, &hcp->hlock);
 
@@ -75,13 +75,13 @@ __ham_release_meta(dbc)
 {
 	DB_MPOOLFILE *mpf;
 	HASH_CURSOR *hcp;
+	int t_ret;
 
 	mpf = dbc->dbp->mpf;
 	hcp = (HASH_CURSOR *)dbc->internal;
 
 	if (hcp->hdr)
-		(void)__memp_fput(mpf, hcp->hdr,
-		    F_ISSET(hcp, H_DIRTY) ? DB_MPOOL_DIRTY : 0);
+		PAGEPUT(mpf, hcp->hdr, F_ISSET(hcp, H_DIRTY) ? DB_MPOOL_DIRTY : 0, t_ret);
 	hcp->hdr = NULL;
 	if (!F_ISSET(dbc, DBC_RECOVER | DBC_COMPENSATE) &&
 	    dbc->txn == NULL && LOCK_ISSET(hcp->hlock))

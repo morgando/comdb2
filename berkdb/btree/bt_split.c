@@ -203,7 +203,7 @@ __bam_root(dbc, cp)
 	PAGE *lp = NULL, *rp = NULL;
 	db_indx_t split;
 	u_int32_t opflags;
-	int ret, got_lplock, got_rplock;
+	int ret, t_ret, got_lplock, got_rplock;
 
 	dbp = dbc->dbp;
 	mpf = dbp->mpf;
@@ -288,20 +288,22 @@ __bam_root(dbc, cp)
 		goto err;
 
 	/* Success -- write the real pages back to the store. */
-	(void)__memp_fput(mpf, cp->page, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, cp->page, DB_MPOOL_DIRTY, t_ret);
 	(void)__TLPUT(dbc, cp->lock);
 	(void)__TLPUT(dbc, lplock);
 	(void)__TLPUT(dbc, rplock);
-	(void)__memp_fput(mpf, lp, DB_MPOOL_DIRTY);
-	(void)__memp_fput(mpf, rp, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, lp, DB_MPOOL_DIRTY, t_ret);
+	PAGEPUT(dbc, mpf, rp, DB_MPOOL_DIRTY, t_ret);
 
 	return (0);
 
-err:	if (lp != NULL)
-		(void)__memp_fput(mpf, lp, 0);
-	if (rp != NULL)
-		(void)__memp_fput(mpf, rp, 0);
-	(void)__memp_fput(mpf, cp->page, 0);
+err:	if (lp != NULL) {
+			PAGEPUT(dbc, mpf, lp, 0, t_ret);
+		}
+	if (rp != NULL) {
+		PAGEPUT(dbc, mpf, rp, 0, t_ret);
+	}
+	PAGEPUT(dbc, mpf, cp->page, 0, t_ret);
 	(void)__TLPUT(dbc, cp->lock);
 	if (got_lplock)
 		(void)__TLPUT(dbc, lplock);
@@ -417,7 +419,8 @@ __bam_page(dbc, pp, cp)
 		if ((ret = __db_lget(dbc,
 		    0, NEXT_PGNO(cp->page), DB_LOCK_WRITE, 0, &tplock)) != 0)
 			goto err;
-		if ((ret = __memp_fget(mpf, &NEXT_PGNO(cp->page), 0, &tp)) != 0)
+		PAGEGET(dbc, mpf, &NEXT_PGNO(cp->page), 0, &tp, ret);
+		if (ret != 0)
 			goto err;
 	}
 
@@ -550,21 +553,21 @@ __bam_page(dbc, pp, cp)
 	 * releasing locks on the pages that reference it.  We're finished
 	 * modifying the page so it's not really necessary, but it's neater.
 	 */
-	if ((t_ret =
-	    __memp_fput(mpf, alloc_rp, DB_MPOOL_DIRTY)) != 0 && ret == 0)
+	PAGEPUT(dbc, mpf, alloc_rp, DB_MPOOL_DIRTY, t_ret);
+	if (t_ret != 0 && ret == 0)
 		ret = t_ret;
 	(void)__TLPUT(dbc, rplock);
-	if ((t_ret =
-	    __memp_fput(mpf, pp->page, DB_MPOOL_DIRTY)) != 0 && ret == 0)
+	PAGEPUT(dbc, mpf, pp->page, DB_MPOOL_DIRTY, t_ret);
+	if (t_ret != 0 && ret == 0)
 		ret = t_ret;
 	(void)__TLPUT(dbc, pp->lock);
-	if ((t_ret =
-	    __memp_fput(mpf, cp->page, DB_MPOOL_DIRTY)) != 0 && ret == 0)
+	PAGEPUT(dbc, mpf, cp->page, DB_MPOOL_DIRTY, t_ret);
+	if (t_ret != 0 && ret == 0)
 		ret = t_ret;
 	(void)__TLPUT(dbc, cp->lock);
 	if (tp != NULL) {
-		if ((t_ret =
-		    __memp_fput(mpf, tp, DB_MPOOL_DIRTY)) != 0 && ret == 0)
+		PAGEPUT(dbc, mpf, tp, DB_MPOOL_DIRTY, t_ret);
+		if (t_ret != 0 && ret == 0)
 			ret = t_ret;
 		(void)__TLPUT(dbc, tplock);
 	}
@@ -576,21 +579,21 @@ err:	if (lp != NULL)
 	if (rp != NULL)
 		__os_free(dbp->dbenv, rp);
 	if (alloc_rp != NULL)
-		(void)__memp_fput(mpf, alloc_rp, 0);
+		PAGEPUT(dbc, mpf, alloc_rp, 0, t_ret);
 	if (tp != NULL)
-		(void)__memp_fput(mpf, tp, 0);
+		PAGEPUT(dbc, mpf, tp, 0, t_ret);
 
 	/* We never updated the new or next pages, we can release them. */
 	(void)__LPUT(dbc, rplock);
 	(void)__LPUT(dbc, tplock);
 
-	(void)__memp_fput(mpf, pp->page, 0);
+	PAGEPUT(dbc, mpf, pp->page, 0, t_ret);
 	if (ret == DB_NEEDSPLIT)
 		(void)__LPUT(dbc, pp->lock);
 	else
 		(void)__TLPUT(dbc, pp->lock);
 
-	(void)__memp_fput(mpf, cp->page, 0);
+	PAGEPUT(dbc, mpf, cp->page, 0, t_ret);
 	if (ret == DB_NEEDSPLIT)
 		(void)__LPUT(dbc, cp->lock);
 	else

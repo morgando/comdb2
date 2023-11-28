@@ -367,6 +367,9 @@ int __txn_commit_map_init(dbenv)
 		goto err;
 	}
 
+	LSN_NOT_LOGGED(txmap->highest_commit_lsn_asof_checkpoint);
+	LSN_NOT_LOGGED(txmap->highest_commit_lsn);
+	txmap->smallest_logfile = -1;
 	Pthread_mutex_init(&txmap->txmap_mutexp, NULL);
 	dbenv->txmap = txmap;
 
@@ -466,6 +469,30 @@ static int __txn_commit_map_remove_nolock(dbenv, utxnid)
 }
 
 /*
+ * __txn_commit_map_get_highest_commit_lsn --
+ *  Get the highest commit lsn
+ *  from the commit LSN map.	
+ *
+ * PUBLIC: int __txn_commit_map_get_highest_commit_lsn
+ * PUBLIC:     __P((DB_ENV *, DB_LSN *));
+ */
+int __txn_commit_map_get_highest_commit_lsn(dbenv, highest_commit_lsn)
+	DB_ENV *dbenv;
+	DB_LSN *highest_commit_lsn;
+{
+	DB_TXN_COMMIT_MAP *txmap;
+
+	txmap = dbenv->txmap;
+
+	Pthread_mutex_lock(&txmap->txmap_mutexp);
+
+	*highest_commit_lsn = txmap->highest_commit_lsn;
+
+	Pthread_mutex_unlock(&txmap->txmap_mutexp);
+	return 0;
+}
+
+/*
  * __txn_commit_map_delete_logfile_txns --
  *  Remove all transactions that committed in a specific logfile 
  *  from the commit LSN map.	
@@ -478,7 +505,7 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 	u_int32_t del_log;
 {
 	DB_TXN_COMMIT_MAP *txmap;
-	LOGFILE_TXN_LIST *to_delete;
+	LOGFILE_TXN_LIST *to_delete, *successor;
 	UTXNID *elt, *tmpp;
 	int ret;
 
@@ -493,6 +520,28 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 		{
 			__txn_commit_map_remove_nolock(dbenv, elt->utxnid);
 			__os_free(dbenv, elt);
+		}
+
+		if (log_compare(&txmap->highest_commit_lsn, &to_delete->highest_commit_lsn) == 0) {
+			for (int prev_log=del_log-1; prev_log >= 0; --prev_log) {
+				successor = hash_find(txmap->logfile_lists, &prev_log);
+				if (successor) {
+					txmap->highest_commit_lsn = successor->highest_commit_lsn;
+					break;
+				} else if (prev_log == 0) {
+					// If we didn't find a logfile between the highest one and the first one,
+					// then our map no longer contains entries.
+					ZERO_LSN(txmap->highest_commit_lsn);
+				}
+			}
+		}
+
+		if (del_log == txmap->smallest_logfile) {
+			// TODO: Can this happen?
+			do {
+				txmap->smallest_logfile++;
+				successor = hash_find(txmap->logfile_lists, &txmap->smallest_logfile);
+			} while (!successor);
 		}
 
 		hash_del(txmap->logfile_lists, &del_log);
@@ -601,7 +650,15 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
                 to_delete->file_num = commit_lsn.file;
                 listc_init(&to_delete->commit_utxnids, offsetof(UTXNID, lnk));
                 hash_add(txmap->logfile_lists, to_delete);
+
+				if (commit_lsn.file < txmap->smallest_logfile || txmap->smallest_logfile == -1) {
+						txmap->smallest_logfile = commit_lsn.file;
+				}
         }
+
+	if (log_compare(&txmap->highest_commit_lsn, &commit_lsn) <= 0) {
+		txmap->highest_commit_lsn = commit_lsn;
+	}
 
         txn->utxnid = utxnid;
         txn->commit_lsn = commit_lsn;

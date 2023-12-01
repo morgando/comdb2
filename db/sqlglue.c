@@ -4894,7 +4894,7 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
         goto done;
     }
 
-    if (clnt->dbtran.mode <= TRANLEVEL_RECOM && wrflag == 0) { // read-only
+    if ((clnt->dbtran.mode <= TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_MODSNAP) && wrflag == 0) { // read-only
         if (clnt->has_recording == 0 ||                        // not selectv
             clnt->ctrl_sqlengine == SQLENG_NORMAL_PROCESS) { // singular selectv
             rc = SQLITE_OK;

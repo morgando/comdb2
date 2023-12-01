@@ -37,6 +37,7 @@ extern int gbl_return_long_column_names;
 extern int gbl_typessql;
 extern int gbl_incoherent_clnt_wait;
 extern int gbl_new_leader_duration;
+extern int gbl_use_modsnap_for_snapshot;
 
 struct newsql_appdata {
     NEWSQL_APPDATA_COMMON
@@ -1591,18 +1592,23 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                         clnt->dbtran.mode = TRANLEVEL_SOSQL;
                     } else if (strncasecmp(sqlstr, "snap", 4) == 0) {
                         sqlstr += 4;
-                        clnt->dbtran.mode = TRANLEVEL_SNAPISOL;
-                        clnt->verify_retries = 0;
-                        if (clnt->hasql_on == 1) {
-                            newsql_set_high_availability(clnt);
-                            logmsg(LOGMSG_ERROR, "Enabling snapshot isolation "
-                                                 "high availability\n");
+                        if (gbl_use_modsnap_for_snapshot) {
+                            clnt->dbtran.mode = TRANLEVEL_MODSNAP; 
+                            clnt->verify_retries = 0;
+                        } else {
+                            clnt->dbtran.mode = TRANLEVEL_SNAPISOL;
+                            clnt->verify_retries = 0;
+                            if (clnt->hasql_on == 1) {
+                                newsql_set_high_availability(clnt);
+                                logmsg(LOGMSG_ERROR, "Enabling snapshot isolation "
+                                                     "high availability\n");
+                            }
                         }
                     } else if (strncasecmp(sqlstr, "mod", 3) == 0) {
                         sqlstr += 3;
                         clnt->dbtran.mode = TRANLEVEL_MODSNAP; 
                         clnt->verify_retries = 0;
-					}
+                    }
                     if (clnt->dbtran.mode == TRANLEVEL_INVALID) {
                         rc = ii + 1;
                     } else if (clnt->dbtran.mode != TRANLEVEL_SOSQL && clnt->dbtran.maxchunksize) {

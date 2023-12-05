@@ -195,21 +195,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 * discard flags (for now) and leave the buffer's priority alone.
 	 */
 
-	// If there's starvation problems then do handoff after each or after each n.
-	if (--bhp->ref_type_viewers == 0) {
-		if (bhp->ref_other_type_waiters > 0) {
-			bhp->ref_type = bhp->ref_type == 2 ? 1 : 2;
-			bhp->ref_type_viewers = bhp->ref_other_type_waiters;
-			bhp->ref_other_type_waiters = 0;
 
-			pthread_cond_broadcast(&bhp->ref_cond);
-		} else {
-			if (bhp->ref_other_type_waiters < 0) {
-				abort();
-			}
-			bhp->ref_type = 0;
-		}
+	int num_remaining = LF_ISSET(DB_MPOOL_SNAPPUT) ? --bhp->ref_snap : --bhp->ref_nosnap;
+	if (num_remaining == 0) {
+		bhp->empty = 1;
+		pthread_cond_signal(&bhp->empty_cond);
 	}
+
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {
 #ifdef REF_SYNC_TEST
 		if (F_ISSET(bhp, BH_LOCKED) && bhp->ref_sync) {

@@ -303,7 +303,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 			cache_miss = 1;
 
 			memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
-			bhp->ref_type = 3; // I am a copy
+			bhp->is_copy = 1; // I am a copy
 
 			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
 				printf("%s: Failed to return initial page version\n", __func__);
@@ -444,7 +444,7 @@ int __mempv_fput(mpf, page, flags)
 	if (page != NULL) {
 		bhp = (BH *)((u_int8_t *)page - SSZA(BH, buf));
 
-		if (bhp->ref_type == 3) {
+		if (bhp->is_copy == 1) {
 			// I am a copy
 			__os_free(dbenv, bhp);
 		} else if (__memp_fput(mpf, page, DB_MPOOL_SNAPPUT) != 0) {

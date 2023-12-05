@@ -232,6 +232,10 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 		goto done;
 	}
 
+	/* Update LRU */
+	listc_rfl(&cache->evict_list, page_header);
+	listc_abl(&cache->evict_list, page_header);
+
 	memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
 	PAGE *page_image = (PAGE *) (bhp + offsetof(BH, buf));
 

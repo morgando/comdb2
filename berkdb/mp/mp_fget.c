@@ -358,69 +358,20 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
-			if (bhp->ref_type == 0 || bhp->ref_type == 1) {
-				// Snapshot and can enter
+		while (!bhp->turnstile_empty) {
+			pthread_cond_wait(&bhp->turnstile_cond, &hp->hash_mutex.mutex);
+		}
+		bhp->turnstile_empty = 0;
 
-				bhp->ref_type = 1;
-				bhp->ref_type_viewers++;
-			} else {
-				// Snapshot and can't enter
-
-				struct timeval start_time, end_time;
-
-				bhp->ref_other_type_waiters++;
-
-				gettimeofday(&start_time, NULL);
-
-				while (bhp->ref_type != 1)
-					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
-
-				gettimeofday(&end_time, NULL);
-
-				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
-
-				pthread_mutex_lock(&gbl_modsnap_stats_mutex);
-				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
-					gbl_modsnap_buffer_wait_time = 0;
-					gbl_modsnap_buffer_waits = 0;
-				} 
-				gbl_modsnap_buffer_wait_time += elapsed;
-				gbl_modsnap_buffer_waits++;
-				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
-			}
-		} else {
-			if (bhp->ref_type == 0 || bhp->ref_type == 2) {
-				// Regular and can enter
-
-				bhp->ref_type_viewers++;
-				bhp->ref_type = 2;
-			} else {
-				// Regular and can't enter
-
-				struct timeval start_time, end_time;
-
-				bhp->ref_other_type_waiters++;
-
-				gettimeofday(&start_time, NULL);
-
-				while (bhp->ref_type != 2)
-					pthread_cond_wait(&bhp->ref_cond, &hp->hash_mutex.mutex);
-
-				gettimeofday(&end_time, NULL);
-
-				long elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000L + (end_time.tv_usec - start_time.tv_usec);
-
-				pthread_mutex_lock(&gbl_modsnap_stats_mutex);
-				if (LONG_MAX - elapsed <= gbl_modsnap_buffer_wait_time) {
-					gbl_modsnap_buffer_wait_time = 0;
-					gbl_modsnap_buffer_waits = 0;
-				} 
-				gbl_modsnap_buffer_wait_time += elapsed;
-				gbl_modsnap_buffer_waits++;
-				pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
+		int num_like_me = LF_ISSET(DB_MPOOL_SNAPGET) ? ++bhp->ref_snap : ++bhp->ref_nosnap;
+		if (num_like_me == 1) {
+			while (!bhp->empty) {
+				pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
 			}
 		}
+
+		bhp->turnstile_empty = 1;
+		pthread_cond_signal(&bhp->turnstile_cond);
 
 		/*
 		 * BH_LOCKED --
@@ -724,12 +675,15 @@ alloc:		/*
 
 		memset(bhp, 0, sizeof(BH));
 		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
-			bhp->ref_type = 1;
+			bhp->ref_snap = 1;
 		} else {
-			bhp->ref_type = 2;
+			bhp->ref_nosnap = 1;
 		}
-		pthread_cond_init(&bhp->ref_cond, NULL);
-		bhp->ref_type_viewers = 1;
+		pthread_cond_init(&bhp->empty_cond, NULL);
+		pthread_cond_init(&bhp->turnstile_cond, NULL);
+		bhp->is_copy = 0;
+		bhp->empty = 0;
+		bhp->turnstile_empty = 1;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;

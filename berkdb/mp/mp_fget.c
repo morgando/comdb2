@@ -53,6 +53,7 @@ extern pthread_mutex_t gbl_modsnap_stats_mutex;
 extern int gbl_prefault_udp;
 extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
+extern __thread int gbl_thread_mode;
 
 extern int db_is_exiting(void);
 void udp_prefault_all(bdb_state_type * bdb_state, unsigned int fileid,
@@ -358,20 +359,70 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		while (!bhp->turnstile_empty) {
-			pthread_cond_wait(&bhp->turnstile_cond, &hp->hash_mutex.mutex);
-		}
-		bhp->turnstile_empty = 0;
+		if (0) {
+			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+			if (gbl_thread_mode == 0) {
+				pthread_rwlock_rdlock(&bhp->rwlock);
+			} else {
+				pthread_rwlock_wrlock(&bhp->rwlock);
+			}
+			MUTEX_LOCK(dbenv, &hp->hash_mutex);
+		} else if (1) {
+			while (!bhp->turnstile_empty) {
+				pthread_cond_wait(&bhp->turnstile_cond, &hp->hash_mutex.mutex);
+			}
+			bhp->turnstile_empty = 0;
 
-		int num_like_me = LF_ISSET(DB_MPOOL_SNAPGET) ? ++bhp->ref_snap : ++bhp->ref_nosnap;
-		if (num_like_me == 1) {
+			if (gbl_thread_mode == 1) {
+				while (!bhp->empty) {
+					pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
+				}
+			}
+
+			bhp->turnstile_empty = 1;
+			pthread_cond_signal(&bhp->turnstile_cond);
+
+			if (gbl_thread_mode == 0) {
+				while(!reader_can_enter) {
+				}
+			}
+			if (gbl_thread_mode == 0 && ++bhp->ref_reader == 1) {
+				while (!bhp->empty) {
+					pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
+				}
+			}
+		}
+		/*if (0) {
+			int lock_mode = gbl_thread_mode == 0 ? DB_LOCK_READ : DB_LOCK_WRITE;
+			dbenv->lock_get(prefault_dbp->dbenv, bhp->lid, 0, &bhp->lkname, lock_mode, &bhp->lock);
+		} else if (1) {
+			if (gbl_thread_mode == 0) {
+				pthread_rwlock_rdlock(&bhp->rwlock);
+			} else {
+				pthread_rwlock_wrlock(&bhp->rwlock);
+			}
+		} else {
+			while (!bhp->turnstile_empty) {
+				pthread_cond_wait(&bhp->turnstile_cond, &hp->hash_mutex.mutex);
+			}
+			bhp->turnstile_empty = 0;
+
+			if (gbl_thread_mode == 1) {
+				while (!bhp->empty) {
+					pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
+				}
+			}
+
+			bhp->turnstile_empty = 1;
+			pthread_cond_signal(&bhp->turnstile_cond);
+		}
+
+		if (gbl_thread_mode == 0 && ++bhp->ref_reader == 1) {
 			while (!bhp->empty) {
 				pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
 			}
 		}
-
-		bhp->turnstile_empty = 1;
-		pthread_cond_signal(&bhp->turnstile_cond);
+		*/
 
 		/*
 		 * BH_LOCKED --
@@ -674,11 +725,6 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
-		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
-			bhp->ref_snap = 1;
-		} else {
-			bhp->ref_nosnap = 1;
-		}
 		pthread_cond_init(&bhp->empty_cond, NULL);
 		pthread_cond_init(&bhp->turnstile_cond, NULL);
 		bhp->is_copy = 0;
@@ -688,6 +734,30 @@ alloc:		/*
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;
 		bhp->mpf = mfp;
+
+		// bhp->lkname = {0};
+		/*
+		dbenv->lock_id(prefault_dbp->dbenv, &bhp->lid);
+		int nameLen = snprintf(NULL, 0,"%d:%p", *pgnoaddr, mfp);
+		bhp->lkname.size = nameLen;
+		bhp->lkname.data = malloc(nameLen);
+		snprintf(bhp->lkname.data, nameLen,"%d:%p", *pgnoaddr, mfp);
+		*/
+
+		// int lock_mode = gbl_thread_mode == 0 ? DB_LOCK_READ : DB_LOCK_WRITE;
+		// dbenv->lock_get(prefault_dbp->dbenv, bhp->lid, 0, &bhp->lkname, lock_mode, &bhp->lock);
+
+		pthread_rwlockattr_t rwlock_attr;
+		pthread_rwlockattr_init(&rwlock_attr);
+		pthread_rwlockattr_setkind_np(&rwlock_attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+		pthread_rwlock_init(&bhp->rwlock, &rwlock_attr);
+		pthread_rwlockattr_destroy(&rwlock_attr);
+		if (gbl_thread_mode == 0) {
+			pthread_rwlock_rdlock(&bhp->rwlock);
+			bhp->ref_reader = 1;
+		} else {
+			pthread_rwlock_wrlock(&bhp->rwlock);
+		}
 		SH_TAILQ_INSERT_TAIL(&hp->hash_bucket, bhp, hq);
 
 		hp->hash_priority =

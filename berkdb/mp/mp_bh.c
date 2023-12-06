@@ -41,6 +41,7 @@ static const char revid[] = "$Id: mp_bh.c,v 11.86 2003/07/02 20:02:37 mjc Exp $"
 
 char *bdb_trans(const char infile[], char outfile[]);
 extern int gbl_test_badwrite_intvl;
+extern __thread DB *prefault_dbp;
 
 static int __memp_pgwrite
 __P((DB_ENV *, DB_MPOOLFILE *, DB_MPOOL_HASH *, BH *));
@@ -1188,6 +1189,9 @@ __memp_bhfree(dbmp, hp, bhp, free_mem)
 	dbenv = dbmp->dbenv;
 	mp = dbmp->reginfo[0].primary;
 	n_cache = NCACHE(mp, bhp->mpf, bhp->pgno);
+
+	pthread_rwlock_destroy(&bhp->rwlock);
+//	dbenv->lock_id_free(prefault_dbp->dbenv, bhp->lid);
 
 	/*
 	 * Delete the buffer header from the hash bucket queue and reset

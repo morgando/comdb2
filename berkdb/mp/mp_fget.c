@@ -368,6 +368,7 @@ retry:	st_hsearch = 0;
 			while (!bhp->empty) {
 				pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
 			}
+			bhp->empty = 0;
 		}
 
 		bhp->turnstile_empty = 1;

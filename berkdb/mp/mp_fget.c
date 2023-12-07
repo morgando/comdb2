@@ -53,6 +53,7 @@ extern pthread_mutex_t gbl_modsnap_stats_mutex;
 extern int gbl_prefault_udp;
 extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
+extern __thread int gbl_thread_mode;
 
 extern int db_is_exiting(void);
 void udp_prefault_all(bdb_state_type * bdb_state, unsigned int fileid,
@@ -262,9 +263,6 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 	hp = NULL;
 	b_incr = extending = ret = is_recovery_page = 0;
 
-	if (LF_ISSET(DB_MPOOL_SNAPGET) && (LF_ISSET(DB_MPOOL_NEW) || LF_ISSET(DB_MPOOL_LAST) || LF_ISSET(DB_MPOOL_NOCACHE))) {
-		abort();
-	}
 	switch (flags) {
 	case DB_MPOOL_LAST:
 		/* Get the last page number in the file. */
@@ -358,21 +356,14 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		while (!bhp->turnstile_empty) {
-			pthread_cond_wait(&bhp->turnstile_cond, &hp->hash_mutex.mutex);
+		pthread_rwlock_t * lk_ptr = bhp->rwlock;
+		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+		if (gbl_thread_mode == 0) {
+			pthread_rwlock_rdlock(lk_ptr);
+		} else {
+			pthread_rwlock_wrlock(lk_ptr);
 		}
-		bhp->turnstile_empty = 0;
-
-		int num_like_me = LF_ISSET(DB_MPOOL_SNAPGET) ? ++bhp->ref_snap : ++bhp->ref_nosnap;
-		if (num_like_me == 1) {
-			while (!bhp->empty) {
-				pthread_cond_wait(&bhp->empty_cond, &hp->hash_mutex.mutex);
-			}
-			bhp->empty = 0;
-		}
-
-		bhp->turnstile_empty = 1;
-		pthread_cond_signal(&bhp->turnstile_cond);
+		MUTEX_LOCK(dbenv, &hp->hash_mutex);
 
 		/*
 		 * BH_LOCKED --
@@ -675,20 +666,23 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
-		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
-			bhp->ref_snap = 1;
-		} else {
-			bhp->ref_nosnap = 1;
-		}
-		pthread_cond_init(&bhp->empty_cond, NULL);
-		pthread_cond_init(&bhp->turnstile_cond, NULL);
 		bhp->is_copy = 0;
-		bhp->empty = 0;
-		bhp->turnstile_empty = 1;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;
 		bhp->mpf = mfp;
+
+		bhp->rwlock = (pthread_rwlock_t *) malloc(sizeof(pthread_rwlock_t));
+		int t_rc = pthread_rwlock_init(bhp->rwlock, NULL); 
+		if (t_rc != 0) {
+			abort();
+		}
+		if (gbl_thread_mode == 0) {
+			pthread_rwlock_rdlock(bhp->rwlock);
+		} else {
+			pthread_rwlock_wrlock(bhp->rwlock);
+		}
+
 		SH_TAILQ_INSERT_TAIL(&hp->hash_bucket, bhp, hq);
 
 		hp->hash_priority =
@@ -884,9 +878,10 @@ err:	/*
 	 * also still holding the hash bucket mutex.
 	 */
 	if (b_incr) {
-		if (bhp->ref == 1)
+		pthread_rwlock_unlock(bhp->rwlock);
+		if (bhp->ref == 1) {
 			(void)__memp_bhfree(dbmp, hp, bhp, 1);
-		else {
+		} else {
 			--bhp->ref;
 			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 		}

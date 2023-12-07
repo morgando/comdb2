@@ -25,6 +25,7 @@ static const char revid[] = "$Id: mp_fput.c,v 11.48 2003/09/30 17:12:00 sue Exp 
 #include "comdb2_atomic.h"
 
 extern int gbl_enable_cache_internal_nodes;
+extern __thread int gbl_thread_mode;
 
 static void __memp_reset_lru __P((DB_ENV *, REGINFO *));
 
@@ -196,11 +197,8 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 */
 
 
-	int num_remaining = LF_ISSET(DB_MPOOL_SNAPPUT) ? --bhp->ref_snap : --bhp->ref_nosnap;
-	if (num_remaining == 0) {
-		bhp->empty = 1;
-		pthread_cond_signal(&bhp->empty_cond);
-	}
+	pthread_rwlock_unlock(bhp->rwlock);
+
 
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {
 #ifdef REF_SYNC_TEST

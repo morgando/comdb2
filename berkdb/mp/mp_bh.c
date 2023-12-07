@@ -1189,6 +1189,10 @@ __memp_bhfree(dbmp, hp, bhp, free_mem)
 	mp = dbmp->reginfo[0].primary;
 	n_cache = NCACHE(mp, bhp->mpf, bhp->pgno);
 
+	pthread_rwlock_destroy(bhp->rwlock);
+	free (bhp->rwlock);
+	bhp->rwlock = NULL;
+
 	/*
 	 * Delete the buffer header from the hash bucket queue and reset
 	 * the hash bucket's priority, if necessary.

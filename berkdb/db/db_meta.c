@@ -72,6 +72,7 @@ void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 
 /* definition in malloc.h clashes with dlmalloc */
 extern void *memalign(size_t boundary, size_t size);
+extern __thread int gbl_thread_mode;
 
 static void __db_init_meta __P((DB *, void *, db_pgno_t, u_int32_t));
 
@@ -943,6 +944,10 @@ __db_lget(dbc, action, pgno, mode, lkflags, lockp)
 		LOCK_INIT(*lockp);
 		return (0);
 	}
+
+	// Crudely separate threads into readers and writers. If a thread ever got a lock in write mode,
+	// it is a writer thread.
+	gbl_thread_mode = gbl_thread_mode == 1 ? 1 : mode == DB_LOCK_WRITE;
 
 	dbc->lock.pgno = pgno;
 	if (lkflags & DB_LOCK_RECORD)

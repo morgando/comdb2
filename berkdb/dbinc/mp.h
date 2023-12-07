@@ -323,13 +323,8 @@ struct __bh {
 	   marked the page from clean to dirty. */
 	DB_LSN first_dirty_tx_begin_lsn;
 
-	u_int16_t	turnstile_empty;
-	u_int16_t	empty;
-	u_int16_t ref_snap;
-	u_int16_t ref_nosnap;
-	u_int16_t is_copy;
-	pthread_cond_t turnstile_cond;
-	pthread_cond_t empty_cond;
+	u_int64_t is_copy;
+	pthread_rwlock_t *rwlock;
 	
 
 	/*

@@ -55,6 +55,7 @@ extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
 extern __thread int gbl_thread_mode;
 
+
 extern int db_is_exiting(void);
 void udp_prefault_all(bdb_state_type * bdb_state, unsigned int fileid,
     unsigned int pgno);
@@ -239,7 +240,7 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 	MPOOL *c_mp, *mp;
 	MPOOLFILE *mfp;
 	u_int32_t n_cache, st_hsearch, alloc_flags;
-	int b_incr, extending, first, ret, is_recovery_page;
+	int b_incr, extending, first, ret, is_recovery_page, rc;
 	db_pgno_t falloc_off, falloc_len;
 
 	uint64_t start_time_us = 0;
@@ -356,14 +357,30 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		pthread_rwlock_t * lk_ptr = bhp->rwlock;
-		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-		if (gbl_thread_mode == 0) {
-			pthread_rwlock_rdlock(lk_ptr);
-		} else {
-			pthread_rwlock_wrlock(lk_ptr);
+		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			if ((bhp->writer_refs > 0) && (pthread_self() == bhp->writer_id)) {
+				bhp->writer_refs++;
+			} else {
+				int ref = bhp->ref;
+				pthread_rwlock_t * lk_ptr = bhp->rwlock;
+
+				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+				if (gbl_thread_mode == 0) {
+					rc = pthread_rwlock_rdlock(lk_ptr);
+				} else {
+					rc = pthread_rwlock_wrlock(lk_ptr);
+				}
+				if (rc != 0) {
+					abort();
+				}
+				MUTEX_LOCK(dbenv, &hp->hash_mutex);
+
+				if (gbl_thread_mode == 1) {
+					bhp->writer_id = pthread_self();
+					bhp->writer_refs = 1;
+				}
+			}
 		}
-		MUTEX_LOCK(dbenv, &hp->hash_mutex);
 
 		/*
 		 * BH_LOCKED --
@@ -381,6 +398,11 @@ retry:	st_hsearch = 0;
 			 */
 			if (!first && bhp->ref_sync != 0) {
 				--bhp->ref;
+				if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+					if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+						pthread_rwlock_unlock(bhp->rwlock);
+					}
+				}
 				b_incr = 0;
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 				__os_yield(dbenv, 1);
@@ -639,6 +661,11 @@ alloc:		/*
 		 * another one.
 		 */
 		if (flags == DB_MPOOL_NEW) {
+			if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+				if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+					pthread_rwlock_unlock(bhp->rwlock);
+				}
+			}
 			--bhp->ref;
 			b_incr = 0;
 			goto alloc;
@@ -672,15 +699,32 @@ alloc:		/*
 		bhp->pgno = *pgnoaddr;
 		bhp->mpf = mfp;
 
+		pthread_rwlockattr_t attr;
+		pthread_rwlockattr_init(&attr);
+		pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+
 		bhp->rwlock = (pthread_rwlock_t *) malloc(sizeof(pthread_rwlock_t));
-		int t_rc = pthread_rwlock_init(bhp->rwlock, NULL); 
-		if (t_rc != 0) {
+		if (!bhp->rwlock) {
 			abort();
 		}
-		if (gbl_thread_mode == 0) {
-			pthread_rwlock_rdlock(bhp->rwlock);
-		} else {
-			pthread_rwlock_wrlock(bhp->rwlock);
+		rc = pthread_rwlock_init(bhp->rwlock, &attr); 
+		if (rc != 0) {
+			abort();
+		}
+
+		pthread_rwlockattr_destroy(&attr);
+
+		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			if (gbl_thread_mode == 0) {
+				rc = pthread_rwlock_rdlock(bhp->rwlock);
+			} else {
+				rc = pthread_rwlock_wrlock(bhp->rwlock);
+				bhp->writer_id = pthread_self();
+				bhp->writer_refs = 1;
+			}
+			if (rc != 0) {
+				abort();
+			}
 		}
 
 		SH_TAILQ_INSERT_TAIL(&hp->hash_bucket, bhp, hq);
@@ -878,7 +922,11 @@ err:	/*
 	 * also still holding the hash bucket mutex.
 	 */
 	if (b_incr) {
-		pthread_rwlock_unlock(bhp->rwlock);
+		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+				pthread_rwlock_unlock(bhp->rwlock);
+			}
+		}
 		if (bhp->ref == 1) {
 			(void)__memp_bhfree(dbmp, hp, bhp, 1);
 		} else {

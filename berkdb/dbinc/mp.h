@@ -324,6 +324,8 @@ struct __bh {
 	DB_LSN first_dirty_tx_begin_lsn;
 
 	u_int64_t is_copy;
+	u_int16_t writer_refs;
+	pthread_t writer_id;
 	pthread_rwlock_t *rwlock;
 	
 

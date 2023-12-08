@@ -197,8 +197,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 */
 
 
-	pthread_rwlock_unlock(bhp->rwlock);
-
+	if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+		if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+			if (pthread_rwlock_unlock(bhp->rwlock)) {
+				abort();
+			}
+		}
+	}
 
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {
 #ifdef REF_SYNC_TEST

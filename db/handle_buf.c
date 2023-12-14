@@ -631,6 +631,16 @@ static void *thd_req(void *vthd)
                 thd->iq->vfy_genid_pool = NULL;
             }
             thd->iq->vfy_genid_track = 0;
+            if (thd->iq->vfy_idx_hash) {
+                hash_free(thd->iq->vfy_idx_hash);
+                thd->iq->vfy_idx_hash = NULL;
+            }
+            if (thd->iq->vfy_idx_pool) {
+                pool_free(thd->iq->vfy_idx_pool);
+                thd->iq->vfy_idx_pool = NULL;
+            }
+            thd->iq->vfy_idx_track = 0;
+            thd->iq->dup_key_insert = 0;
 #if 0
             fprintf(stderr, "%s:%d: THD=%p relablk iq=%p\n", __func__, __LINE__, pthread_self(), thd->iq);
 #endif

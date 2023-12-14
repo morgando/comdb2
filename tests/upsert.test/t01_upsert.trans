@@ -106,3 +106,29 @@
 1 SET TRANSACTION BLOCKSQL
 2 SET TRANSACTION BLOCKSQL
 
+1 SELECT '---------------------------------- PART #07 ----------------------------------' AS part;
+1 drop table if exists t1
+2 drop table if exists t2
+1 create table t1(i int primary key)
+1 create table t2(i int primary key)
+1 begin
+1 insert into t1(i) values(1) on conflict (i) do update set i=2
+1 insert into t2(i) values(1) on conflict (i) do update set i=2
+2 insert into t2(i) values(1)
+1 commit
+1 select * from t1
+1 select * from t2
+
+1 SELECT '---------------------------------- PART #08 ----------------------------------' AS part;
+1 drop table if exists t1
+1 create table t1(i int primary key)
+1 begin
+1 insert into t1(i) values(1) on conflict (i) do update set i=2
+1 insert into t1(i) values(100) on conflict (i) do update set i=101
+1 insert into t1(i) values(1) on conflict (i) do update set i=2
+1 insert into t1(i) values(10) on conflict (i) do update set i=11
+1 insert into t1(i) values(10) on conflict (i) do update set i=11
+1 insert into t1(i) values(10) on conflict (i) do update set i=11
+1 commit
+1 select 1 from comdb2_metrics m, comdb2_tunables t where m.name like 'verify_replays' and t.name='osql_verify_retry_max' and m.value < CAST(t.value AS int)
+1 select * from t1

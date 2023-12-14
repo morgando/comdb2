@@ -423,6 +423,25 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                 vgenid = 0; // no need to verify again
             }
 
+            if (iq->vfy_idx_track) {
+                char * store_key;
+                store_key = pool_getzblk(iq->vfy_idx_pool);
+                memcpy(store_key, &iq->usedb->dbs_idx, sizeof(int));
+                memcpy(store_key + sizeof(int), &ixnum, sizeof(int));
+                memcpy(store_key + sizeof(int) + sizeof(int), key, ixkeylen);
+
+                char * s = hash_find(iq->vfy_idx_hash, store_key);
+                if (s) {
+                    *ixfailnum = ixnum;
+                    /* If following changes, update OSQL_INSREC in osqlcomm.c */
+                    *opfailcode = OP_FAILED_UNIQ; 
+                    iq->dup_key_insert = 1;
+                    rc = ERR_INTERNAL;
+                    goto done;
+                }
+                hash_add(iq->vfy_idx_hash, store_key);
+            }
+
             /* add the key */
             rc = ix_addk(iq, trans, key, ixnum, *genid, *rrn, od_dta_tail,
                          od_tail_len, isnullk);
@@ -1317,6 +1336,7 @@ int process_defered_table(struct ireq *iq, void *trans, int *blkpos, int *ixout,
                           ditk->usedb->tablename, ditk->ixnum);
 
                 //*blkpos = curop->blkpos;
+
                 *errout = OP_FAILED_UNIQ;
                 *ixout = ditk->ixnum;
                 goto done;

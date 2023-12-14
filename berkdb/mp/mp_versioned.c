@@ -36,7 +36,7 @@
 
 // TODO: Remove prevpagelsn
 
-#define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) ((log_compare(&target_lsn, &highest_commit_lsn_asof_checkpoint) >= 0 && log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0) || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
+#define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) (log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0 || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
 
 static int DEBUG_PAGES = 0;
 static int DEBUG_PAGES1 = 0;

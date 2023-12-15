@@ -426,9 +426,10 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
             if (iq->vfy_idx_track) {
                 char * store_key;
                 store_key = pool_getzblk(iq->vfy_idx_pool);
-                memcpy(store_key, &iq->usedb->dbs_idx, sizeof(int));
-                memcpy(store_key + sizeof(int), &ixnum, sizeof(int));
-                memcpy(store_key + sizeof(int) + sizeof(int), key, ixkeylen);
+                // memcpy(store_key, &iq->usedb->dbs_idx, sizeof(int));
+                memcpy(store_key /*+ sizeof(int)*/, &ixnum, sizeof(int));
+                memcpy(store_key + sizeof(int) /*+ sizeof(int)*/, key, ixkeylen);
+				printf("ixkeylen %d\n", ixkeylen);
 
                 char * s = hash_find(iq->vfy_idx_hash, store_key);
                 if (s) {

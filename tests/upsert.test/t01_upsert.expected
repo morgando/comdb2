@@ -175,3 +175,30 @@ done
 (1=1)
 done
 done
+(part='---------------------------------- PART #09 ----------------------------------')
+done
+done
+done
+done
+done
+done
+done
+done
+(rows inserted=1)
+done
+done
+(i=1, j=1)
+(i=2, j=1)
+(i=4, j=1)
+done
+done
+done
+done
+done
+done
+[commit] failed with rc 2 add key constraint duplicate key '$KEY_877B2989' on table 't1' index 0
+done
+(i=1, j=1)
+(i=2, j=1)
+(i=4, j=1)
+done

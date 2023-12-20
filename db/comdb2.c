@@ -460,7 +460,7 @@ int gbl_commit_lsn_map = 1;
 int gbl_osql_verify_retries_max = 499;
 
 /* extended verify-checking after this many failures */
-int gbl_osql_verify_ext_chk = 1;
+int gbl_osql_verify_ext_chk = 0;
 
 int gbl_test_badwrite_intvl = 0;
 int gbl_test_blob_race = 0;

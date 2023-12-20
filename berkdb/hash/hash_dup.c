@@ -377,7 +377,7 @@ finish:		if (ret == 0) {
 err:	if (ret == 0)
 		ret = __memp_fset(mpf, hcp->page, DB_MPOOL_DIRTY);
 
-	if ((t_ret = __memp_fput(
+	if ((t_ret = PAGEPUT(
 	    mpf, dp, ret == 0 ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
 
@@ -461,7 +461,7 @@ __ham_check_move(dbc, add_len)
 	db_pgno_t next_pgno;
 	u_int32_t new_datalen, old_len, rectype;
 	u_int8_t *hk;
-	int ret, t_ret;
+	int ret;
 
 	dbp = dbc->dbp;
 	mpf = dbp->mpf;
@@ -512,15 +512,12 @@ __ham_check_move(dbc, add_len)
 	next_pagep = NULL;
 	for (next_pgno = NEXT_PGNO(hcp->page); next_pgno != PGNO_INVALID;
 	    next_pgno = NEXT_PGNO(next_pagep)) {
-		if (next_pagep != NULL) {
-			PAGEPUT(dbc, mpf, next_pagep, 0, ret);
-			if (ret != 0) {
-				return (ret);
-			}
-		}
+		if (next_pagep != NULL &&
+		    (ret = PAGEPUT(dbc, mpf, next_pagep, 0)) != 0)
+			return (ret);
 
-		PAGEGET(dbc, mpf, &next_pgno, DB_MPOOL_CREATE, &next_pagep);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf,
+		    &next_pgno, DB_MPOOL_CREATE, &next_pagep)) != 0)
 			return (ret);
 
 		if (P_FREESPACE(dbp, next_pagep) >= new_datalen)
@@ -535,7 +532,7 @@ __ham_check_move(dbc, add_len)
 	/* Add new page at the end of the chain. */
 	if (P_FREESPACE(dbp, next_pagep) < new_datalen && (ret =
 	    __ham_add_ovflpage(dbc, next_pagep, 1, &next_pagep)) != 0) {
-		PAGEPUT(dbc, mpf, next_pagep, 0, t_ret);
+		(void)PAGEPUT(dbc, mpf, next_pagep, 0);
 		return (ret);
 	}
 
@@ -574,7 +571,7 @@ __ham_check_move(dbc, add_len)
 		    dbc->txn, &new_lsn, 0, rectype, PGNO(next_pagep),
 		    (u_int32_t)NUM_ENT(next_pagep), &LSN(next_pagep),
 		    &k, &d)) != 0) {
-			PAGEPUT(dbc, mpf, next_pagep, 0, ret);
+			(void)PAGEPUT(dbc, mpf, next_pagep, 0);
 			return (ret);
 		}
 	} else
@@ -622,7 +619,7 @@ __ham_check_move(dbc, add_len)
 		hcp->hdr->nelem++;
 
 out:
-	PAGEPUT(dbc, mpf, hcp->page, DB_MPOOL_DIRTY, t_ret);
+	(void)PAGEPUT(dbc, mpf, hcp->page, DB_MPOOL_DIRTY);
 	hcp->page = next_pagep;
 	hcp->pgno = PGNO(hcp->page);
 	hcp->indx = NUM_ENT(hcp->page) - 2;

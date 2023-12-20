@@ -49,13 +49,12 @@ __db_traverse_big(dbc, dbp, pgno, callback, cookie)
 
 	do {
 		did_put = 0;
-		PAGEGET(dbc, mpf, &pgno, 0, &p, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &p)) != 0)
 			return (ret);
 		pgno = NEXT_PGNO(p);
 		if ((ret = callback(dbp, p, cookie, &did_put)) == 0 &&
 		    !did_put)
-			PAGEPUT(dbc, mpf, p, 0, ret);
+			ret = PAGEPUT(dbc, mpf, p, 0);
 	} while (ret == 0 && pgno != PGNO_INVALID);
 
 	return (ret);

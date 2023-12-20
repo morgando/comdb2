@@ -346,9 +346,7 @@ __bam_read_root(dbp, txn, base_pgno, flags)
 	if ((ret =
 	    __db_lget(dbc, 0, base_pgno, DB_LOCK_READ, 0, &metalock)) != 0)
 		goto err;
-
-	PAGEGET(dbc, mpf, &base_pgno, 0, &meta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &base_pgno, 0, &meta)) != 0)
 		goto err;
 
 	/*
@@ -391,20 +389,15 @@ __bam_read_root(dbp, txn, base_pgno, flags)
 	 */
 	if (!LF_ISSET(DB_RDONLY) && dbp->meta_pgno == PGNO_BASE_MD) {
 		__memp_last_pgno(mpf, &meta->dbmeta.last_pgno);
-		PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY, ret);
-	} else {
-		PAGEPUT(dbc, mpf, meta, 0, ret);
-	}
+		ret = PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY);
+	} else
+		ret = PAGEPUT(dbc, mpf, meta, 0);
 	meta = NULL;
 
 err:	/* Put the metadata page back. */
-	if (meta != NULL) {
-		PAGEPUT(dbc, mpf, meta, 0, t_ret);
-		if (t_ret != 0 && ret == 0) {
-			ret = t_ret;
-		}
-	}
-
+	if (meta != NULL &&
+	    (t_ret = PAGEPUT(dbc, mpf, meta, 0)) != 0 && ret == 0)
+		ret = t_ret;
 	if ((t_ret = __LPUT(dbc, metalock)) != 0 && ret == 0)
 		ret = t_ret;
 
@@ -616,9 +609,8 @@ __bam_new_subdb(mdbp, dbp, txn)
 	if ((ret = __db_lget(dbc,
 	    0, dbp->meta_pgno, DB_LOCK_WRITE, 0, &metalock)) != 0)
 		goto err;
-
-	PAGEGET(dbc, mpf, &dbp->meta_pgno, DB_MPOOL_CREATE, &meta, ret);
-	if (ret != 0)
+	if ((ret =
+	    PAGEGET(dbc, mpf, &dbp->meta_pgno, DB_MPOOL_CREATE, &meta)) != 0)
 		goto err;
 
 	/* Build meta-data page. */
@@ -645,26 +637,19 @@ __bam_new_subdb(mdbp, dbp, txn)
 		goto err;
 
 	/* Release the metadata and root pages. */
-	PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY, ret);
-	if (ret != 0)
+	if ((ret = PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY)) != 0)
 		goto err;
 	meta = NULL;
-
-	PAGEPUT(dbc, mpf, root, DB_MPOOL_DIRTY, ret);
-	if (ret != 0)
+	if ((ret = PAGEPUT(dbc, mpf, root, DB_MPOOL_DIRTY)) != 0)
 		goto err;
 	root = NULL;
 err:
-	if (meta != NULL) {
-		PAGEPUT(dbc, mpf, meta, 0, t_ret);
-		if (t_ret != 0 && ret == 0)
+	if (meta != NULL)
+		if ((t_ret = PAGEPUT(dbc, mpf, meta, 0)) != 0 && ret == 0)
 			ret = t_ret;
-	}
-	if (root != NULL) {
-		PAGEPUT(dbc, mpf, root, 0, t_ret);
-		if (t_ret != 0 && ret == 0)
+	if (root != NULL)
+		if ((t_ret = PAGEPUT(dbc, mpf, root, 0)) != 0 && ret == 0)
 			ret = t_ret;
-	}
 	if (LOCK_ISSET(metalock))
 		if ((t_ret = __LPUT(dbc, metalock)) != 0 && ret == 0)
 			ret = t_ret;

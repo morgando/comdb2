@@ -46,7 +46,7 @@ __ham_stat(dbc, spp, flags)
 	HASH_CURSOR *hcp;
 	PAGE *h;
 	db_pgno_t pgno;
-	int ret, t_ret;
+	int ret;
 
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
@@ -81,12 +81,11 @@ __ham_stat(dbc, spp, flags)
 	    pgno != PGNO_INVALID;) {
 		++sp->hash_free;
 
-		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0)
 			goto err;
 
 		pgno = h->next_pgno;
-		PAGEPUT(dbc, mpf, h, 0, t_ret);
+		(void)PAGEPUT(dbc, mpf, h, 0);
 	}
 
 	/* Now traverse the rest of the table. */
@@ -259,8 +258,7 @@ __ham_traverse(dbc, mode, callback, cookie, look_past_max)
 			(void)__lock_put(dbp->dbenv, &hcp->lock);
 
 		if (hcp->page != NULL) {
-			PAGEPUT(dbc, mpf, hcp->page, 0, ret);
-			if (ret != 0)
+			if ((ret = PAGEPUT(dbc, mpf, hcp->page, 0)) != 0)
 				return (ret);
 			hcp->page = NULL;
 		}

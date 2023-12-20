@@ -88,8 +88,7 @@ __qam_open(dbp, txn, name, base_pgno, mode, flags)
 	if ((ret =
 	    __db_lget(dbc, 0, base_pgno, DB_LOCK_READ, 0, &metalock)) != 0)
 		goto err;
-	PAGEGET(dbc, mpf, &base_pgno, 0, &qmeta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &base_pgno, 0, &qmeta)) != 0)
 		goto err;
 
 	/* If the magic number is incorrect, that's a fatal error. */
@@ -116,12 +115,9 @@ __qam_open(dbp, txn, name, base_pgno, mode, flags)
 	t->q_root = base_pgno + 1;
 
 err:	
-	if (qmeta != NULL) {
-		PAGEPUT(dbc, mpf, qmeta, 0, t_ret);
-		if (t_ret != 0 && ret == 0) {
+	if (qmeta != NULL &&
+		(t_ret = PAGEPUT(dbc, mpf, qmeta, 0)) != 0 && ret == 0)
 			ret = t_ret;
-		}
-	}
 
 	/* Don't hold the meta page long term. */
 	(void)__LPUT(dbc, metalock);

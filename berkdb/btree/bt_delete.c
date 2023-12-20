@@ -285,7 +285,7 @@ __bam_dpages(dbc, stack_epg, norlk)
 	 */
 	ret = 0;
 	for (epg = cp->sp; epg < stack_epg; ++epg) {
-		if ((t_ret = __memp_fput(mpf, epg->page, 0)) != 0 && ret == 0)
+		if ((t_ret = PAGEPUT(dbc, mpf, epg->page, 0)) != 0 && ret == 0)
 			ret = t_ret;
 		(void)__TLPUT(dbc, epg->lock);
 	}
@@ -321,7 +321,7 @@ __bam_dpages(dbc, stack_epg, norlk)
 	pgno = PGNO(epg->page);
 	nitems = NUM_ENT(epg->page);
 
-	if ((ret = __memp_fput(mpf, epg->page, 0)) != 0)
+	if ((ret = PAGEPUT(dbc, mpf, epg->page, 0)) != 0)
 		goto err_inc;
 	(void)__TLPUT(dbc, epg->lock);
 
@@ -351,7 +351,7 @@ __bam_dpages(dbc, stack_epg, norlk)
 err_inc:	++epg;
 err:		for (; epg <= cp->csp; ++epg) {
 			if (epg->page != NULL)
-				(void)__memp_fput(mpf, epg->page, 0);
+				(void)PAGEPUT(dbc, mpf, epg->page, 0);
 			(void)__TLPUT(dbc, epg->lock);
 		}
 		BT_STK_CLR(cp);
@@ -380,9 +380,7 @@ err:		for (; epg <= cp->csp; ++epg) {
 		if ((ret =
 		    __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &p_lock)) != 0)
 			goto stop;
-
-		PAGEGET(dbc, mpf, &pgno, 0, &parent, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &parent)) != 0)
 			goto stop;
 
 		if (NUM_ENT(parent) != 1)
@@ -412,9 +410,7 @@ err:		for (; epg <= cp->csp; ++epg) {
 		if ((ret =
 		    __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &c_lock)) != 0)
 			goto stop;
-
-		PAGEGET(dbc, mpf, &pgno, 0, &child, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &child)) != 0)
 			goto stop;
 
 		if (F_ISSET(dbp, DB_AM_HASH) &&
@@ -534,19 +530,13 @@ err:		for (; epg <= cp->csp; ++epg) {
 stop:			done = 1;
 		}
 		(void)__TLPUT(dbc, p_lock);
-		if (parent != NULL) {
-			PAGEPUT(dbc, mpf, parent, 0, t_ret);
-			if (t_ret != 0 && ret == 0) {
-				ret = t_ret;
-			}
-		}
+		if (parent != NULL &&
+		    (t_ret = PAGEPUT(dbc, mpf, parent, 0)) != 0 && ret == 0)
+			ret = t_ret;
 		(void)__TLPUT(dbc, c_lock);
-		if (child != NULL) {
-			PAGEPUT(dbc, mpf, child, 0, t_ret);
-			if (t_ret != 0 && ret == 0) {
-				ret = t_ret;
-			}
-		}
+		if (child != NULL &&
+		    (t_ret = PAGEPUT(dbc, mpf, child, 0)) != 0 && ret == 0)
+			ret = t_ret;
 	}
 
 	return (ret);

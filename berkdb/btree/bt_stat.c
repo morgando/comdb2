@@ -71,8 +71,7 @@ __bam_stat(dbc, spp, flags)
 	pgno = PGNO_BASE_MD;
 	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &metalock)) != 0)
 		goto err;
-	PAGEGET(dbc, mpf, &pgno, 0, &meta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &meta)) != 0)
 		goto err;
 
 	if (flags == DB_RECORDCOUNT || flags == DB_CACHED_COUNTS)
@@ -84,13 +83,11 @@ __bam_stat(dbc, spp, flags)
 	for (sp->bt_free = 0, pgno = meta->dbmeta.free; pgno != PGNO_INVALID;) {
 		++sp->bt_free;
 
-		PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0)
 			goto err;
 
 		pgno = h->next_pgno;
-		PAGEPUT(dbc, mpf, h, 0, ret);
-		if (ret != 0)
+		if ((ret = PAGEPUT(dbc, mpf, h, 0)) != 0)
 			goto err;
 		h = NULL;
 	}
@@ -99,15 +96,14 @@ __bam_stat(dbc, spp, flags)
 	pgno = cp->root;
 	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &lock)) != 0)
 		goto err;
-	PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0)
 		goto err;
 
 	/* Get the levels from the root page. */
 	sp->bt_levels = h->level;
 
 	/* Discard the root page. */
-	if ((ret = __memp_fput(mpf, h, 0)) != 0)
+	if ((ret = PAGEPUT(dbc, mpf, h, 0)) != 0)
 		goto err;
 	h = NULL;
 	__LPUT(dbc, lock);
@@ -124,7 +120,7 @@ __bam_stat(dbc, spp, flags)
 	write_meta = !F_ISSET(dbp, DB_AM_RDONLY);
 meta_only:
 	if (t->bt_meta != PGNO_BASE_MD || write_meta != 0) {
-		if ((ret = __memp_fput(mpf, meta, 0)) != 0)
+		if ((ret = PAGEPUT(dbc, mpf, meta, 0)) != 0)
 			goto err;
 		meta = NULL;
 		__LPUT(dbc, metalock);
@@ -133,8 +129,7 @@ meta_only:
 		    0, t->bt_meta, write_meta == 0 ?
 		    DB_LOCK_READ : DB_LOCK_WRITE, 0, &metalock)) != 0)
 			goto err;
-		PAGEGET(dbc, mpf, &t->bt_meta, 0, &meta, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &t->bt_meta, 0, &meta)) != 0)
 			goto err;
 	}
 	if (flags == DB_FAST_STAT) {
@@ -143,8 +138,8 @@ meta_only:
 			if ((ret = __db_lget(dbc, 0,
 			    cp->root, DB_LOCK_READ, 0, &lock)) != 0)
 				goto err;
-			PAGEGET(dbc, mpf, &cp->root, 0, &h, ret);
-			if (ret != 0)
+			if ((ret =
+			    PAGEGET(dbc, mpf, &cp->root, 0, (PAGE **)&h)) != 0)
 				goto err;
 
 			sp->bt_nkeys = RE_NREC(h);
@@ -172,21 +167,14 @@ meta_only:
 
 err:	/* Discard the second page. */
 	__LPUT(dbc, lock);
-	if (h != NULL) {
-		PAGEPUT(dbc, mpf, h, 0, t_ret);
-		if (t_ret != 0 && ret == 0) {
-			ret = t_ret;
-		}
-	}
+	if (h != NULL && (t_ret = PAGEPUT(dbc, mpf, h, 0)) != 0 && ret == 0)
+		ret = t_ret;
 
 	/* Discard the metadata page. */
 	__LPUT(dbc, metalock);
-	if (meta != NULL) {
-		PAGEPUT(dbc, mpf, meta, write_meta == 0 ? 0 : DB_MPOOL_DIRTY, t_ret);
-		if (t_ret != 0 && ret == 0) {
-			ret = t_ret;
-		}
-	}
+	if (meta != NULL && (t_ret = PAGEPUT(dbc,
+	    mpf, meta, write_meta == 0 ? 0 : DB_MPOOL_DIRTY)) != 0 && ret == 0)
+		ret = t_ret;
 
 	if (ret != 0 && sp != NULL) {
 		__os_ufree(dbenv, sp);
@@ -246,8 +234,7 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 
 	if ((ret = __db_lget(dbc, 0, root_pgno, mode, 0, &lock)) != 0)
 		return (ret);
-	PAGEGET(dbc, mpf, &root_pgno, 0, &h, ret);
-	if (ret != 0) {
+	if ((ret = PAGEGET(dbc, mpf, &root_pgno, 0, &h)) != 0) {
 		__LPUT(dbc, lock);
 		return (ret);
 	}
@@ -312,12 +299,8 @@ __bam_traverse(dbc, mode, root_pgno, callback, cookie)
 
 	ret = callback(dbp, h, cookie, &already_put);
 
-err:	if (!already_put) {
-		PAGEPUT(dbc, mpf, h, 0, t_ret);
-		if (t_ret != 0 && ret != 0) {
-			ret = t_ret;
-		}
-	}
+err:	if (!already_put && (t_ret = PAGEPUT(dbc, mpf, h, 0)) != 0 && ret != 0)
+		ret = t_ret;
 	__LPUT(dbc, lock);
 
 	return (ret);

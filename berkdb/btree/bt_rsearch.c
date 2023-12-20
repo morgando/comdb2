@@ -78,7 +78,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 	db_lockmode_t lock_mode;
 	db_pgno_t pg;
 	db_recno_t recno, t_recno, total;
-	int ret, t_ret, stack;
+	int ret, stack;
 
 	dbp = dbc->dbp;
 	mpf = dbp->mpf;
@@ -106,8 +106,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 	lock_mode = stack ? DB_LOCK_WRITE : DB_LOCK_READ;
 	if ((ret = __db_lget(dbc, 0, pg, lock_mode, 0, &lock)) != 0)
 		return (ret);
-	PAGEGET(dbc, mpf, &pg, 0, &h, ret);
-	if (ret != 0) {
+	if ((ret = PAGEGET(dbc, mpf, &pg, 0, &h)) != 0) {
 		/* Did not read it, so we can release the lock */
 		(void)__LPUT(dbc, lock);
 		return (ret);
@@ -124,13 +123,12 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 	if (!stack &&
 	    ((LF_ISSET(S_PARENT) && (u_int8_t)(stop + 1) >= h->level) ||
 	    (LF_ISSET(S_WRITE) && h->level == LEAFLEVEL))) {
-		PAGEPUT(dbc, mpf, h, 0, t_ret);
+		(void)PAGEPUT(dbc, mpf, h, 0);
 		(void)__LPUT(dbc, lock);
 		lock_mode = DB_LOCK_WRITE;
 		if ((ret = __db_lget(dbc, 0, pg, lock_mode, 0, &lock)) != 0)
 			return (ret);
-		PAGEGET(dbc, mpf, &pg, 0, &h, ret);
-		if (ret != 0) {
+		if ((ret = PAGEGET(dbc, mpf, &pg, 0, &h)) != 0) {
 			/* Did not read it, so we can release the lock */
 			(void)__LPUT(dbc, lock);
 			return (ret);
@@ -169,7 +167,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 				 * eliminate any concurrency.  A possible fix
 				 * would be to lock the last leaf page instead.
 				 */
-				PAGEPUT(dbc, mpf, h, 0, t_ret);
+				(void)PAGEPUT(dbc, mpf, h, 0);
 				(void)__TLPUT(dbc, lock);
 				return (DB_NOTFOUND);
 			}
@@ -203,7 +201,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 					*exactp = 0;
 					if (!LF_ISSET(S_PAST_EOF) ||
 					    recno > t_recno + 1) {
-						PAGEPUT(dbc, mpf, h, 0, t_ret);
+						(void)PAGEPUT(dbc, mpf, h, 0);
 						(void)__TLPUT(dbc, lock);
 						ret = DB_NOTFOUND;
 
@@ -284,7 +282,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 			    (h->level - 1) == LEAFLEVEL)
 				stack = 1;
 
-			PAGEPUT(dbc, mpf, h, 0, t_ret);
+			(void)PAGEPUT(dbc, mpf, h, 0);
 
 			lock_mode = stack &&
 			    LF_ISSET(S_WRITE) ? DB_LOCK_WRITE : DB_LOCK_READ;
@@ -300,8 +298,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 			}
 		}
 
-		PAGEGET(dbc, mpf, &pg, 0, &h, ret);
-		if (ret != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pg, 0, &h)) != 0)
 			goto err;
 	}
 	/* NOTREACHED */
@@ -390,13 +387,12 @@ __bam_nrecs(dbc, rep)
 	pgno = dbc->internal->root;
 	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &lock)) != 0)
 		return (ret);
-	PAGEGET(dbc, mpf, &pgno, 0, &h, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0)
 		return (ret);
 
 	*rep = RE_NREC(h);
 
-	PAGEPUT(dbc, mpf, h, 0, ret);
+	(void)PAGEPUT(dbc, mpf, h, 0);
 	(void)__TLPUT(dbc, lock);
 
 	return (0);

@@ -299,11 +299,10 @@ __qam_c_put(dbc, key, data, flags, pgnop)
 	 * Get the meta page first, we don't want to write lock it while
 	 * trying to pin it.
 	 */
-	PAGEGET(dbc, mpf, &pg, 0, &meta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &pg, 0, &meta)) != 0)
 		return (ret);
 	if ((ret = __db_lget(dbc, 0, pg, DB_LOCK_WRITE, 0, &lock)) != 0) {
-		PAGEPUT(dbc, mpf, meta, 0, ret);
+		(void)PAGEPUT(dbc, mpf, meta, 0);
 		return (ret);
 	}
 
@@ -359,8 +358,8 @@ __qam_c_put(dbc, key, data, flags, pgnop)
 	if (opcode & QAM_SETFIRST)
 		meta->first_recno = new_first;
 
-	PAGEPUT(dbc, mpf, meta, opcode != 0 ? DB_MPOOL_DIRTY : 0, t_ret);
-	if (t_ret != 0 && ret == 0)
+	if ((t_ret = PAGEPUT(
+	    mpf, meta, opcode != 0 ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
 
 	/* Don't hold the meta page long term. */
@@ -400,12 +399,11 @@ __qam_append(dbc, key, data)
 	 * Get the meta page first, we don't want to write lock it while
 	 * trying to pin it.
 	 */
-	PAGEGET(dbc, mpf, &pg, 0, &meta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &pg, 0, &meta)) != 0)
 		return (ret);
 	/* Write lock the meta page. */
 	if ((ret = __db_lget(dbc, 0, pg, DB_LOCK_WRITE, 0, &lock)) != 0) {
-		PAGEPUT(dbc, mpf, meta, 0, ret);
+		(void)PAGEPUT(dbc, mpf, meta, 0);
 		return (ret);
 	}
 
@@ -505,8 +503,7 @@ __qam_append(dbc, key, data)
 
 err:
 	/* Release the meta page. */
-	PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY, t_ret);
-	if (t_ret != 0 && ret == 0)
+	if ((t_ret = PAGEPUT(dbc, mpf, meta, DB_MPOOL_DIRTY)) != 0 && ret == 0)
 		ret = t_ret;
 
 	return (ret);
@@ -541,12 +538,11 @@ __qam_c_del(dbc)
 	 * Get the meta page first, we don't want to write lock it while
 	 * trying to pin it.
 	 */
-	PAGEGET(dbc, mpf, &pg, 0, &meta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &pg, 0, &meta)) != 0)
 		return (ret);
 	/* Write lock the meta page. */
 	if ((ret = __db_lget(dbc, 0, pg, DB_LOCK_READ, 0, &metalock)) != 0) {
-		PAGEPUT(dbc, mpf, meta, 0, ret);
+		(void)PAGEPUT(dbc, mpf, meta, 0);
 		return (ret);
 	}
 
@@ -612,8 +608,7 @@ __qam_c_del(dbc)
 	}
 
 err1:
-	PAGEPUT(dbc, mpf, meta, 0, t_ret);
-	if (t_ret != 0 && ret == 0)
+	if ((t_ret = PAGEPUT(dbc, mpf, meta, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (cp->page != NULL && (t_ret = __qam_fput(dbp, cp->pgno,
 	    cp->page, ret == 0 ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
@@ -711,8 +706,7 @@ __qam_c_get(dbc, key, data, flags, pgnop)
 	 * trying to pin it.  This is because someone my have it pinned
 	 * but not locked.
 	 */
-	PAGEGET(dbc, mpf, &metapno, 0, &meta, ret);
-	if (ret != 0)
+	if ((ret = PAGEGET(dbc, mpf, &metapno, 0, &meta)) != 0)
 		return (ret);
 	if ((ret = __db_lget(dbc, 0, metapno, lock_mode, 0, &metalock)) != 0)
 		goto err;
@@ -762,8 +756,8 @@ retry:	/* Update the record number. */
 
 				if (CDB_LOCKING(dbenv)) {
 					/* Drop the metapage before we wait. */
-					PAGEPUT(dbc, mpf, meta, 0, ret);
-					if (ret != 0)
+					if ((ret =
+					    PAGEPUT(dbc, mpf, meta, 0)) != 0)
 						goto err;
 					meta = NULL;
 					if ((ret = __lock_get(
@@ -772,8 +766,8 @@ retry:	/* Update the record number. */
 					    DB_LOCK_WAIT, &dbc->mylock)) != 0)
 						goto err;
 
-					PAGEGET(dbc, mpf, &metapno, 0, &meta, ret);
-					if (ret != 0)
+					if ((ret = PAGEGET(dbc, mpf,
+					     &metapno, 0, &meta)) != 0)
 						goto err;
 					if ((ret = __lock_get(
 					    dbenv, dbc->locker,
@@ -798,8 +792,7 @@ retry:	/* Update the record number. */
 						goto retry;
 				}
 				/* Drop the metapage before we wait. */
-				PAGEPUT(dbc, mpf, meta, 0, ret);
-				if (ret != 0)
+				if ((ret = PAGEPUT(dbc, mpf, meta, 0)) != 0)
 					goto err;
 				meta = NULL;
 				if ((ret = __db_lget(dbc,
@@ -809,8 +802,8 @@ retry:	/* Update the record number. */
 						ret = DB_LOCK_NOTGRANTED;
 					goto err;
 				}
-				PAGEGET(dbc, mpf, &metapno, 0, &meta, ret);
-				if (ret != 0)
+				if ((ret = PAGEGET(
+				     mpf, &metapno, 0, &meta)) != 0)
 					goto err;
 				if ((ret = __lock_get(dbenv,
 				      dbc->locker, DB_LOCK_UPGRADE,
@@ -1122,7 +1115,7 @@ err:	if (!ret)
 	if (meta) {
 
 		/* release the meta page */
-		PAGEPUT(dbc, mpf, meta, 0, t_ret);
+		t_ret = PAGEPUT(dbc, mpf, meta, 0);
 
 		if (!ret)
 			ret = t_ret;
@@ -1364,8 +1357,7 @@ __qam_bulk(dbc, data, flags)
 
 	if ((ret = __db_lget(dbc, 0, metapno, DB_LOCK_READ, 0, &metalock)) != 0)
 		return (ret);
-	PAGEGET(dbc, mpf, &metapno, 0, &meta, ret);
-	if (ret != 0) {
+	if ((ret = PAGEGET(dbc, mpf, &metapno, 0, &meta)) != 0) {
 		/* We did not fetch it, we can release the lock. */
 		(void)__LPUT(dbc, metalock);
 		return (ret);
@@ -1483,7 +1475,7 @@ get_space:
 
 done:
 	/* release the meta page */
-	PAGEPUT(dbc, mpf, meta, 0, t_ret);
+	t_ret = PAGEPUT(dbc, mpf, meta, 0);
 
 	if (!ret)
 		ret = t_ret;
@@ -1670,8 +1662,7 @@ __qam_truncate(dbc, countp)
 		return (ret);
 
 	mpf = dbp->mpf;
-	PAGEGET(dbc, mpf, &metapno, 0, &meta, ret);
-	if (ret != 0) {
+	if ((ret = PAGEGET(dbc, mpf, &metapno, 0, &meta)) != 0) {
 		/* We did not fetch it, we can release the lock. */
 		(void)__LPUT(dbc, metalock);
 		return (ret);
@@ -1684,8 +1675,8 @@ __qam_truncate(dbc, countp)
 	if (ret == 0)
 		meta->first_recno = meta->cur_recno = 1;
 
-	PAGEPUT(dbc, mpf, meta, ret == 0 ? DB_MPOOL_DIRTY: 0, t_ret);
-	if (t_ret != 0 && ret == 0)
+	if ((t_ret = PAGEPUT(dbc, mpf,
+	    meta, ret == 0 ? DB_MPOOL_DIRTY: 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if ((t_ret = __LPUT(dbc, metalock)) != 0 && ret == 0)
 		ret = t_ret;

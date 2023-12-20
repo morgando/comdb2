@@ -430,7 +430,7 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
 
             if (iq->vfy_idx_track) {
                 char * store_key;
-                store_key = pool_getzblk(iq->vfy_idx_pool);
+                store_key = calloc(sizeof(int) + sizeof(int) + MAXKEYLEN, sizeof(char));
                 memcpy(store_key, &iq->usedb->dbs_idx, sizeof(int));
                 memcpy(store_key + sizeof(int), &ixnum, sizeof(int));
                 memcpy(store_key + sizeof(int) + sizeof(int), key, ixkeylen);

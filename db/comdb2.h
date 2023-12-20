@@ -1389,7 +1389,6 @@ struct ireq {
 
     /* List of indices that we've written to detect uncommitable upsert txns */
     hash_t *vfy_idx_hash; 
-    pool_t *vfy_idx_pool;
 
     int dup_key_insert;
 

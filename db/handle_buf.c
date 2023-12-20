@@ -635,10 +635,6 @@ static void *thd_req(void *vthd)
                 hash_free(thd->iq->vfy_idx_hash);
                 thd->iq->vfy_idx_hash = NULL;
             }
-            if (thd->iq->vfy_idx_pool) {
-                pool_free(thd->iq->vfy_idx_pool);
-                thd->iq->vfy_idx_pool = NULL;
-            }
             thd->iq->vfy_idx_track = 0;
             thd->iq->dup_key_insert = 0;
 #if 0

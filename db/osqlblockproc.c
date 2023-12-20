@@ -1102,8 +1102,6 @@ static int apply_changes(struct ireq *iq, blocksql_tran_t *tran, void *iq_tran,
             iq->dup_key_insert = 0;
 
             iq->vfy_idx_hash = hash_init(sizeof(int) + sizeof(int) + MAXKEYLEN);
-            iq->vfy_idx_pool =
-                pool_setalloc_init(sizeof(int) + sizeof(int) + MAXKEYLEN, 0, malloc, free);
         }
     }
 
@@ -1116,7 +1114,6 @@ static int apply_changes(struct ireq *iq, blocksql_tran_t *tran, void *iq_tran,
 
     if (iq->vfy_idx_track) {
         hash_clear(iq->vfy_idx_hash);
-        pool_clear(iq->vfy_idx_pool);
     }
 
     /* create a cursor */

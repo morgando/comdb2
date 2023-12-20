@@ -7282,13 +7282,18 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         if (rc != 0) {
             if (err->errcode == OP_FAILED_UNIQ) {
                 if (iq->vfy_idx_track == 1 && iq->dup_key_insert == 1) {
-                    rc = ERR_UNCOMMITABLE_TXN;
-                    reqerrstr(iq, COMDB2_CSTRT_RC_DUP, "add key constraint "
+                    // rc = ERR_UNCOMMITABLE_TXN;
+                    /*reqerrstr(iq, COMDB2_CSTRT_RC_DUP, "add key constraint "
                                                    "duplicate key '%s' on "
                                                    "table '%s' index %d",
                           get_keynm_from_db_idx(iq->usedb, err->ixnum),
-                          iq->usedb->tablename, err->ixnum);
-                    err->errcode = ERR_UNCOMMITABLE_TXN;
+                          iq->usedb->tablename, err->ixnum);*/
+                    reqerrstr(iq, COMDB2_CSTRT_RC_DUP, "add key constraint "
+                                                       "duplicate key '%s' on "
+                                                       "table '%s' index %d",
+                              get_keynm_from_db_idx(iq->usedb, err->ixnum),
+                              iq->usedb->tablename, err->ixnum);
+                    // err->errcode = ERR_UNCOMMITABLE_TXN;
                     return rc;
                 }
 

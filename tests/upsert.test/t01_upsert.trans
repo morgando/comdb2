@@ -132,3 +132,22 @@
 1 commit
 1 select 1 from comdb2_metrics m, comdb2_tunables t where m.name like 'verify_replays' and t.name='osql_verify_retry_max' and m.value < CAST(t.value AS int)
 1 select * from t1
+
+1 SELECT '---------------------------------- PART #09 ----------------------------------' AS part;
+1 drop table if exists t1
+1 create table t1(i int unique, j int)
+1 create index t1_j on t1(j)
+1 begin
+1 insert into t1 values(1, 1)
+1 insert into t1 values(2, 1)
+1 insert into t1 values(3, 1) on conflict (i) do update set i=4
+2 insert into t1 values(3, 1)
+1 commit -- will retry because of 2's insert and then should succeed as update
+1 select * from t1
+1 begin
+1 insert into t1 values(5, 1)
+1 insert into t1 values(6, 1)
+1 insert into t1 values(7, 1) on conflict (i) do update set i=4
+1 insert into t1 values(7, 1) on conflict (i) do update set i=4
+1 commit
+1 select * from t1

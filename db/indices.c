@@ -305,6 +305,7 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                        int flags, int reorder)
 {
     int rc = 0;
+    int dup_txn_insert = 0;
     char *od_dta_tail = NULL;
     int od_tail_len;
     if (iq->osql_step_ix)
@@ -423,6 +424,10 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                 vgenid = 0; // no need to verify again
             }
 
+            /* add the key */
+            rc = ix_addk(iq, trans, key, ixnum, *genid, *rrn, od_dta_tail,
+                         od_tail_len, isnullk);
+
             if (iq->vfy_idx_track) {
                 char * store_key;
                 store_key = pool_getzblk(iq->vfy_idx_pool);
@@ -432,19 +437,11 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
 
                 char * s = hash_find(iq->vfy_idx_hash, store_key);
                 if (s) {
-                    *ixfailnum = ixnum;
-                    /* If following changes, update OSQL_INSREC in osqlcomm.c */
-                    *opfailcode = OP_FAILED_UNIQ; 
-                    iq->dup_key_insert = 1;
-                    rc = ERR_INTERNAL;
-                    goto done;
+                    dup_txn_insert = 1;
+                } else {
+                    hash_add(iq->vfy_idx_hash, store_key);
                 }
-                hash_add(iq->vfy_idx_hash, store_key);
             }
-
-            /* add the key */
-            rc = ix_addk(iq, trans, key, ixnum, *genid, *rrn, od_dta_tail,
-                         od_tail_len, isnullk);
 
             if (vgenid && rc == IX_DUP) {
                 if (iq->usedb->ix_dupes[ixnum] || isnullk) {
@@ -465,6 +462,12 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                 *ixfailnum = ixnum;
                 /* If following changes, update OSQL_INSREC in osqlcomm.c */
                 *opfailcode = OP_FAILED_UNIQ; /* really? */
+
+                // If this transaction has already added this key and adding this key again
+                // violates a duplicate key constraint, then this txn is uncommittable. 
+                if (dup_txn_insert == 1) {
+                    iq->dup_key_insert = 1;
+                }
 
                 goto done;
             }

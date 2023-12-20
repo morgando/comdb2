@@ -824,7 +824,6 @@ retry:
 			if ((ret = __db_lget(dbc, 0, npgno, DB_LOCK_WRITE, 0, &dplock)) != 0)
 				goto err_zero_h;
 			nh = NULL;
-
 			if (PAGEGETTEST(dbc, dbmfp, &npgno, 0, &nh) != 0)
 				goto err_zero_h;
 		}

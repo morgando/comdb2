@@ -825,8 +825,7 @@ retry:
 				goto err_zero_h;
 			nh = NULL;
 
-			PAGEGET(dbc, dbmfp, &npgno, 0, &nh, ret);
-			if (ret != 0)
+			if (PAGEGETTEST(dbc, dbmfp, &npgno, 0, &nh) != 0)
 				goto err_zero_h;
 		}
 

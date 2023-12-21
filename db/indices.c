@@ -305,6 +305,7 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                        int flags, int reorder)
 {
     int rc = 0;
+    int dup_txn_insert = 0;
     char *od_dta_tail = NULL;
     int od_tail_len;
     if (iq->osql_step_ix)
@@ -427,6 +428,22 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
             rc = ix_addk(iq, trans, key, ixnum, *genid, *rrn, od_dta_tail,
                          od_tail_len, isnullk);
 
+            if (iq->vfy_idx_track) {
+                char * store_key;
+                store_key = calloc(sizeof(int) + sizeof(int) + MAXKEYLEN, sizeof(char));
+                memcpy(store_key, &iq->usedb->dbs_idx, sizeof(int));
+                memcpy(store_key + sizeof(int), &ixnum, sizeof(int));
+                memcpy(store_key + sizeof(int) + sizeof(int), key, ixkeylen);
+
+                char * s = hash_find(iq->vfy_idx_hash, store_key);
+                if (s) {
+                    free(store_key);
+                    dup_txn_insert = 1;
+                } else {
+                    hash_add(iq->vfy_idx_hash, store_key);
+                }
+            }
+
             if (vgenid && rc == IX_DUP) {
                 if (iq->usedb->ix_dupes[ixnum] || isnullk) {
                     rc = ERR_VERIFY;
@@ -446,6 +463,12 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                 *ixfailnum = ixnum;
                 /* If following changes, update OSQL_INSREC in osqlcomm.c */
                 *opfailcode = OP_FAILED_UNIQ; /* really? */
+
+                // If this transaction has already added this key and adding this key again
+                // violates a duplicate key constraint, then this txn is uncommittable. 
+                if (dup_txn_insert == 1) {
+                    iq->dup_key_insert = 1;
+                }
 
                 goto done;
             }
@@ -1317,6 +1340,7 @@ int process_defered_table(struct ireq *iq, void *trans, int *blkpos, int *ixout,
                           ditk->usedb->tablename, ditk->ixnum);
 
                 //*blkpos = curop->blkpos;
+
                 *errout = OP_FAILED_UNIQ;
                 *ixout = ditk->ixnum;
                 goto done;

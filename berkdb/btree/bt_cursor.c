@@ -1760,7 +1760,7 @@ __bam_c_count(dbc, recnop)
 		 * Off-page duplicates tree, get the root page of the off-page
 		 * duplicate tree.
 		 */
-		if ((ret = PAGEGET(
+		if ((ret = PAGEGET(dbc,
 		    mpf, &cp->opd->internal->root, 0, &cp->page)) != 0)
 			return (ret);
 
@@ -2577,7 +2577,7 @@ __bam_bulk_overflow(dbc, len, pgno, dp)
 	F_SET(&dbt, DB_DBT_USERMEM);
 	dbt.ulen = len;
 	dbt.data = (void *)dp;
-	return (__db_goff(dbc->dbp, &dbt, len, pgno, NULL, NULL));
+	return (__db_goff(dbc, dbc->dbp, &dbt, len, pgno, NULL, NULL));
 }
 
 /*

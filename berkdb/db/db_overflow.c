@@ -71,11 +71,12 @@ static const char revid[] = "$Id: db_overflow.c,v 11.51 2003/06/30 17:19:46 bost
  * __db_goff --
  *	Get an offpage item.
  *
- * PUBLIC: int __db_goff __P((DB *, DBT *,
+ * PUBLIC: int __db_goff __P((DBC *, DB *, DBT *,
  * PUBLIC:     u_int32_t, db_pgno_t, void **, u_int32_t *));
  */
 int
-__db_goff(dbp, dbt, tlen, pgno, bpp, bpsz)
+__db_goff(dbc, dbp, dbt, tlen, pgno, bpp, bpsz)
+	DBC *dbc;
 	DB *dbp;
 	DBT *dbt;
 	u_int32_t tlen;
@@ -158,7 +159,7 @@ __db_goff(dbp, dbt, tlen, pgno, bpp, bpsz)
 		}
 		curoff += OV_LEN(h);
 		pgno = h->next_pgno;
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 	}
 	return (0);
 }
@@ -223,7 +224,7 @@ __db_poff(dbc, dbt, pgnop)
 			    lastp == NULL ? &null_lsn : &LSN(lastp),
 			    &null_lsn)) != 0) {
 				if (lastp != NULL)
-					(void)PAGEPUT(dbc, mpf,
+					PAGEPUT(dbc, mpf,
 					    lastp, DB_MPOOL_DIRTY);
 				lastp = pagep;
 				break;
@@ -252,7 +253,7 @@ __db_poff(dbc, dbt, pgnop)
 		else {
 			lastp->next_pgno = PGNO(pagep);
 			pagep->prev_pgno = PGNO(lastp);
-			(void)PAGEPUT(dbc, mpf, lastp, DB_MPOOL_DIRTY);
+			PAGEPUT(dbc, mpf, lastp, DB_MPOOL_DIRTY);
 		}
 		lastp = pagep;
 	}
@@ -288,14 +289,14 @@ __db_ovref(dbc, pgno, adjust)
 	if (DBC_LOGGING(dbc)) {
 		if ((ret = __db_ovref_log(dbp,
 		    dbc->txn, &LSN(h), 0, h->pgno, adjust, &LSN(h))) != 0) {
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 			return (ret);
 		}
 	} else
 		LSN_NOT_LOGGED(LSN(h));
 	OV_REF(h) += adjust;
 
-	(void)PAGEPUT(dbc, mpf, h, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, h, DB_MPOOL_DIRTY);
 	return (0);
 }
 
@@ -330,7 +331,7 @@ __db_doff(dbc, pgno)
 		 * decrement the reference count and return.
 		 */
 		if (OV_REF(pagep) > 1) {
-			(void)PAGEPUT(dbc, mpf, pagep, 0);
+			PAGEPUT(dbc, mpf, pagep, 0);
 			return (__db_ovref(dbc, pgno, -1));
 		}
 
@@ -343,7 +344,7 @@ __db_doff(dbc, pgno)
 			    PGNO(pagep), PREV_PGNO(pagep),
 			    NEXT_PGNO(pagep), &tmp_dbt,
 			    &LSN(pagep), &null_lsn, &null_lsn)) != 0) {
-				(void)PAGEPUT(dbc, mpf, pagep, 0);
+				PAGEPUT(dbc, mpf, pagep, 0);
 				return (ret);
 			}
 		} else
@@ -367,11 +368,12 @@ __db_doff(dbc, pgno)
  * specified a comparison function.  In this case, we need to materialize
  * the entire object and call their comparison routine.
  *
- * PUBLIC: int __db_moff __P((DB *, const DBT *, db_pgno_t, u_int32_t,
+ * PUBLIC: int __db_moff __P((DBC *, DB *, const DBT *, db_pgno_t, u_int32_t,
  * PUBLIC:     int (*)(DB *, const DBT *, const DBT *), int *));
  */
 int
-__db_moff(dbp, dbt, pgno, tlen, cmpfunc, cmpp)
+__db_moff(dbc, dbp, dbt, pgno, tlen, cmpfunc, cmpp)
+	DBC *dbc;
 	DB *dbp;
 	const DBT *dbt;
 	db_pgno_t pgno;
@@ -397,7 +399,7 @@ __db_moff(dbp, dbt, pgno, tlen, cmpfunc, cmpp)
 		buf = NULL;
 		bufsize = 0;
 
-		if ((ret = __db_goff(dbp,
+		if ((ret = __db_goff(NULL, dbp,
 		    &local_dbt, tlen, pgno, &buf, &bufsize)) != 0)
 			return (ret);
 		/* Pass the key as the first argument */

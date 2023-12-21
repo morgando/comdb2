@@ -302,7 +302,7 @@ __qam_c_put(dbc, key, data, flags, pgnop)
 	if ((ret = PAGEGET(dbc, mpf, &pg, 0, &meta)) != 0)
 		return (ret);
 	if ((ret = __db_lget(dbc, 0, pg, DB_LOCK_WRITE, 0, &lock)) != 0) {
-		(void)PAGEPUT(dbc, mpf, meta, 0);
+		PAGEPUT(dbc, mpf, meta, 0);
 		return (ret);
 	}
 
@@ -358,7 +358,7 @@ __qam_c_put(dbc, key, data, flags, pgnop)
 	if (opcode & QAM_SETFIRST)
 		meta->first_recno = new_first;
 
-	if ((t_ret = PAGEPUT(
+	if ((t_ret = PAGEPUT(dbc,
 	    mpf, meta, opcode != 0 ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
 
@@ -403,7 +403,7 @@ __qam_append(dbc, key, data)
 		return (ret);
 	/* Write lock the meta page. */
 	if ((ret = __db_lget(dbc, 0, pg, DB_LOCK_WRITE, 0, &lock)) != 0) {
-		(void)PAGEPUT(dbc, mpf, meta, 0);
+		PAGEPUT(dbc, mpf, meta, 0);
 		return (ret);
 	}
 
@@ -542,7 +542,7 @@ __qam_c_del(dbc)
 		return (ret);
 	/* Write lock the meta page. */
 	if ((ret = __db_lget(dbc, 0, pg, DB_LOCK_READ, 0, &metalock)) != 0) {
-		(void)PAGEPUT(dbc, mpf, meta, 0);
+		PAGEPUT(dbc, mpf, meta, 0);
 		return (ret);
 	}
 
@@ -802,7 +802,7 @@ retry:	/* Update the record number. */
 						ret = DB_LOCK_NOTGRANTED;
 					goto err;
 				}
-				if ((ret = PAGEGET(
+				if ((ret = PAGEGET(dbc,
 				     mpf, &metapno, 0, &meta)) != 0)
 					goto err;
 				if ((ret = __lock_get(dbenv,

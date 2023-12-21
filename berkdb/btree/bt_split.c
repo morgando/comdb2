@@ -288,20 +288,20 @@ __bam_root(dbc, cp)
 		goto err;
 
 	/* Success -- write the real pages back to the store. */
-	(void)PAGEPUT(dbc, mpf, cp->page, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, cp->page, DB_MPOOL_DIRTY);
 	(void)__TLPUT(dbc, cp->lock);
 	(void)__TLPUT(dbc, lplock);
 	(void)__TLPUT(dbc, rplock);
-	(void)PAGEPUT(dbc, mpf, lp, DB_MPOOL_DIRTY);
-	(void)PAGEPUT(dbc, mpf, rp, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, lp, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, rp, DB_MPOOL_DIRTY);
 
 	return (0);
 
 err:	if (lp != NULL)
-		(void)PAGEPUT(dbc, mpf, lp, 0);
+		PAGEPUT(dbc, mpf, lp, 0);
 	if (rp != NULL)
-		(void)PAGEPUT(dbc, mpf, rp, 0);
-	(void)PAGEPUT(dbc, mpf, cp->page, 0);
+		PAGEPUT(dbc, mpf, rp, 0);
+	PAGEPUT(dbc, mpf, cp->page, 0);
 	(void)__TLPUT(dbc, cp->lock);
 	if (got_lplock)
 		(void)__TLPUT(dbc, lplock);
@@ -576,21 +576,21 @@ err:	if (lp != NULL)
 	if (rp != NULL)
 		__os_free(dbp->dbenv, rp);
 	if (alloc_rp != NULL)
-		(void)PAGEPUT(dbc, mpf, alloc_rp, 0);
+		PAGEPUT(dbc, mpf, alloc_rp, 0);
 	if (tp != NULL)
-		(void)PAGEPUT(dbc, mpf, tp, 0);
+		PAGEPUT(dbc, mpf, tp, 0);
 
 	/* We never updated the new or next pages, we can release them. */
 	(void)__LPUT(dbc, rplock);
 	(void)__LPUT(dbc, tplock);
 
-	(void)PAGEPUT(dbc, mpf, pp->page, 0);
+	PAGEPUT(dbc, mpf, pp->page, 0);
 	if (ret == DB_NEEDSPLIT)
 		(void)__LPUT(dbc, pp->lock);
 	else
 		(void)__TLPUT(dbc, pp->lock);
 
-	(void)PAGEPUT(dbc, mpf, cp->page, 0);
+	PAGEPUT(dbc, mpf, cp->page, 0);
 	if (ret == DB_NEEDSPLIT)
 		(void)__LPUT(dbc, cp->lock);
 	else

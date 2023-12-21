@@ -190,7 +190,7 @@ __bam_cmp_inline(dbp, dbt, h, indx, func, cmpp, buf)
 	/*
 	 * Overflow.
 	 */
-	return (__db_moff(dbp, dbt,
+	return (__db_moff(NULL, dbp, dbt,
 		bo->pgno, bo->tlen, func == __bam_defcmp ? NULL : func, cmpp));
 }
 
@@ -494,7 +494,7 @@ hash_backup:
 		if ((genidcmp(hashtbl[hh].genid, key->data) != 0) ||
 		    ((hash_pg = hashtbl[hh].pgno) != h->pgno)) {
 			// hash page changed between searching the hash and getting page lock
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 			(void)__LPUT(dbc, lock);
 			if (genidcmp(hashtbl[hh].genid, key->data) == 0) {
 				// use the new hash pg
@@ -539,7 +539,7 @@ hash_backup:
 	if (!stack &&
 	    ((LF_ISSET(S_PARENT) && (u_int8_t)(stop + 1) >= h->level) ||
 		(LF_ISSET(S_WRITE) && h->level == LEAFLEVEL))) {
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 		(void)__LPUT(dbc, lock);
 		INTERNAL_PTR_CHECK(cp == dbc->internal);
 		lock_mode = DB_LOCK_WRITE;
@@ -556,7 +556,7 @@ hash_backup:
 			(LF_ISSET(S_WRITE) && h->level == LEAFLEVEL))) {
 			/* Someone else split the root, start over. */
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 			(void)__LPUT(dbc, lock);
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
 			goto try_again;
@@ -617,7 +617,7 @@ got_pg:func = t->bt_compare;
 			if (LF_ISSET(S_STK_ONLY)) {
 				BT_STK_NUM(dbp->dbenv, cp, h, base, ret);
 				__LPUT(dbc, lock);
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				return (ret);
 			}
 
@@ -664,13 +664,13 @@ next:		if (recnop != NULL)
 				INTERNAL_PTR_CHECK(cp == dbc->internal);
 				BT_STK_NUM(dbp->dbenv, cp, h, indx, ret);
 				__LPUT(dbc, lock);
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				INTERNAL_PTR_CHECK(cp == dbc->internal);
 				return (ret);
 			}
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
 			BT_STK_NUMPUSH(dbp->dbenv, cp, h, indx, ret);
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 			INTERNAL_PTR_CHECK(cp == dbc->internal);
 			if ((ret = __db_lget(dbc,
 				    LCK_COUPLE_ALWAYS, pg, lock_mode, 0,
@@ -733,7 +733,7 @@ next:		if (recnop != NULL)
 					    &lock)) != 0)
 					goto err;
 			} else {
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				if ((ret = __db_lget(dbc,
 					    LCK_COUPLE_ALWAYS, pg, lock_mode, 0,
 					    &lock)) != 0) {
@@ -886,7 +886,7 @@ found:	*exactp = 1;
 		BT_STK_NUM(dbp->dbenv, cp, h, indx, ret);
 
 		__LPUT(dbc, lock);
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 		INTERNAL_PTR_CHECK(cp == dbc->internal);
 	} else {
 
@@ -931,7 +931,7 @@ notfound:
 	/* Keep the page locked for serializability. */
 	dbc->lastpage = h->pgno;
 
-	(void)PAGEPUT(dbc, mpf, h, 0);
+	PAGEPUT(dbc, mpf, h, 0);
 	(void)__TLPUT(dbc, lock);
 	ret = DB_NOTFOUND;
 

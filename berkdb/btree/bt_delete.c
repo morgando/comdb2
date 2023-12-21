@@ -350,8 +350,9 @@ __bam_dpages(dbc, stack_epg, norlk)
 	if (0) {
 err_inc:	++epg;
 err:		for (; epg <= cp->csp; ++epg) {
-			if (epg->page != NULL)
-				(void)PAGEPUT(dbc, mpf, epg->page, 0);
+			if (epg->page != NULL) {
+				PAGEPUT(dbc, mpf, epg->page, 0);
+			}
 			(void)__TLPUT(dbc, epg->lock);
 		}
 		BT_STK_CLR(cp);

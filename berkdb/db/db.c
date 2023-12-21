@@ -605,8 +605,9 @@ done:	/*
 			 */
 			if ((t_ret = __db_sync(mdbp)) != 0 && ret == 0)
 				ret = t_ret;
-		} else
-			(void)PAGEPUT(dbc, mdbp->mpf, p, 0);
+		} else {
+			PAGEPUT(dbc, mdbp->mpf, p, 0);
+		}
 	}
 
 	/* Discard the cursor(s) and data. */

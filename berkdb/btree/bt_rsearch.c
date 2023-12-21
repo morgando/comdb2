@@ -123,7 +123,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 	if (!stack &&
 	    ((LF_ISSET(S_PARENT) && (u_int8_t)(stop + 1) >= h->level) ||
 	    (LF_ISSET(S_WRITE) && h->level == LEAFLEVEL))) {
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 		(void)__LPUT(dbc, lock);
 		lock_mode = DB_LOCK_WRITE;
 		if ((ret = __db_lget(dbc, 0, pg, lock_mode, 0, &lock)) != 0)
@@ -167,7 +167,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 				 * eliminate any concurrency.  A possible fix
 				 * would be to lock the last leaf page instead.
 				 */
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				(void)__TLPUT(dbc, lock);
 				return (DB_NOTFOUND);
 			}
@@ -201,7 +201,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 					*exactp = 0;
 					if (!LF_ISSET(S_PAST_EOF) ||
 					    recno > t_recno + 1) {
-						(void)PAGEPUT(dbc, mpf, h, 0);
+						PAGEPUT(dbc, mpf, h, 0);
 						(void)__TLPUT(dbc, lock);
 						ret = DB_NOTFOUND;
 
@@ -282,7 +282,7 @@ __bam_rsearch(dbc, recnop, flags, stop, exactp)
 			    (h->level - 1) == LEAFLEVEL)
 				stack = 1;
 
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 
 			lock_mode = stack &&
 			    LF_ISSET(S_WRITE) ? DB_LOCK_WRITE : DB_LOCK_READ;
@@ -392,7 +392,7 @@ __bam_nrecs(dbc, rep)
 
 	*rep = RE_NREC(h);
 
-	(void)PAGEPUT(dbc, mpf, h, 0);
+	PAGEPUT(dbc, mpf, h, 0);
 	(void)__TLPUT(dbc, lock);
 
 	return (0);

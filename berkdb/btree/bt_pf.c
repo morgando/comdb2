@@ -538,11 +538,11 @@ advance_on_tree(DBC *dbc)
 				pgno = GET_BINTERNAL(dbp, h, pf->curindx[up_level])->pgno; 
 				pf->curlf[up_level -1] = pgno;
 
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				ret = tree_walk(dbc, FIRST, pf->curlf[up_level - 1], up_level );
 			} else 
 			{
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				ret = DIFF_LSN;
 			}
             
@@ -602,11 +602,11 @@ advanceb_on_tree(DBC *dbc)
 				pgno = GET_BINTERNAL(dbp, h, pf->curindx[up_level])->pgno; 
 				pf->curlf[up_level -1] = pgno; 
               
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				ret = tree_walk(dbc, LAST, pf->curlf[up_level - 1], up_level); 
 			} else
 			{
-				(void)PAGEPUT(dbc, mpf, h, 0);
+				PAGEPUT(dbc, mpf, h, 0);
 				ret = DIFF_LSN;
 			}
 		} 
@@ -647,7 +647,7 @@ page_load_f(btpf * pf, DBC *dbc)
         
 		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0 || memcmp(&h->lsn, &pf->lsn[1], sizeof(DB_LSN)) != 0)
 		{
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 			(void)__LPUT(dbc, lock);
 			ret = DIFF_LSN;
 			goto end;
@@ -668,7 +668,7 @@ page_load_f(btpf * pf, DBC *dbc)
 
 		c += p_cnt;
 		pf->curindx[1] += p_cnt;
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 		(void)__LPUT(dbc, lock);
 
 		if (c >= pf->wndw)
@@ -729,7 +729,7 @@ page_load_b(btpf * pf, DBC *dbc)
 		}
 		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0 ||
 		    memcmp(&h->lsn, &pf->lsn[1], sizeof(DB_LSN)) != 0) {
-			(void)PAGEPUT(dbc, mpf, h, 0);
+			PAGEPUT(dbc, mpf, h, 0);
 			(void)__LPUT(dbc, lock);
 			ret = DIFF_LSN;
 			goto end;
@@ -754,7 +754,7 @@ page_load_b(btpf * pf, DBC *dbc)
 		c += (pf->curindx[1] - p_cnt);
 		pf->curindx[1] = p_cnt;
 
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 		(void)__LPUT(dbc, lock);  // release lock
 
 		if (c >= pf->wndw)

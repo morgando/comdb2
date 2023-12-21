@@ -458,11 +458,11 @@ __db_relink(dbc, add_rem, pagep, new_next, needlock)
 	return (0);
 
 err:	if (np != NULL)
-		(void)PAGEPUT(dbc, mpf, np, 0);
+		PAGEPUT(dbc, mpf, np, 0);
 	if (needlock)
 		(void)__TLPUT(dbc, npl);
 	if (pp != NULL)
-		(void)PAGEPUT(dbc, mpf, pp, 0);
+		PAGEPUT(dbc, mpf, pp, 0);
 	if (needlock)
 		(void)__TLPUT(dbc, ppl);
 	return (ret);

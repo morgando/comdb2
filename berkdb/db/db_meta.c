@@ -196,7 +196,7 @@ __db_new_from_freelist(DBC *dbc, DBMETA *meta, u_int32_t type, PAGE **pagepp)
 
 err:
 	if (h != NULL)
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 	return (ret);
 }
 
@@ -510,7 +510,7 @@ __db_new(dbc, type, pagepp)
 	if (ret)
 		goto err;
 
-	(void)PAGEPUT(dbc, mpf, (PAGE *)meta, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, (PAGE *)meta, DB_MPOOL_DIRTY);
 
 	(void)__TLPUT(dbc, metalock);
 	if (pagebuf) {
@@ -541,9 +541,9 @@ err:
 	if (t)
 		t->abort(t);
 	if (h != NULL)
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 	if (meta != NULL)
-		(void)PAGEPUT(dbc, mpf, meta, meta_flags);
+		PAGEPUT(dbc, mpf, meta, meta_flags);
 	(void)__TLPUT(dbc, metalock);
 	if (pagebuf)
 		__os_free(dbc->dbp->dbenv, pagebuf);
@@ -682,7 +682,7 @@ __db_new_original(dbc, type, pagepp)
 	if (TYPE(h) != P_INVALID)
 		return (__db_panic(dbp->dbenv, EINVAL));
 
-	(void)PAGEPUT(dbc, mpf, (PAGE *)meta, DB_MPOOL_DIRTY);
+	PAGEPUT(dbc, mpf, (PAGE *)meta, DB_MPOOL_DIRTY);
 
 	(void)__TLPUT(dbc, metalock);
 
@@ -715,9 +715,9 @@ __db_new_original(dbc, type, pagepp)
 	return (0);
 
 err:	if (h != NULL)
-		(void)PAGEPUT(dbc, mpf, h, 0);
+		PAGEPUT(dbc, mpf, h, 0);
 	if (meta != NULL)
-		(void)PAGEPUT(dbc, mpf, meta, meta_flags);
+		PAGEPUT(dbc, mpf, meta, meta_flags);
 	(void)__TLPUT(dbc, metalock);
 	return (ret);
 }
@@ -810,7 +810,7 @@ log:
 				&LSN(meta), PGNO_BASE_MD, &ldbt, meta->free);
 		}
 		if (ret != 0) {
-			(void)PAGEPUT(dbc, mpf, (PAGE *)meta, 0);
+			PAGEPUT(dbc, mpf, (PAGE *)meta, 0);
 			(void)__TLPUT(dbc, metalock);
 			goto err;
 		}

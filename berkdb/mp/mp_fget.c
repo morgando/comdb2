@@ -352,6 +352,11 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
+		if ((bhp->test1 + bhp->test2 + bhp->test3 + bhp->test4) != 0) {
+			printf("oh no\n");
+			abort();
+		}
+
 		/*
 		 * BH_LOCKED --
 		 * I/O is in progress or sync is waiting on the buffer to write

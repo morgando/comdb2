@@ -12,4 +12,4 @@ cache 512 mb
 online_recovery on
 cache_flush_interval 0
 ack_trace
-use_modsnap_for_snapshot
+use_modsnap_for_snapshot on

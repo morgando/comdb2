@@ -323,10 +323,11 @@ struct __bh {
 	   marked the page from clean to dirty. */
 	DB_LSN first_dirty_tx_begin_lsn;
 
-	u_int16_t	test1;
-	u_int16_t	test2;
-	u_int16_t	test3;
-	u_int16_t	test4;
+	u_int64_t is_copy;
+	u_int16_t writer_refs;
+	u_int16_t ref_in;		/* Reference count. */
+	pthread_t writer_id;
+	pthread_rwlock_t *rwlock;
 
 	/*
 	 * !!!

@@ -352,7 +352,9 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		if ((bhp->test1 + bhp->test2 + bhp->test3 + bhp->test4) != 0) {
+		unsigned char *mm = (unsigned char*)&(bhp->is_copy);
+		int zero = (*mm == '\0') && (memcmp(mm, mm+1, (char *) &(bhp->buf) - (char *) &(bhp->is_copy) -1) == 0);
+		if (!zero) {
 			printf("oh no\n");
 			abort();
 		}

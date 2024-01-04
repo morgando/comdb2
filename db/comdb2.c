@@ -170,6 +170,7 @@ int gbl_trace_prepare_errors = 0;
 int gbl_trigger_timepart = 0;
 int gbl_extended_sql_debug_trace = 0;
 int gbl_perform_full_clean_exit = 1;
+__thread int gbl_is_sqlenginepool_thread = 0;
 __thread int gbl_thread_mode = 0;
 struct ruleset *gbl_ruleset = NULL;
 

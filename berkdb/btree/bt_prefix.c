@@ -50,7 +50,7 @@ inspect_bk(BKEYDATA *bk)
 			logmsg(LOGMSG_USER, "not printing - too big");
 			break;
 		}
-		print_hex_nl(bk->data, len, 0);
+		print_hex_nl(bk->data, len, 1);
 		logmsg(LOGMSG_USER, " [%s%s%s ]", B_PISSET(bk) ? "P" : " ",
 		    B_RISSET(bk) ? "R" : " ", B_DISSET(bk) ? "X" : " ");
 		break;
@@ -146,6 +146,8 @@ inspect_page(DB *dbp, PAGE *h)
 	if (ISLEAF(h)) {
 		inspect_page_dta(dbp, h);
 	}
+	logmsg(LOGMSG_USER, "\n");
+	logmsg(LOGMSG_USER, "\n");
 	logmsg(LOGMSG_USER, "\n");
 }
 

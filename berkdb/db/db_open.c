@@ -38,6 +38,7 @@ static const char revid[] = "$Id: db_open.c,v 11.236 2003/09/27 00:29:03 sue Exp
 #include <string.h>
 
 extern __thread int gbl_thread_mode;
+extern __thread int gbl_is_sqlenginepool_thread;
 
 #if defined (DEBUG_STACK_AT_DB_OPEN_CLOSE) || defined(UFID_HASH_DEBUG)
 #include <tohex.h>
@@ -100,6 +101,9 @@ __db_open(dbp, txn, fname, dname, type, flags, mode, meta_pgno)
 		F_SET(dbp, DB_AM_RDONLY);
 	} else {
 		// Need to do this here because __db_open doesn't always acquire locks over pages
+		/*if (gbl_is_sqlenginepool_thread) {
+			abort();
+		}*/
 		gbl_thread_mode = 1; 
 	}
 	if (LF_ISSET(DB_DIRTY_READ))

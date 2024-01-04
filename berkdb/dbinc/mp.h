@@ -325,6 +325,9 @@ struct __bh {
 
 	u_int64_t is_copy;
 	u_int16_t writer_refs;
+	u_int16_t ref_in;		/* Reference count. */
+	u_int16_t sync;
+	u_int16_t writing;
 	pthread_t writer_id;
 	pthread_rwlock_t *rwlock;
 	

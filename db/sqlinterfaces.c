@@ -134,6 +134,7 @@ typedef enum tsql_meta_command tsql_meta_command_t;
 #define SQLHERR_MASTER_TIMEOUT -109
 
 extern unsigned long long gbl_sql_deadlock_failures;
+extern __thread int gbl_is_sqlenginepool_thread;
 extern int gbl_allow_pragma;
 extern int g_osql_max_trans;
 extern int gbl_fdb_track;
@@ -4856,6 +4857,8 @@ static void sqlengine_work_appsock_pp(struct thdpool *pool, void *work,
                                       void *thddata, int op)
 {
     struct sqlclntstate *clnt = work;
+
+	gbl_is_sqlenginepool_thread = 1;
 
     switch (op) {
     case THD_RUN:

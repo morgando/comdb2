@@ -107,8 +107,30 @@ void hexdumpfp(FILE *fp, const unsigned char *key, int keylen)
 
 void print_hex_nl(const uint8_t *b, unsigned l, int newline)
 {
+
     hexdumpfp(stdout, b, l);
     if (newline) fprintf(stdout, "\n");
+
+	const uint8_t *in = b;
+	uint32_t len;
+	in++;
+	in++;
+	in++;
+	
+	len = ((*in & 0x0f) << 24);
+	in++;
+	len |= ((*in & 0xff) << 16);
+	in++;
+	len |= ((*in & 0xff) << 8);
+	in++;
+	len |= (*in & 0xff);
+
+	if (len != l - 7 /*ODH_SIZE*/) {
+
+		printf("invalid odh: odh len = %d. should be %d\n", len, l-7);
+//		abort();
+	}
+
 }
 
 void print_hex(const uint8_t *b, unsigned l)

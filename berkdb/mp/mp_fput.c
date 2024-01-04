@@ -197,14 +197,15 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 */
 
 
-	if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+	//if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 		if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 			if (pthread_rwlock_unlock(bhp->rwlock)) {
 				abort();
 			}
 		}
-	}
+	//}
 
+	--bhp->ref_in;
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {
 #ifdef REF_SYNC_TEST
 		if (F_ISSET(bhp, BH_LOCKED) && bhp->ref_sync) {

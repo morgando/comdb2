@@ -53,6 +53,7 @@
 #endif
 
 
+extern void hexdump(loglvl lvl, const char *key, int keylen);
 static void read_odh(const void *buf, struct odh *odh);
 static void write_odh(void *buf, const struct odh *odh, uint8_t flags);
 
@@ -229,6 +230,7 @@ static void read_odh(const void *buf, struct odh *odh)
     const uint8_t *in = buf;
     uint32_t len;
     uint16_t updid;
+
 
     /* byte 1: flags */
     odh->flags = *in;
@@ -446,6 +448,7 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
     return 0;
 }
 
+
 /* Unpack a data or blob record and read back the ODH.
  *
  * Input:
@@ -500,6 +503,7 @@ static int bdb_unpack_updateid(bdb_state_type *bdb_state, const void *from, size
                     __func__, (unsigned)fromlen);
             return DB_ODH_CORRUPT;
         }
+
 
         read_odh(from, odh);
 
@@ -616,6 +620,9 @@ static int bdb_unpack_updateid(bdb_state_type *bdb_state, const void *from, size
             if (odh->length != fromlen - ODH_SIZE) {
                 logmsg(LOGMSG_ERROR, "%s:ERROR: odh->length=%u, fromlen=%u\n",
                         __func__, (unsigned)odh->length, (unsigned)fromlen);
+				hexdump(LOGMSG_ERROR, from, fromlen);
+				hexdump(LOGMSG_ERROR, from, 7);
+				abort();
                 return DB_ODH_CORRUPT;
             }
             odh->recptr = ((char *)from) + ODH_SIZE;
@@ -1019,6 +1026,7 @@ static int bdb_cget_unpack_int(bdb_state_type *bdb_state, DBC *dbcp, DBT *key, D
     } else {
         rc = dbcp->c_get(dbcp, key, data, flags);
     }
+	// printf("got key %p data %p\n", key->data, data->data);
 
     if (rc == 0) {
         /* This uses the verify_update argument to determine whether it should

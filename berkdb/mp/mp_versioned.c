@@ -38,14 +38,17 @@
 
 #define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) (log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0 || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
 
-static int DEBUG_PAGES = 0;
-static int DEBUG_PAGES1 = 0;
+static int DEBUG_PAGES = 1;
+static int DEBUG_PAGES1 = 1;
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 
 extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache, int size);
 extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
 extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
+
+extern void
+dopage(DB *dbp, PAGE *p);
 
 int gbl_modsnap_cache_hits = 0;
 int gbl_modsnap_cache_misses = 0;
@@ -237,16 +240,19 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	int64_t smallest_logfile;
 	u_int32_t rectype;
 	DB_LOGC *logc;
-	PAGE *page, *page_image;
+	PAGE *page, *page_image, *cache_page_image;
 	DB_LSN curPageLsn, prevPageLsn, commit_lsn, highest_commit_lsn_asof_checkpoint;
 	DB_ENV *dbenv;
-	BH *bhp;
+	BH *bhp, *bhp_cache;
 	void *data_t;
 
+	int check_cache_result = 0;
+	cache_miss = 1;
 	ret = found = add_to_cache = cache_hit = cache_miss = 0;
 	logc = NULL;
-	page = page_image = NULL;
+	page = page_image = cache_page_image = NULL;
 	bhp = NULL;
+	bhp_cache = NULL;
 	data_t = NULL;
 	*(void **)ret_page = NULL;
 	DBT dbt = {0};
@@ -254,6 +260,12 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	dbenv = mpf->dbenv;
 	highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
 	smallest_logfile = dbenv->txmap->smallest_logfile;
+
+	MEMPV_CACHE_PAGE_KEY key;
+	key.pgno = pgno;
+	memcpy(key.ufid, mpf->fileid, DB_FILE_ID_LEN);
+	int pgid = hash_default_fixedwidth((const unsigned char *) (&key), sizeof(MEMPV_CACHE_PAGE_KEY));
+
 
 	// Get current version of the page
 
@@ -264,6 +276,12 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 		ret = 1;
 		goto done;
 	}
+	// dopage(dbp, page);
+	int orig_hash1 = hash_default_fixedwidth((const unsigned char *) P_INP(dbp, page), (u_int64_t) dbp->pgsize - (u_int64_t) (((unsigned char *) P_INP(dbp, page)) - ((unsigned char *) page)));
+
+	BH *orig_bhp = (BH *)((u_int8_t *)page - SSZA(BH, buf));
+	printf("orig bhp %p hash %d\n", orig_bhp, orig_hash1);
+
 
 	curPageLsn = LSN(page);
 
@@ -278,8 +296,10 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	} else {
 		__os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
 		page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
+		__os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp_cache);
+		cache_page_image = (PAGE *) (((u_int8_t *) bhp_cache) + SSZA(BH, buf) );
 
-		if (!page_image) {
+		if (!bhp || !bhp_cache) {
 			if (DEBUG_PAGES) {
 				printf("%s: Failed to allocate page image\n", __func__);
 			}
@@ -287,28 +307,61 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 			goto done;
 		}
 
-		if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
-			if (DEBUG_PAGES) {
+		if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp_cache)) {
+		/*	if (DEBUG_PAGES) {
 				printf("%s: Found in cache\n", __func__);
-			}
+			}*/
+			printf("%s: Found in cache\n", __func__);
+			check_cache_result = 1;
+			cache_miss = 0;
 			cache_hit = 1;
-			found = 1;
+			// found = 1;
+
+			if (orig_bhp->writing == 1) {
+				abort();
+			}
+			memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
+			bhp->is_copy = 1; // I am a copy
+
+			int orig_hash2 = hash_default_fixedwidth((const unsigned char *) P_INP(dbp, page), (u_int64_t) dbp->pgsize - (u_int64_t) (((unsigned char *) P_INP(dbp, page)) - ((unsigned char *) page)));
 
 			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
 				printf("%s: Failed to return initial page version\n", __func__);
+				ret = 1;
+				goto done;
+			}
+
+			if (orig_hash1 != orig_hash2) {
+				printf("orig hash neq\n");
+				abort();
+			}
+
+			if ((ret = __log_cursor(dbenv, &logc)) != 0) {
+				if (DEBUG_PAGES) {
+					printf("%s: Failed to create log cursor\n", __func__);
+				}
 				ret = 1;
 				goto done;
 			}
 		} else {
-			cache_miss = 1;
+	// 		cache_miss = 1;
 
+			if (orig_bhp->writing == 1) {
+				abort();
+			}
 			memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
 			bhp->is_copy = 1; // I am a copy
+
+			int orig_hash2 = hash_default_fixedwidth((const unsigned char *) P_INP(dbp, page), (u_int64_t) dbp->pgsize - (u_int64_t) (((unsigned char *) P_INP(dbp, page)) - ((unsigned char *) page)));
 
 			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
 				printf("%s: Failed to return initial page version\n", __func__);
 				ret = 1;
 				goto done;
+			}
+			if (orig_hash1 != orig_hash2) {
+				printf("orig hash neq\n");
+				abort();
 			}
 
 			if ((ret = __log_cursor(dbenv, &logc)) != 0) {
@@ -322,11 +375,16 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 
 	}
 
+
+	int get_hash = hash_default_fixedwidth((const unsigned char *) P_INP(dbp, page_image), (u_int64_t) dbp->pgsize - (u_int64_t) (((unsigned char *) P_INP(dbp, page_image)) - ((unsigned char *) page_image)));
+	printf("page %u has hash %d\n", pgid, get_hash);
+
 search:
 	while (!found) 
 	{
+		int tmp_hash = hash_default_fixedwidth((const unsigned char *) (page_image), dbp->pgsize);
 		if (DEBUG_PAGES)
-			printf("%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d. Highest asof checkpoint %d:%d\n", __func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset, highest_commit_lsn_asof_checkpoint.file,highest_commit_lsn_asof_checkpoint.offset);
+			printf("%s: Rolling back page %d with hash %d and initial LSN %d:%d to prior LSN %d:%d. Highest asof checkpoint %d:%d\n", __func__, pgid, tmp_hash, LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset, highest_commit_lsn_asof_checkpoint.file,highest_commit_lsn_asof_checkpoint.offset);
 
 		if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, curPageLsn)) {
 			add_to_cache = 1;
@@ -361,14 +419,19 @@ search:
 		}
 
 		 // If the transaction that wrote this page is still in-progress or it committed before our target LSN, return this page.
-		if (!__txn_commit_map_get(dbenv, utxnid, &commit_lsn) && (log_compare(&commit_lsn, &target_lsn) <= 0)) {
+
+		int t_ret = 0;
+		if (((t_ret = __txn_commit_map_get(dbenv, utxnid, &commit_lsn)) == 0) && (log_compare(&commit_lsn, &target_lsn) <= 0)) {
 			if (DEBUG_PAGES) {
-				printf("%s: %u Found the right page version\n", __func__, PGNO(page_image));
+				printf("%s: %d Found the right page version\n", __func__, pgid);
 			}
 			add_to_cache = 1;
 			found = 1;
 			ret = 0;
 			break;
+		}
+		if (t_ret != 0) {
+			printf("txn %lu still in progress\n", utxnid);
 		}
 
 
@@ -391,7 +454,38 @@ search:
 
 	*(void **)ret_page = (void *) page_image;
 done:
-	if (add_to_cache == 1) {
+	printf("returning %p page image %p\n", ret_page, page_image);
+	if (check_cache_result) {
+		int fetch_hash_low = hash_default_fixedwidth(
+		(const unsigned char *) P_INP(dbp, page_image), 
+		(u_int64_t) (((unsigned char *) page_image) + LOFFSET(dbp, page_image) - (((unsigned char *) P_INP(dbp, page_image)) )));
+
+		int cache_hash_low = hash_default_fixedwidth(
+		(const unsigned char *) P_INP(dbp, cache_page_image), 
+		(u_int64_t) (((unsigned char *) cache_page_image + LOFFSET(dbp, cache_page_image) - (((unsigned char *) P_INP(dbp, cache_page_image)) ))));
+
+		int fetch_hash_hi = hash_default_fixedwidth(
+		(const unsigned char *) page_image + HOFFSET(page_image), 
+		(u_int64_t) dbp->pgsize - HOFFSET(page_image));
+
+		int cache_hash_hi = hash_default_fixedwidth(
+		(const unsigned char *) cache_page_image + HOFFSET(cache_page_image), 
+		(u_int64_t) dbp->pgsize - HOFFSET(cache_page_image));
+
+		if (fetch_hash_low != cache_hash_low || fetch_hash_hi != cache_hash_hi) {
+			// dopage(dbp, page_image);
+			// dopage(dbp, cache_page_image);
+
+			printf("failed verify fetch low %d hi %d\n", fetch_hash_low != cache_hash_low, fetch_hash_hi != cache_hash_hi);
+			// abort();
+		} else {
+			printf("verified \n");
+		}
+		dopage(dbp, page_image);
+	}
+	__os_free(dbenv, bhp_cache);
+	if (!check_cache_result && add_to_cache == 1) {
+		printf("putting into cache\n");
 	   ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
 	if (logc) {

@@ -357,9 +357,11 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
-		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+		//if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if ((bhp->writer_refs > 0) && (pthread_self() == bhp->writer_id)) {
+				printf("dup writer other writers %d\n", bhp->writer_refs);
 				bhp->writer_refs++;
+				bhp->ref_in++;
 			} else {
 				int ref = bhp->ref;
 				pthread_rwlock_t * lk_ptr = bhp->rwlock;
@@ -367,20 +369,53 @@ retry:	st_hsearch = 0;
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 				if (gbl_thread_mode == 0) {
 					rc = pthread_rwlock_rdlock(lk_ptr);
+					// rc = pthread_rwlock_wrlock(lk_ptr);
 				} else {
 					rc = pthread_rwlock_wrlock(lk_ptr);
 				}
 				if (rc != 0) {
+					printf("lock failed with rc=%d\n", rc);
 					abort();
 				}
 				MUTEX_LOCK(dbenv, &hp->hash_mutex);
+				bhp->ref_in++;
 
 				if (gbl_thread_mode == 1) {
+					if (bhp->ref_in >= 2) {
+						printf("write lock other refs %u sync %d\n", bhp->ref_in-1, bhp->sync);
+						if (LF_ISSET(DB_MPOOL_SNAPGET)) {
+							// abort();
+						}
+					}
 					bhp->writer_id = pthread_self();
 					bhp->writer_refs = 1;
+				} else {
+					if (bhp->ref_in >= 2) {
+						printf("read lock other refs %u sync %d\n", bhp->ref_in-1, bhp->sync);
+					}
+				}
+				if (bhp->sync) {
+					printf("sync in progress\n");
+				}
+				if (bhp->writing) {
+					printf("writing in progress\n");
 				}
 			}
+
+			if (bhp->ref_in > bhp->ref) {
+				abort();
+			}
+		/*} else {
+			bhp->ref_in++;
 		}
+		if (bhp->ref_in > 0) {
+			printf("ref_in gt 0\n");
+			abort();
+		}*/
+		//if (bhp->ref_in == 60000) {
+			// printf("ref_in eq to 60000\n");
+			//abort();
+		//}
 
 		/*
 		 * BH_LOCKED --
@@ -398,11 +433,13 @@ retry:	st_hsearch = 0;
 			 */
 			if (!first && bhp->ref_sync != 0) {
 				--bhp->ref;
-				if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+				--bhp->ref_in;
+				printf("give up and retry\n");
+				//if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 					if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 						pthread_rwlock_unlock(bhp->rwlock);
 					}
-				}
+				// }
 				b_incr = 0;
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 				__os_yield(dbenv, 1);
@@ -425,6 +462,11 @@ retry:	st_hsearch = 0;
 			MUTEX_LOCK(dbenv, &hp->hash_mutex);
 		}
 
+		if (bhp->writing) {
+			abort();
+		}
+
+
 		/* Layer violation */
 		if (ISINTERNAL(bhp->buf))
 			++mfp->stat.st_cache_ihit;
@@ -438,6 +480,7 @@ retry:	st_hsearch = 0;
 
 		break;
 	}
+
 
 	/*
 	 * Update the hash bucket search statistics -- do now because our next
@@ -661,12 +704,13 @@ alloc:		/*
 		 * another one.
 		 */
 		if (flags == DB_MPOOL_NEW) {
-			if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			// if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 				if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 					pthread_rwlock_unlock(bhp->rwlock);
 				}
-			}
+			// }
 			--bhp->ref;
+			--bhp->ref_in;
 			b_incr = 0;
 			goto alloc;
 		}
@@ -692,9 +736,13 @@ alloc:		/*
 		 */
 		b_incr = 1;
 
+		if (LF_ISSET(DB_MPOOL_SNAPGET)) {
+			printf("initializing buffer\n");
+		}
 		memset(bhp, 0, sizeof(BH));
 		bhp->is_copy = 0;
 		bhp->ref = 1;
+		bhp->ref_in = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;
 		bhp->mpf = mfp;
@@ -714,9 +762,10 @@ alloc:		/*
 
 		pthread_rwlockattr_destroy(&attr);
 
-		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+		// if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if (gbl_thread_mode == 0) {
 				rc = pthread_rwlock_rdlock(bhp->rwlock);
+				// rc = pthread_rwlock_wrlock(bhp->rwlock);
 			} else {
 				rc = pthread_rwlock_wrlock(bhp->rwlock);
 				bhp->writer_id = pthread_self();
@@ -725,7 +774,7 @@ alloc:		/*
 			if (rc != 0) {
 				abort();
 			}
-		}
+		// }
 
 		SH_TAILQ_INSERT_TAIL(&hp->hash_bucket, bhp, hq);
 
@@ -922,15 +971,16 @@ err:	/*
 	 * also still holding the hash bucket mutex.
 	 */
 	if (b_incr) {
-		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+		//if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 				pthread_rwlock_unlock(bhp->rwlock);
 			}
-		}
+		//}
 		if (bhp->ref == 1) {
 			(void)__memp_bhfree(dbmp, hp, bhp, 1);
 		} else {
 			--bhp->ref;
+			--bhp->ref_in;
 			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 		}
 	}

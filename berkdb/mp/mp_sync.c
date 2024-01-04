@@ -660,6 +660,8 @@ trickle_do_work(struct thdpool *thdpool, void *work, void *thddata, int thd_op)
 
 				/* Discard our reference and unlock the bucket*/
 				--bhparray[j]->ref;
+				--bhparray[j]->ref_in;
+				bhp->sync = 0;
 				MUTEX_UNLOCK(dbenv, &hparray[j]->hash_mutex);
 			}
 
@@ -733,6 +735,8 @@ trickle_do_work(struct thdpool *thdpool, void *work, void *thddata, int thd_op)
 
 		/* Pin the buffer into memory and lock it. */
 		++bhp->ref;
+		++bhp->ref_in;
+		bhp->sync = 1;
 		F_SET(bhp, BH_LOCKED);
 		MUTEX_LOCK(dbenv, &bhp->mutex);
 
@@ -917,6 +921,8 @@ trickle_do_work(struct thdpool *thdpool, void *work, void *thddata, int thd_op)
 				/* Discard our reference and unlock
 				 * the bucket. */
 				--bhparray[j]->ref;
+				--bhparray[j]->ref_in;
+				bhp->sync = 0;
 				MUTEX_UNLOCK(dbenv, &hparray[j]->hash_mutex);
 			}
 
@@ -987,6 +993,8 @@ trickle_do_work(struct thdpool *thdpool, void *work, void *thddata, int thd_op)
 
 			/* Discard our reference and unlock the bucket. */
 			--bhp->ref;
+			--bhp->ref_in;
+			bhp->sync = 0;
 			MUTEX_UNLOCK(dbenv, mutexp);
 		}
 
@@ -1051,6 +1059,8 @@ trickle_do_work(struct thdpool *thdpool, void *work, void *thddata, int thd_op)
 
 		/* Discard our reference and unlock the bucket. */
 		--bhparray[j]->ref;
+		--bhparray[j]->ref_in;
+		bhp->sync = 0;
 		MUTEX_UNLOCK(dbenv, &hparray[j]->hash_mutex);
 	}
 

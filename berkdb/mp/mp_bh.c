@@ -743,11 +743,13 @@ __memp_pgwrite_multi(dbenv, dbmfp, hps, bhps, numpages, wrrec)
 	DB_ASSERT(F_ISSET(bhps[0], BH_DIRTY));
 	DB_ASSERT(!F_ISSET(bhps[0], BH_TRASH));
 
-#ifdef DIAGNOSTIC
+	bhps[0]->writing = 1;
+// #ifdef DIAGNOSTIC
 	/* Do the same checks for the rest of the buffers */
 	for (i = 1; i < numpages; i++) {
 		bhp = bhps[i];
 		hp = hps[i];
+		bhp->writing = 1;
 
 		/* Make sure the buffes are contigious */
 		DB_ASSERT(bhps[i]->pgno - 1 == bhps[i - 1]->pgno);
@@ -756,7 +758,7 @@ __memp_pgwrite_multi(dbenv, dbmfp, hps, bhps, numpages, wrrec)
 		DB_ASSERT(!F_ISSET(bhp, BH_TRASH));
 
 	}
-#endif
+// #endif
 
 	if ((ret = __os_calloc(dbenv, numpages, sizeof(int), &callpgin)) != 0)
 		return (ret);
@@ -1054,6 +1056,7 @@ file_dead:
 	/* Regardless, clear any sync wait-for count and remove our lock. */
 	for (i = 0; i < numpages; i++) {
 		bhp = bhps[i];
+		bhp->writing = 0;
 
 		bhp->ref_sync = 0;
 		F_CLR(bhp, BH_LOCKED);

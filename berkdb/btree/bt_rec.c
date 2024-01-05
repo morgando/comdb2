@@ -94,6 +94,10 @@ __bam_split_recover(dbenv, dbtp, lsnp, op, info)
 		if (rootsplit) {
 			if (pgin == argp->root_pgno) {
 				memcpy(info, argp->pg.data, argp->pg.size);
+			} else if (pgin == argp->left) {
+				LSN((PAGE *) info) = argp->llsn;
+			} else if (pgin == argp->right) {
+		   		LSN((PAGE *) info) = argp->rlsn; 
 			} else {
 				abort();
 			}

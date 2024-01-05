@@ -107,6 +107,9 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		ret = 1;
 		goto done;
 	}
+	if (rectype > 1000) {
+		rectype -= 1000; // ufid logging is enabled. yay!
+	}
 
 	data += sizeof(u_int32_t) + sizeof(u_int32_t) + sizeof(DB_LSN);
 	LOGCOPY_64(utxnid, data);

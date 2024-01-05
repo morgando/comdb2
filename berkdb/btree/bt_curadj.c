@@ -515,7 +515,7 @@ __bam_ca_rsplit(my_dbc, fpgno, tpgno)
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
-			if (dbc->dbtype == DB_RECNO)
+			if (dbc->dbtype == DB_RECNO || F_ISSET(dbc, DBC_SNAPSHOT))
 				continue;
 			if (dbc->internal->pgno == fpgno) {
 				dbc->internal->pgno = tpgno;
@@ -583,7 +583,7 @@ __bam_ca_split(my_dbc, ppgno, lpgno, rpgno, split_indx, cleft)
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
-			if (dbc->dbtype == DB_RECNO)
+			if (dbc->dbtype == DB_RECNO || F_ISSET(dbc, DBC_SNAPSHOT))
 				continue;
 			cp = dbc->internal;
 			if (cp->pgno == ppgno) {
@@ -652,7 +652,7 @@ __bam_ca_undosplit(dbp, frompgno, topgno, lpgno, split_indx)
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
-			if (dbc->dbtype == DB_RECNO)
+			if (dbc->dbtype == DB_RECNO || F_ISSET(dbc, DBC_SNAPSHOT))
 				continue;
 			cp = dbc->internal;
 			if (cp->pgno == topgno) {

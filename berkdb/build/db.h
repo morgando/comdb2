@@ -3178,6 +3178,7 @@ struct __recovery_processor {
 	LINKC_T(struct __recovery_processor) lnk;
 	comdb2ma msp;
 	int mspsize;
+	u_int64_t utxnid;
 };
 
 struct __rowlock_list {

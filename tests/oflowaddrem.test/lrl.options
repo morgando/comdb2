@@ -2,3 +2,5 @@ enable_snapshot_isolation
 table t1 t1.csc2
 round_robin_stripes
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

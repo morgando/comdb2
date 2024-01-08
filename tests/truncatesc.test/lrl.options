@@ -13,3 +13,5 @@ verbose_physrep on
 online_recovery on
 ack_trace
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

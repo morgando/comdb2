@@ -12,3 +12,5 @@ on logical_live_sc
 #sc_logical_pause_seconds 20
 dtastripe   1
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

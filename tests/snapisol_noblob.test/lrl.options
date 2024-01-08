@@ -14,3 +14,5 @@ use_modsnap_for_snapshot
 use_modsnap_for_snapshot on
 use_modsnap_for_snapshot on
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

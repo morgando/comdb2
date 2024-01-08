@@ -5,3 +5,5 @@ ssl_client_mode OPTIONAL
 cache 1000 mb
 maxosqltransfer 2000000
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

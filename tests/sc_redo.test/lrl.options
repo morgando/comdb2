@@ -15,3 +15,5 @@ dtastripe 16
 blobstripe
 verbose_toblock_backouts on
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

@@ -55,3 +55,5 @@ setattr DEBUG_LOG_DELETION 1
 private_blkseq_maxage 1
 
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

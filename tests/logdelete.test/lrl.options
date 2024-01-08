@@ -7,3 +7,5 @@ setattr CHECKPOINTTIME 10
 setattr CHECKPOINTRAND 5
 setattr CHECKPOINTRAND 5
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

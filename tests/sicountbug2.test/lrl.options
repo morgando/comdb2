@@ -3,3 +3,5 @@ round_robin_stripes
 enable_snapshot_isolation
 ssl_client_mode OPTIONAL
 use_modsnap_for_snapshot on
+setattr REP_PROCESSORS 0
+setattr REP_WORKERS 0

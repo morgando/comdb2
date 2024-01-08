@@ -4810,6 +4810,11 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 	LOGCOPY_32(&rectype, rec->data);
 	normalize_rectype(&rectype);
 	memset(&lc, 0, sizeof(lc));
+	if ((ret= __os_malloc(dbenv, sizeof(LISTC_T(UTXNID)), &lc.child_utxnids) != 0)) {
+		goto err;
+	}
+
+	listc_init(lc.child_utxnids, offsetof(UTXNID, lnk));
 
 	if (rectype == DB___txn_regop_rowlocks) {
 
@@ -5668,13 +5673,13 @@ bad_resize:	;
 	rp->dbenv = dbenv;
 	rp->lc.nlsns = 0;
 	rp->lc.memused = 0;
+	rp->txninfo = NULL;
+	rp->context = 0;
 	if ((ret= __os_malloc(dbenv, sizeof(LISTC_T(UTXNID)), &rp->lc.child_utxnids) != 0)) {
 		goto err;
 	}
 
 	listc_init(rp->lc.child_utxnids, offsetof(UTXNID, lnk));
-	rp->txninfo = NULL;
-	rp->context = 0;
 
 	db_rep = dbenv->rep_handle;
 	rep = db_rep->region;

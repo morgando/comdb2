@@ -66,6 +66,7 @@ static unsigned int curtran_counter = 0;
 extern int gbl_debug_txn_sleep;
 extern int __txn_getpriority(DB_TXN *txnp, int *priority);
 extern int __txn_commit_map_get_highest_commit_lsn(DB_ENV *dbenv, DB_LSN *outlsn);
+extern int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(DB_ENV *dbenv, DB_LSN *lsn, DB_LSN *ckp_lsn);
 
 #if 0
 int __lock_dump_region_lockerid __P((DB_ENV *, const char *, FILE *, u_int32_t lockerid));
@@ -2682,6 +2683,36 @@ int bdb_add_rep_blob(bdb_state_type *bdb_state, tran_type *tran, int session,
         *bdberr = BDBERR_MISC;
         rc = -1;
     }
+    return rc;
+}
+
+int bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state_type *bdb_state,
+                                    unsigned int *last_commit_lsn_file,
+                                    unsigned int *last_commit_lsn_offset,
+                                    unsigned int *highest_commit_lsn_asof_ckpt_file,
+                                    unsigned int *highest_commit_lsn_asof_ckpt_offset)
+{
+    DB_LSN outlastcommitlsn;
+    DB_LSN outhighest_commit_lsn_asof_ckpt;
+    int rc;
+
+    if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state->dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
+        return rc;
+    }
+
+    if (last_commit_lsn_file) {
+        *last_commit_lsn_file = outlastcommitlsn.file;
+    }
+    if (last_commit_lsn_offset) {
+        *last_commit_lsn_offset = outlastcommitlsn.offset;
+    }
+    if (highest_commit_lsn_asof_ckpt_file) {
+        *highest_commit_lsn_asof_ckpt_file = outhighest_commit_lsn_asof_ckpt.file;
+    }
+    if (highest_commit_lsn_asof_ckpt_offset) {
+        *highest_commit_lsn_asof_ckpt_offset = outhighest_commit_lsn_asof_ckpt.offset;
+    }
+
     return rc;
 }
 

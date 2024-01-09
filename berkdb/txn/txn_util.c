@@ -469,6 +469,32 @@ static int __txn_commit_map_remove_nolock(dbenv, utxnid)
 }
 
 /*
+ * __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt --
+ *  Get the highest commit lsn and the highest commit lsn asof the last checkpoint
+ *  from the commit LSN map.	
+ *
+ * PUBLIC: int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt
+ * PUBLIC:     __P((DB_ENV *, DB_LSN *, DB_LSN *));
+ */
+int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, lastcommitlsn, highest_commit_lsn_asof_ckpt)
+	DB_ENV *dbenv;
+	DB_LSN *lastcommitlsn;
+	DB_LSN *highest_commit_lsn_asof_ckpt;
+{
+	DB_TXN_COMMIT_MAP *txmap;
+
+	txmap = dbenv->txmap;
+
+	Pthread_mutex_lock(&txmap->txmap_mutexp);
+
+	*lastcommitlsn = txmap->highest_commit_lsn;
+	*highest_commit_lsn_asof_ckpt = txmap->highest_commit_lsn_asof_checkpoint;
+
+	Pthread_mutex_unlock(&txmap->txmap_mutexp);
+	return 0;
+}
+
+/*
  * __txn_commit_map_get_highest_commit_lsn --
  *  Get the highest commit lsn
  *  from the commit LSN map.	

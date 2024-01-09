@@ -256,7 +256,9 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	dbt.flags = DB_DBT_REALLOC;
 	dbenv = mpf->dbenv;
 	highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
+	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
 	smallest_logfile = dbenv->txmap->smallest_logfile;
+	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
 
 	// Get current version of the page
 

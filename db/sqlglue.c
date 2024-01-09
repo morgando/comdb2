@@ -4854,8 +4854,7 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
 	    &thedb->static_table; /* this is not used but required */
     /* Latch last commit LSN */
     if (!clnt->last_commit_lsn_isset && (db->handle != NULL)) {
-            bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
-            bdb_get_highest_commit_lsn_asof_checkpoint(db->handle, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
+            bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
             clnt->last_commit_lsn_isset = 1;
     }
 

@@ -1736,8 +1736,7 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     /* Latch the last commit LSN */
     struct dbtable *db = &thedb->static_table;
     assert(db->handle);
-    bdb_get_last_commit_lsn(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset);
-    bdb_get_highest_commit_lsn_asof_checkpoint(db->handle, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
+    bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
     clnt->last_commit_lsn_isset = 1;
 
     if (clnt->osql.replay)

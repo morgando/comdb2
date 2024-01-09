@@ -1414,6 +1414,12 @@ int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
                                     unsigned int *file,
                                     unsigned int *offset);
 
+int bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state_type *bdb_state,
+                                    unsigned int *last_commit_lsn_file,
+                                    unsigned int *last_commit_lsn_offset,
+                                    unsigned int *highest_commit_lsn_asof_ckpt_file,
+                                    unsigned int *highest_commit_lsn_asof_ckpt_offset);
+
 void bdb_set_tran_verify_updateid(tran_type *tran);
 
 int bdb_am_i_coherent(bdb_state_type *bdb_state);

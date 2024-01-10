@@ -178,6 +178,7 @@ struct __utxnid; typedef struct __utxnid UTXNID;
 struct __utxnid_track; typedef struct __utxnid_track UTXNID_TRACK;
 struct __logfile_txn_list; typedef struct __logfile_txn_list LOGFILE_TXN_LIST;
 struct __txn_commit_map; typedef struct __txn_commit_map DB_TXN_COMMIT_MAP;
+struct __modsnap_txn; typedef struct __modsnap_txn MODSNAP_TXN;
 
 struct __mempv; typedef struct __mempv DB_MEMPV;
 struct __mempv_cache; typedef struct __mempv_cache MEMPV_CACHE;
@@ -2837,6 +2838,15 @@ struct __db_env {
 	DB_TXN_COMMIT_MAP* txmap;
 
 	DB_MEMPV *mempv;
+
+	pthread_mutex_t outstanding_modsnap_lock;
+	LISTC_T(MODSNAP_TXN) outstanding_modsnaps;
+};
+
+struct __modsnap_txn
+{
+	DB_LSN prior_checkpoint_lsn;
+	LINKC_T(struct __modsnap_txn) lnk;
 };
 
 struct __utxnid {

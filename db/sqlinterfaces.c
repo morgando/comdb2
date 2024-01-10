@@ -1736,8 +1736,10 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     /* Latch the last commit LSN */
     struct dbtable *db = &thedb->static_table;
     assert(db->handle);
-    bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
-    clnt->last_commit_lsn_isset = 1;
+    if (clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+        bdb_register_modsnap(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
+        clnt->last_commit_lsn_isset = 1;
+    }
 
     if (clnt->osql.replay)
         goto done;
@@ -1939,6 +1941,10 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     int irc = 0, rc = 0, bdberr = 0;
 
     clnt->last_commit_lsn_isset = 0;
+    if (clnt->modsnap_registration) {
+        bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
+        clnt->modsnap_registration = NULL;
+    }
 
     if (!clnt->intrans) {
         reqlog_logf(thd->logger, REQL_QUERY, "\"%s\" ignore (no transaction)\n",
@@ -2248,6 +2254,10 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
     int outrc = 0;
 
     clnt->last_commit_lsn_isset = 0;
+    if (clnt->modsnap_registration) {
+        bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
+        clnt->modsnap_registration = NULL;
+    }
 
     if (sideeffects == TRANS_CLNTCOMM_NORMAL) {
     /* Don't setup(reset) logger for commits of individual chunks,
@@ -5444,6 +5454,10 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
     }
 
     clnt->last_commit_lsn_isset = 0;
+    if (clnt->modsnap_registration) {
+        bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
+        clnt->modsnap_registration = NULL;
+    }
 }
 
 void reset_clnt_flags(struct sqlclntstate *clnt)
@@ -5453,6 +5467,10 @@ void reset_clnt_flags(struct sqlclntstate *clnt)
     clnt->statement_timedout = 0;
     clnt->writeTransaction = 0;
     clnt->last_commit_lsn_isset = 0;
+    if (clnt->modsnap_registration) {
+        bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
+        clnt->modsnap_registration = NULL;
+    }
 }
 
 int sbuf_is_local(SBUF2 *sb)

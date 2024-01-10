@@ -947,6 +947,8 @@ struct sqlclntstate {
     u_int32_t highest_ckpt_commit_lsn_offset;
     int last_commit_lsn_isset;
 
+	void *modsnap_registration; 
+
     int lastresptype;
     char *externalAuthUser;
 };

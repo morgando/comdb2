@@ -4853,8 +4853,8 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
     struct dbtable *db =
 	    &thedb->static_table; /* this is not used but required */
     /* Latch last commit LSN */
-    if (!clnt->last_commit_lsn_isset && (db->handle != NULL)) {
-            bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset);
+    if ((clnt->dbtran.mode == TRANLEVEL_MODSNAP) && !clnt->last_commit_lsn_isset && (db->handle != NULL)) {
+            bdb_register_modsnap(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
             clnt->last_commit_lsn_isset = 1;
     }
 
@@ -4968,6 +4968,10 @@ int sqlite3BtreeCommit(Btree *pBt)
 
     if (!clnt->in_sqlite_init && (clnt->ctrl_sqlengine != SQLENG_INTRANS_STATE) && (clnt->ctrl_sqlengine != SQLENG_STRT_STATE)) {
 	    clnt->last_commit_lsn_isset = 0;
+      if (clnt->modsnap_registration) {
+           bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
+           clnt->modsnap_registration = NULL;
+      }
     }
     if (!clnt->intrans || clnt->in_sqlite_init ||
         (!clnt->in_sqlite_init && clnt->ctrl_sqlengine != SQLENG_FNSH_STATE &&

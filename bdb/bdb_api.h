@@ -1414,11 +1414,16 @@ int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
                                     unsigned int *file,
                                     unsigned int *offset);
 
-int bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state_type *bdb_state,
-                                    unsigned int *last_commit_lsn_file,
-                                    unsigned int *last_commit_lsn_offset,
-                                    unsigned int *highest_commit_lsn_asof_ckpt_file,
-                                    unsigned int *highest_commit_lsn_asof_ckpt_offset);
+int bdb_get_lowest_modsnap_file(bdb_state_type *bdb_state);
+
+int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration);
+
+int bdb_register_modsnap(bdb_state_type *bdb_state,
+                        unsigned int *last_commit_lsn_file,
+                        unsigned int *last_commit_lsn_offset,
+                        unsigned int *highest_commit_lsn_asof_ckpt_file,
+                        unsigned int *highest_commit_lsn_asof_ckpt_offset,
+                        void ** registration);
 
 void bdb_set_tran_verify_updateid(tran_type *tran);
 

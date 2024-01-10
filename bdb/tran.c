@@ -2686,17 +2686,61 @@ int bdb_add_rep_blob(bdb_state_type *bdb_state, tran_type *tran, int session,
     return rc;
 }
 
-int bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state_type *bdb_state,
-                                    unsigned int *last_commit_lsn_file,
-                                    unsigned int *last_commit_lsn_offset,
-                                    unsigned int *highest_commit_lsn_asof_ckpt_file,
-                                    unsigned int *highest_commit_lsn_asof_ckpt_offset)
+int bdb_get_lowest_modsnap_file(bdb_state_type *bdb_state)
 {
+    DB_ENV *dbenv;
+    MODSNAP_TXN *outstanding_modsnap;
+    int itr, min_file;
+
+    itr = 0;
+    min_file = -1;
+    dbenv = bdb_state->dbenv;
+
+    pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
+
+    LISTC_FOR_EACH(&dbenv->outstanding_modsnaps, outstanding_modsnap, lnk) {
+        min_file = itr++ == 0 || outstanding_modsnap->prior_checkpoint_lsn.file < min_file 
+        ? outstanding_modsnap->prior_checkpoint_lsn.file : min_file;
+    }
+
+    pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
+
+    return min_file;
+}
+
+int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration)
+{
+    DB_ENV *dbenv;
+    MODSNAP_TXN *outstanding_modsnap;
+
+    dbenv = bdb_state->dbenv;
+    outstanding_modsnap = (MODSNAP_TXN *) registration;
+
+    pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
+    listc_rfl(&dbenv->outstanding_modsnaps, outstanding_modsnap);
+    pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
+
+    free(outstanding_modsnap);
+
+    return 0;
+}
+
+int bdb_register_modsnap(bdb_state_type *bdb_state,
+                        unsigned int *last_commit_lsn_file,
+                        unsigned int *last_commit_lsn_offset,
+                        unsigned int *highest_commit_lsn_asof_ckpt_file,
+                        unsigned int *highest_commit_lsn_asof_ckpt_offset,
+                        void ** registration)
+{
+    DB_ENV *dbenv;
     DB_LSN outlastcommitlsn;
     DB_LSN outhighest_commit_lsn_asof_ckpt;
     int rc;
 
-    if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state->dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
+    rc = 0;
+    dbenv = bdb_state->dbenv;
+
+    if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
         return rc;
     }
 
@@ -2712,6 +2756,19 @@ int bdb_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(bdb_state_type *bdb
     if (highest_commit_lsn_asof_ckpt_offset) {
         *highest_commit_lsn_asof_ckpt_offset = outhighest_commit_lsn_asof_ckpt.offset;
     }
+
+    MODSNAP_TXN *outstanding_modsnap = malloc(sizeof(MODSNAP_TXN));
+    if (!outstanding_modsnap) {
+        rc = ENOMEM;
+        return rc;
+    }
+    outstanding_modsnap->prior_checkpoint_lsn = outhighest_commit_lsn_asof_ckpt;
+
+    pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
+    listc_atl(&dbenv->outstanding_modsnaps, outstanding_modsnap);
+    pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
+
+    * (void **)registration = (void *) outstanding_modsnap;
 
     return rc;
 }

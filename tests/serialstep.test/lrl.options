@@ -14,6 +14,4 @@ logmsg level info
 set_coherent_state_trace on
 #on extended_sql_debug_trace
 use_modsnap_for_snapshot on
-setattr REP_PROCESSORS 0
-setattr REP_WORKERS 0
-noearly on
+enable_modsnap_snapshot_implementation on

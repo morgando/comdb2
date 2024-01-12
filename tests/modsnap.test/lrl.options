@@ -9,6 +9,4 @@ pagesizeix 512
 pagesizedta 512
 dtastripe 1
 keycompr OFF
-setattr REP_PROCESSORS 0
-setattr REP_WORKERS 0
-noearly on
+enable_modsnap_snapshot_implementation on

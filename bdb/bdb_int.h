@@ -1744,6 +1744,7 @@ extern int gbl_new_snapisol;
 extern int gbl_new_snapisol_asof;
 extern int gbl_new_snapisol_logging;
 extern int gbl_early;
+extern int gbl_modsnap;
 extern int gbl_udp;
 extern int gbl_prefault_udp;
 extern int gbl_verify_all_pools;

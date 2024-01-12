@@ -613,13 +613,13 @@ int __txn_commit_map_get(dbenv, utxnid, commit_lsn)
 }
 
 /*
- * __txn_commit_map_add --
+ * __txn_commit_map_add_nolock --
  *  Store the commit LSN of a transaction.
  *
- * PUBLIC: int __txn_commit_map_add
+ * PUBLIC: int __txn_commit_map_add_nolock
  * PUBLIC:     __P((DB_ENV *, u_int64_t, DB_LSN));
  */
-int __txn_commit_map_add(dbenv, utxnid, commit_lsn) 
+int __txn_commit_map_add_nolock(dbenv, utxnid, commit_lsn) 
 	DB_ENV *dbenv;
 	u_int64_t utxnid;
 	DB_LSN commit_lsn;
@@ -640,13 +640,10 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 		return ret;
 	}
 
-	Pthread_mutex_lock(&txmap->txmap_mutexp);
-
 	txn = hash_find(txmap->transactions, &utxnid);
 
 	if (txn != NULL) { 
 		/* Don't add transactions that already exist in the map */
-		Pthread_mutex_unlock(&txmap->txmap_mutexp);
 		return ret;
 	}
 
@@ -692,18 +689,40 @@ int __txn_commit_map_add(dbenv, utxnid, commit_lsn)
 
         elt->utxnid = utxnid;
         listc_atl(&to_delete->commit_utxnids, elt);
-
-        Pthread_mutex_unlock(&txmap->txmap_mutexp);
-        return ret;
+		
+		return ret;
 err:
-        Pthread_mutex_unlock(&txmap->txmap_mutexp);
-        if (alloc_delete_list) {
-                __os_free(dbenv, to_delete);
-        }
-        if (alloc_txn) {
-                __os_free(dbenv, txn);
-        }
-        return ret;
+	if (alloc_delete_list) {
+		__os_free(dbenv, to_delete);
+	}
+	if (alloc_txn) {
+		__os_free(dbenv, txn);
+	}
+	return ret;
+}
+
+/*
+ * __txn_commit_map_add --
+ *  Store the commit LSN of a transaction.
+ *
+ * PUBLIC: int __txn_commit_map_add
+ * PUBLIC:     __P((DB_ENV *, u_int64_t, DB_LSN));
+ */
+int __txn_commit_map_add(dbenv, utxnid, commit_lsn) 
+	DB_ENV *dbenv;
+	u_int64_t utxnid;
+	DB_LSN commit_lsn;
+{
+	int ret;
+
+	ret = 0;
+
+	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
+
+	ret = __txn_commit_map_add_nolock(dbenv, utxnid, commit_lsn);
+
+	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
+	return ret;
 }
 
 static inline void __free_prepared_children(DB_ENV *dbenv, DB_TXN_PREPARED *p)

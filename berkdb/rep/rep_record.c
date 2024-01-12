@@ -145,8 +145,7 @@ extern void __pgdump_reprec(DB_ENV *dbenv, DBT *dbt);
 extern int dumptxn(DB_ENV * dbenv, DB_LSN * lsnpp);
 extern void wait_for_sc_to_stop(const char *operation, const char *func, int line);
 extern void allow_sc_to_run(void);
-extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
-extern int __txn_commit_map_add(DB_ENV *, u_int64_t, DB_LSN);
+extern int __txn_commit_map_add_nolock(DB_ENV *, u_int64_t, DB_LSN);
 
 int64_t gbl_rep_trans_parallel = 0, gbl_rep_trans_serial =
 	0, gbl_rep_trans_deadlocked = 0, gbl_rep_trans_inline =
@@ -4564,7 +4563,10 @@ processor_thd(struct thdpool *pool, void *work, void *thddata, int op)
 		rp->ltrans = NULL;
 	}
 
-	if (commit_lsn_map && (ret = __txn_commit_map_add(dbenv, rp->utxnid, rp->commit_lsn))) {
+	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
+
+	if (commit_lsn_map && (ret = __txn_commit_map_add_nolock(dbenv, rp->utxnid, rp->commit_lsn))) {
+		Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
 		logmsg(LOGMSG_DEBUG, "%s failed at line %d\n", __func__, __LINE__);
 		goto err;
 	}
@@ -4573,13 +4575,14 @@ processor_thd(struct thdpool *pool, void *work, void *thddata, int op)
 		UTXNID *elt;
 
 		LISTC_FOR_EACH(rp->lc.child_utxnids, elt, lnk) {
-			if (__txn_commit_map_get(dbenv, rp->utxnid, &rp->commit_lsn) == 0) {
-				if ((ret = __txn_commit_map_add(dbenv, elt->utxnid, rp->commit_lsn)) != 0) {
-					goto err;
-				}
+			if ((ret = __txn_commit_map_add_nolock(dbenv, elt->utxnid, rp->commit_lsn)) != 0) {
+				Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
+				goto err;
 			}
 		}
 	}
+
+	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
 
 
 	/* cleanup - similar to __rep_process_txn */
@@ -5259,7 +5262,10 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 			ret = 0;
 	}
 
-	if (commit_lsn_map && (ret = __txn_commit_map_add(dbenv, utxnid, rep->committed_lsn))) {
+	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
+
+	if (commit_lsn_map && (ret = __txn_commit_map_add_nolock(dbenv, utxnid, rep->committed_lsn))) {
+		Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
 		logmsg(LOGMSG_DEBUG, "%s failed at line %d\n", __func__, __LINE__);
 		return ret;
 	}
@@ -5268,13 +5274,14 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		UTXNID *elt;
 
 		LISTC_FOR_EACH(lc.child_utxnids, elt, lnk) {
-			if (__txn_commit_map_get(dbenv, utxnid, &parent_commit_lsn) == 0) {
-				if ((ret = __txn_commit_map_add(dbenv, elt->utxnid, parent_commit_lsn)) != 0) {
-					goto err;
-				}
+			if ((ret = __txn_commit_map_add_nolock(dbenv, elt->utxnid, rep->committed_lsn)) != 0) {
+				Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
+				goto err;
 			}
 		}
 	}
+
+	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
 
 	if (td_stats) {
 		x2 = bb_berkdb_fasttime();

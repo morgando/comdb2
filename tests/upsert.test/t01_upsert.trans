@@ -130,7 +130,7 @@
 1 insert into t1(i) values(10) on conflict (i) do update set i=11
 1 insert into t1(i) values(10) on conflict (i) do update set i=11
 1 commit
-1 select 1 from comdb2_metrics m, comdb2_tunables t where m.name like 'verify_replays' and t.name='osql_verify_retry_max' and m.value < CAST(t.value AS int)
+1 select 1 from comdb2_metrics m, comdb2_tunables t where m.name like 'verify_replays' and t.name='osql_verify_retry_max' and m.value >= CAST(t.value AS int)
 1 select * from t1
 
 1 SELECT '---------------------------------- PART #09 ----------------------------------' AS part;

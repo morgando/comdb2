@@ -4854,7 +4854,7 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
 	    &thedb->static_table; /* this is not used but required */
     /* Latch last commit LSN */
     if ((clnt->dbtran.mode == TRANLEVEL_MODSNAP) && !clnt->last_commit_lsn_isset && (db->handle != NULL)) {
-            bdb_register_modsnap(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
+            bdb_register_modsnap(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
             clnt->last_commit_lsn_isset = 1;
     }
 

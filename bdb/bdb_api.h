@@ -1418,7 +1418,9 @@ int bdb_get_lowest_modsnap_file(bdb_state_type *bdb_state);
 
 int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration);
 
+struct sqlclntstate;
 int bdb_register_modsnap(bdb_state_type *bdb_state,
+                        int snapshot_epoch,
                         unsigned int *last_commit_lsn_file,
                         unsigned int *last_commit_lsn_offset,
                         unsigned int *highest_commit_lsn_asof_ckpt_file,
@@ -2391,7 +2393,6 @@ void thedb_set_master(char *);
 int bdb_queuedb_has_seq(bdb_state_type *);
 void dispatch_waiting_clients(void);
 
-struct sqlclntstate;
 int release_locks_int(const char *trace, const char *func, int line, struct sqlclntstate *);
 #define release_locks(trace) release_locks_int(trace, __func__, __LINE__, NULL)
 

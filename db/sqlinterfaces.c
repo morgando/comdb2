@@ -1737,7 +1737,7 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     struct dbtable *db = &thedb->static_table;
     assert(db->handle);
     if (clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
-        bdb_register_modsnap(db->handle, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
+        bdb_register_modsnap(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
         clnt->last_commit_lsn_isset = 1;
     }
 

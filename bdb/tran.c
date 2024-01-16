@@ -2742,33 +2742,16 @@ int bdb_register_modsnap(bdb_state_type *bdb_state,
     dbenv = bdb_state->dbenv;
 
     if (snapshot_epoch) {
-
         bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &outlastcommitlsn, 0, &rc); 
         if (rc != 0) {
-            printf("ERR\n");
             return rc;
         }
 
         bdb_checkpoint_list_get_ckplsn_before_lsn(outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt);
-
-        if (last_commit_lsn_file) {
-            *last_commit_lsn_file = outlastcommitlsn.file;
+    } else {
+        if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
+            return rc;
         }
-        if (last_commit_lsn_offset) {
-            *last_commit_lsn_offset = outlastcommitlsn.offset;
-        }
-
-        if (highest_commit_lsn_asof_ckpt_file) {
-            *highest_commit_lsn_asof_ckpt_file = outhighest_commit_lsn_asof_ckpt.file;
-        }
-        if (highest_commit_lsn_asof_ckpt_offset) {
-            *highest_commit_lsn_asof_ckpt_offset = outhighest_commit_lsn_asof_ckpt.offset;
-        }
-        return 0;
-    }
-
-    if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
-        return rc;
     }
 
     if (last_commit_lsn_file) {

@@ -1595,6 +1595,9 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                         if (gbl_use_modsnap_for_snapshot) {
                             clnt->dbtran.mode = TRANLEVEL_MODSNAP; 
                             clnt->verify_retries = 0;
+                            if (clnt->hasql_on == 1) {
+                                newsql_set_high_availability(clnt);
+                            }
                         } else {
                             clnt->dbtran.mode = TRANLEVEL_SNAPISOL;
                             clnt->verify_retries = 0;
@@ -1608,6 +1611,9 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                         sqlstr += 3;
                         clnt->dbtran.mode = TRANLEVEL_MODSNAP; 
                         clnt->verify_retries = 0;
+                        if (clnt->hasql_on == 1) {
+                            newsql_set_high_availability(clnt);
+                        }
                     }
                     if (clnt->dbtran.mode == TRANLEVEL_INVALID) {
                         rc = ii + 1;
@@ -1776,7 +1782,8 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                 if (strncasecmp(sqlstr, "on", 2) == 0) {
                     clnt->hasql_on = 1;
                     if (clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-                        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+                        clnt->dbtran.mode == TRANLEVEL_SNAPISOL || 
+                        clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
                         newsql_set_high_availability(clnt);
                         sql_debug_logf(clnt, __func__, __LINE__,
                                        "setting "
@@ -2239,7 +2246,7 @@ void newsql_effects(CDB2SQLRESPONSE *r, CDB2EFFECTS *e, struct sqlclntstate *cln
     r->response_type = RESPONSE_TYPE__COMDB2_INFO;
     int verify = !clnt->verifyretry_off;
     enum transaction_level mode = clnt->dbtran.mode;
-    if (verify && mode != TRANLEVEL_SNAPISOL && mode != TRANLEVEL_SERIAL) {
+    if (verify && mode != TRANLEVEL_MODSNAP && mode != TRANLEVEL_SNAPISOL && mode != TRANLEVEL_SERIAL) {
         r->error_code = -1;
         r->error_string = "Get effects not supported in transaction with verifyretry on";
         return;

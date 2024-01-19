@@ -77,7 +77,7 @@ int tran2netreq(int dbtran)
         return NET_OSQL_SOCK_REQ;
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
+    case TRANLEVEL_MODSNAP:
         return NET_OSQL_RECOM_REQ;
 
     case TRANLEVEL_SNAPISOL:
@@ -106,7 +106,7 @@ int tran2netrpl(int dbtran)
         return NET_OSQL_SOCK_RPL;
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
+    case TRANLEVEL_MODSNAP:
         return NET_OSQL_RECOM_RPL;
 
     case TRANLEVEL_SNAPISOL:
@@ -549,7 +549,7 @@ int tran2req(int dbtran)
         return OSQL_SOCK_REQ;
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
+    case TRANLEVEL_MODSNAP:
         return OSQL_RECOM_REQ;
 
     case TRANLEVEL_SNAPISOL:

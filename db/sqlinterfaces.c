@@ -600,7 +600,7 @@ char *tranlevel_tostr(int lvl)
     case TRANLEVEL_SOSQL:
         return "TRANLEVEL_SOSQL";
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP: /* ? */
+    case TRANLEVEL_MODSNAP: /* ? */
         return "TRANLEVEL_RECOM";
     case TRANLEVEL_SERIAL:
         return "TRANLEVEL_SERIAL";
@@ -1957,7 +1957,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 
         switch (clnt->dbtran.mode) {
         case TRANLEVEL_RECOM:
-		case TRANLEVEL_MODSNAP: {
+        case TRANLEVEL_MODSNAP: {
             /* here we handle the communication with bp */
             if (clnt->ctrl_sqlengine == SQLENG_FNSH_STATE) {
                 rc = recom_commit(clnt, thd->sqlthd, clnt->tzname, 0);
@@ -6006,7 +6006,7 @@ static int execute_sql_query_offload_inner_loop(struct sqlclntstate *clnt,
             */
             if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
                 clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-				clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+                clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
                 Pthread_mutex_lock(&clnt->dtran_mtx);
             }
 
@@ -6014,7 +6014,7 @@ static int execute_sql_query_offload_inner_loop(struct sqlclntstate *clnt,
 
             if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
                 clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-				clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+                clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
                 Pthread_mutex_unlock(&clnt->dtran_mtx);
             }
 

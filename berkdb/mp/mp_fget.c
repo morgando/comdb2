@@ -62,6 +62,11 @@ void udp_prefault_all(bdb_state_type * bdb_state, unsigned int fileid,
 int send_pg_compact_req(bdb_state_type *bdb_state, int32_t fileid,
 	uint32_t size, void *data);
 
+extern int memp_bhrdlock(BH *bhp);
+extern int memp_bhwrlock(BH *bhp);
+extern int memp_bhrdunlock(BH *bhp);
+extern int memp_bhwrunlock(BH *bhp);
+
 /*
  * __memp_fget_pp --
  *	DB_MPOOLFILE->get pre/post processing.
@@ -358,17 +363,15 @@ retry:	st_hsearch = 0;
 		b_incr = 1;
 
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			
 			if ((bhp->writer_refs > 0) && (pthread_self() == bhp->writer_id)) {
 				bhp->writer_refs++;
 			} else {
-				int ref = bhp->ref;
-				pthread_rwlock_t * lk_ptr = bhp->rwlock;
-
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 				if (gbl_thread_mode == 0) {
-					rc = pthread_rwlock_rdlock(lk_ptr);
+					rc = memp_bhrdlock(bhp);
 				} else {
-					rc = pthread_rwlock_wrlock(lk_ptr);
+					rc = memp_bhwrlock(bhp);
 				}
 				if (rc != 0) {
 					abort();
@@ -400,7 +403,11 @@ retry:	st_hsearch = 0;
 				--bhp->ref;
 				if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 					if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-						pthread_rwlock_unlock(bhp->rwlock);
+						if (gbl_thread_mode == 0) {
+							memp_bhrdunlock(bhp);
+						} else {
+							memp_bhwrunlock(bhp);
+						}
 					}
 				}
 				b_incr = 0;
@@ -663,7 +670,11 @@ alloc:		/*
 		if (flags == DB_MPOOL_NEW) {
 			if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 				if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-					pthread_rwlock_unlock(bhp->rwlock);
+					if (gbl_thread_mode == 0) {
+						memp_bhrdunlock(bhp);
+					} else {
+						memp_bhwrunlock(bhp);
+					}
 				}
 			}
 			--bhp->ref;
@@ -699,26 +710,19 @@ alloc:		/*
 		bhp->pgno = *pgnoaddr;
 		bhp->mpf = mfp;
 
-		pthread_rwlockattr_t attr;
-		pthread_rwlockattr_init(&attr);
-		pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+		bhp->turnstile_mutexp = (pthread_mutex_t *) malloc(sizeof(pthread_mutex_t));
+		bhp->readers_mutexp = (pthread_mutex_t *) malloc(sizeof(pthread_mutex_t));
+		bhp->empty_semp = (sem_t *) malloc(sizeof(sem_t));
 
-		bhp->rwlock = (pthread_rwlock_t *) malloc(sizeof(pthread_rwlock_t));
-		if (!bhp->rwlock) {
-			abort();
-		}
-		rc = pthread_rwlock_init(bhp->rwlock, &attr); 
-		if (rc != 0) {
-			abort();
-		}
-
-		pthread_rwlockattr_destroy(&attr);
+		pthread_mutex_init(bhp->turnstile_mutexp, NULL);
+		pthread_mutex_init(bhp->readers_mutexp, NULL);
+		sem_init(bhp->empty_semp, 0, 1);
 
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if (gbl_thread_mode == 0) {
-				rc = pthread_rwlock_rdlock(bhp->rwlock);
+				rc = memp_bhrdlock(bhp);
 			} else {
-				rc = pthread_rwlock_wrlock(bhp->rwlock);
+				rc = memp_bhwrlock(bhp);
 				bhp->writer_id = pthread_self();
 				bhp->writer_refs = 1;
 			}
@@ -924,7 +928,11 @@ err:	/*
 	if (b_incr) {
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-				pthread_rwlock_unlock(bhp->rwlock);
+				if (gbl_thread_mode == 0) {
+					memp_bhrdunlock(bhp);
+				} else {
+					memp_bhwrunlock(bhp);
+				}
 			}
 		}
 		if (bhp->ref == 1) {

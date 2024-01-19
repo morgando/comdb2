@@ -29,6 +29,9 @@ extern __thread int gbl_thread_mode;
 
 static void __memp_reset_lru __P((DB_ENV *, REGINFO *));
 
+extern int memp_bhrdunlock(BH *bhp);
+extern int memp_bhwrunlock(BH *bhp);
+
 /*
  * __memp_fput_pp --
  *	DB_MPOOLFILE->put pre/post processing.
@@ -199,8 +202,10 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 
 	if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 		if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-			if (pthread_rwlock_unlock(bhp->rwlock)) {
-				abort();
+			if (gbl_thread_mode == 0) {
+				memp_bhrdunlock(bhp);
+			} else {
+				memp_bhwrunlock(bhp);
 			}
 		}
 	}

@@ -3678,11 +3678,13 @@ int sql_set_transaction_mode(sqlite3 *db, struct sqlclntstate *clnt, int mode)
     int i;
 
     /* snapshot/serializable protection */
-    if ((mode == TRANLEVEL_SERIAL || mode == TRANLEVEL_SNAPISOL) &&
-        !(gbl_rowlocks || gbl_snapisol)) {
+    if ((mode == TRANLEVEL_MODSNAP && !gbl_modsnap) || ((mode == TRANLEVEL_SERIAL || mode == TRANLEVEL_SNAPISOL) &&
+        !(gbl_rowlocks || gbl_snapisol))) {
         logmsg(LOGMSG_ERROR, "%s REQUIRES MODIFICATIONS TO THE LRL FILE\n",
                 (mode == TRANLEVEL_SNAPISOL) ? "SNAPSHOT ISOLATION"
-                                             : "SERIALIZABLE");
+                                             : (mode == TRANLEVEL_MODSNAP) 
+                                                ? "MODSNAP SNAPSHOT IMPLEMENTATION" 
+                                                : "SERIALIZABLE");
         return -1;
     }
 

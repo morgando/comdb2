@@ -146,9 +146,10 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 	DB_MPOOLFILE *mpf;
 	PAGE *pagep;
 	u_int32_t change;
-	int cmp_n, cmp_p, ret;
+	int cmp_n, cmp_p, ret, is_modsnap_recovery;
     int check_page = gbl_check_page_in_recovery;
 
+	is_modsnap_recovery = info != NULL;
 	pagep = NULL;
 	REC_PRINT(__db_addrem_print);
 	REC_INTRO(__db_addrem_read, 1);
@@ -161,7 +162,7 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			goto out;
 	}
 
-	if (info == NULL) {
+	if (is_modsnap_recovery) {
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op)) {
 #if defined (UFID_HASH_DEBUG)
@@ -249,7 +250,7 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
         __dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
 
-	if ((info == NULL) && ((ret = __memp_fput(mpf, pagep, change)) != 0))
+	if ((!is_modsnap_recovery) && ((ret = __memp_fput(mpf, pagep, change)) != 0))
 		goto out;
 	pagep = NULL;
 
@@ -257,7 +258,7 @@ done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
 out:
-	if ((info == NULL) && pagep != NULL) {
+	if ((!is_modsnap_recovery) && pagep != NULL) {
 		(void)__memp_fput(mpf, pagep, 0);
 	}
 	REC_CLOSE;
@@ -281,13 +282,14 @@ __db_big_recover(dbenv, dbtp, lsnp, op, info)
 	DB_MPOOLFILE *mpf;
 	PAGE *pagep;
 	u_int32_t change;
-	int cmp_n, cmp_p, ret;
+	int cmp_n, cmp_p, ret, is_modsnap_recovery;
 
+	is_modsnap_recovery = info != NULL;
 	pagep = NULL;
 	REC_PRINT(__db_big_print);
 	REC_INTRO(__db_big_read, 1);
 
-	if (info == NULL) {
+	if (!is_modsnap_recovery) {
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op)) {
 				/*
@@ -460,13 +462,14 @@ __db_ovref_recover(dbenv, dbtp, lsnp, op, info)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	PAGE *pagep;
-	int cmp, modified, ret;
+	int cmp, modified, ret, is_modsnap_recovery;
 
+	is_modsnap_recovery = info != NULL;
 	pagep = NULL;
 	REC_PRINT(__db_ovref_print);
 	REC_INTRO(__db_ovref_read, 1);
 
-	if (info == NULL) {
+	if (!is_modsnap_recovery) {
 		if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 			if (DB_UNDO(op))
 				goto done;
@@ -494,14 +497,14 @@ __db_ovref_recover(dbenv, dbtp, lsnp, op, info)
 		pagep->lsn = argp->lsn;
 		modified = 1;
 	}
-	if (!info && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
+	if (!is_modsnap_recovery && ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0))
 		goto out;
 	pagep = NULL;
 
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	if (pagep != NULL)
+out:	if (!is_modsnap_recovery && pagep != NULL)
 		(void)__memp_fput(mpf, pagep, 0);
 	REC_CLOSE;
 }
@@ -528,13 +531,14 @@ __db_relink_recover(dbenv, dbtp, lsnp, op, info)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	PAGE *pagep;
-	int cmp_n, cmp_p, modified, ret;
+	int cmp_n, cmp_p, modified, ret, is_modsnap_recovery;
 
+	is_modsnap_recovery = info != NULL;
 	pagep = NULL;
 	REC_PRINT(__db_relink_print);
 	REC_INTRO(__db_relink_read, 1);
 
-	if (info != NULL) {
+	if (is_modsnap_recovery) {
 		if (argp->opcode == DB_ADD_PAGE) {
 			abort();
 		}

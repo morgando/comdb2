@@ -4170,7 +4170,7 @@ __bam_c_physdel(dbc)
 		if ((ret =
 		    __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &lock)) != 0)
 			break;
-		if ((ret = __memp_fget(mpf, &pgno, 0, &h)) != 0)
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &h)) != 0)
 			break;
 		BT_STK_PUSH(dbp->dbenv, cp, h, 0, lock, DB_LOCK_WRITE, ret);
 		if (ret != 0)
@@ -4216,7 +4216,7 @@ __bam_c_getstack(dbc)
 	 * routine has to already hold a read lock on the page, so there
 	 * is no additional lock to acquire.
 	 */
-	if ((ret = __memp_fget(mpf, &cp->pgno, 0, &h)) != 0)
+	if ((ret = PAGEGET(dbc, mpf, &cp->pgno, 0, &h)) != 0)
 		return (ret);
 
 	/* Get a copy of a key from the page. */

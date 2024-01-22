@@ -175,11 +175,10 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 				 * don't bother creating a page.
 				 */
 				goto done;
-			} else {
+			} else
 				if ((ret = __memp_fget(mpf,
 					&argp->pgno, DB_MPOOL_CREATE, &pagep)) != 0)
 					goto out;
-			}
 		}
 	} else {
 		pagep = (PAGE*) info;

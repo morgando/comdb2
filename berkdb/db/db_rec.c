@@ -166,7 +166,7 @@ __db_addrem_recover(dbenv, dbtp, lsnp, op, info)
 			if (DB_UNDO(op)) {
 #if defined (UFID_HASH_DEBUG)
 				logmsg(LOGMSG_USER, "t-%p %s ignoring failed memp_fget because undo\n",
-						(void *)pthread_self(),__func__);
+					(void *)pthread_self(),__func__);
 #endif
 				/*
 				 * We are undoing and the page doesn't exist.  That

@@ -4379,6 +4379,8 @@ u32 sqlite3VdbeSerialGet(
       pMem->du.dt.dttz_prec = ntohs( p->dttz_prec );
       pMem->du.dt.dttz_conv = ntohs( p->dttz_conv );
 
+      pMem->n = 0;
+
       if( pMem->du.dt.dttz_prec!=DTTZ_PREC_MSEC ) /* data from R5 */
         pMem->du.dt.dttz_conv = 1;
 
@@ -4394,6 +4396,8 @@ u32 sqlite3VdbeSerialGet(
       memcpy(&scratch, buf, sizeof(dttz_t));
       p = &scratch;
 #endif
+
+      pMem->n = 0;
 
       /* datetime */
       pMem->du.dt.dttz_sec = flibc_ntohll( p->dttz_sec );
@@ -4917,7 +4921,7 @@ int sqlite3MemCompare(const Mem *pMem1, const Mem *pMem2, const CollSeq *pColl){
       f1 = copy.flags;
       pMem1 = &copy;
       combined_flags = f1|f2;
-    }else{
+    } else {
       u8 err;
       int rc = compareDateTimeInterval(f1, f2, combined_flags, pMem1, pMem2, &err);
       if( err==0 )

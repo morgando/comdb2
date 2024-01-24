@@ -631,6 +631,7 @@ static int fdb_get_data_int(svc_cursor_t *cur, struct schema *sc, char *in,
                 unsigned short msec = 0;
 
                 bzero(&m->du.dt, sizeof(dttz_t));
+                m->n = 0;
 
                 /* TMP BROKEN DATETIME */
                 if (in[0] == 0) {
@@ -684,6 +685,7 @@ static int fdb_get_data_int(svc_cursor_t *cur, struct schema *sc, char *in,
                 unsigned int usec = 0;
 
                 bzero(&m->du.dt, sizeof(dttz_t));
+                m->n = 0;
 
                 /* TMP BROKEN DATETIME */
                 if (in[0] == 0) {

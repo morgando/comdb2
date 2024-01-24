@@ -1722,6 +1722,7 @@ static int bindDatetime(
     pVar = &p->aVar[i-1];
     pVar->flags &= ~(MEM_Str|MEM_Static|MEM_Dyn|MEM_Ephem);
     pVar->flags = MEM_Datetime;
+    pVar->n = 0;
     pVar->du.dt = *dt;
     pVar->xDel = NULL;
     pVar->enc = 0;

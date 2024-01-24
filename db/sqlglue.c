@@ -6924,6 +6924,7 @@ int get_data(BtCursor *pCur, struct schema *sc, uint8_t *in, int fnum, Mem *m,
             unsigned short msec = 0;
 
             bzero(&m->du.dt, sizeof(dttz_t));
+            m->n = 0;
 
             /* TMP BROKEN DATETIME */
             if (in[0] == 0) {
@@ -6975,6 +6976,7 @@ int get_data(BtCursor *pCur, struct schema *sc, uint8_t *in, int fnum, Mem *m,
                 unsigned int usec = 0;
 
                 bzero(&m->du.dt, sizeof(dttz_t));
+                m->n = 0;
 
                 /* TMP BROKEN DATETIME */
                 if (in[0] == 0) {
@@ -12127,6 +12129,7 @@ static int get_data_from_ondisk(const struct dbtable *tbl, struct schema *sc, ui
             unsigned short msec = 0;
 
             bzero(&m->du.dt, sizeof(dttz_t));
+            m->n = 0;
 
             /* TMP BROKEN DATETIME */
             if (in[0] == 0) {
@@ -12179,6 +12182,7 @@ static int get_data_from_ondisk(const struct dbtable *tbl, struct schema *sc, ui
                 unsigned int usec = 0;
 
                 bzero(&m->du.dt, sizeof(dttz_t));
+                m->n = 0;
 
                 /* TMP BROKEN DATETIME */
                 if (in[0] == 0) {

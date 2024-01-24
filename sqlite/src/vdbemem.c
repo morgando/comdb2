@@ -1409,6 +1409,7 @@ int sqlite3VdbeMemSetDatetime(
   sqlite3VdbeMemSetNull(pMem);
   pMem->du.dt = *dt;
   pMem->tz = tz;
+  pMem->n = 0;
   pMem->flags = MEM_Datetime;
   return SQLITE_OK;
 }
@@ -2017,6 +2018,7 @@ static int castExpr(
         pVal->du.dt = dt;
         pVal->tz = v->tzname;
         pVal->dtprec = v->dtprec;
+        pVal->n = 0;
         pVal->flags = MEM_Datetime;
         *ppVal = pVal;
         return 0;
@@ -2359,10 +2361,12 @@ int sqlite3VdbeMemDatetimefyTz(Mem *pMem, const char *tz){
   if(pMem->flags & MEM_Real) {
     if(real_to_dttz(pMem->u.r, &pMem->du.dt, pMem->dtprec) != 0)
       return SQLITE_ERROR;
+    pMem->n = 0;
     pMem->flags = MEM_Datetime;
   }else if( pMem->flags & MEM_Int ){
     if (int_to_dttz(pMem->u.i, &pMem->du.dt, pMem->dtprec) != 0)
       return SQLITE_ERROR;
+    pMem->n = 0;
     pMem->flags = MEM_Datetime;
   }else if( pMem->flags & MEM_Str ){
     if (str_to_dttz(pMem->z, pMem->n, pMem->tz ? pMem->tz : tz,

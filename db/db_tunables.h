@@ -1253,6 +1253,15 @@ REGISTER_TUNABLE("use_planned_schema_change",
                  "changing table. (Default: 1)",
                  TUNABLE_INTEGER, &gbl_default_plannedsc, READONLY | NOARG,
                  NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("use_modsnap_for_snapshot",
+                 "Use modsnap implementation for snapshot transactions. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_use_modsnap_for_snapshot, READONLY,
+                 NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("enable_modsnap_snapshot_implementation",
+                 "Allow snapshot transactions that use the modsnap snapshot implementation"
+                 "(Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_modsnap, READONLY, NULL, NULL, NULL,
+                 NULL);
 REGISTER_TUNABLE("watchthreshold",
                  "Panic if node has been unhealty (unresponsive, out of resources, etc.) for more "
                  "than this many seconds. The default value is 60.",

@@ -170,6 +170,7 @@ int gbl_trace_prepare_errors = 0;
 int gbl_trigger_timepart = 0;
 int gbl_extended_sql_debug_trace = 0;
 int gbl_perform_full_clean_exit = 1;
+__thread int gbl_thread_mode = 0;
 struct ruleset *gbl_ruleset = NULL;
 
 void myctrace(const char *c) { ctrace("%s", c); }
@@ -450,6 +451,8 @@ int gbl_disable_overflow_page_trace = 1;
 int gbl_simulate_rowlock_deadlock_interval = 0;
 int gbl_enable_berkdb_retry_deadlock_bias = 0;
 int gbl_enable_cache_internal_nodes = 1;
+int gbl_use_modsnap_for_snapshot = 0;
+int gbl_modsnap = 0;
 int gbl_use_appsock_as_sqlthread = 0;
 int gbl_rep_process_txn_time = 0;
 int gbl_utxnid_log = 1;

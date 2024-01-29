@@ -4067,7 +4067,7 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control,
               permlsn.file, permlsn.offset);
          */
 
-        if (!gbl_early) {
+        if (gbl_modsnap || !gbl_early) {
             rc = do_ack(bdb_state, permlsn, generation);
         }
 

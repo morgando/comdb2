@@ -65,6 +65,8 @@
 static unsigned int curtran_counter = 0;
 extern int gbl_debug_txn_sleep;
 extern int __txn_getpriority(DB_TXN *txnp, int *priority);
+extern int __txn_commit_map_get_highest_commit_lsn(DB_ENV *dbenv, DB_LSN *outlsn);
+extern int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(DB_ENV *dbenv, DB_LSN *lsn, DB_LSN *ckp_lsn);
 
 #if 0
 int __lock_dump_region_lockerid __P((DB_ENV *, const char *, FILE *, u_int32_t lockerid));
@@ -1105,6 +1107,7 @@ static tran_type *bdb_tran_begin_ll_int(bdb_state_type *bdb_state,
 
     case TRANCLASS_SOSQL:
     case TRANCLASS_READCOMMITTED:
+    case TRANCLASS_MODSNAP:
         break;
 
     case TRANCLASS_PHYSICAL:
@@ -1210,7 +1213,8 @@ tran_type *bdb_tran_begin_shadow_int(bdb_state_type *bdb_state, int tranclass,
         tran->trak = trak;
 
         if (tran->tranclass == TRANCLASS_SNAPISOL ||
-            tran->tranclass == TRANCLASS_SERIALIZABLE) {
+            tran->tranclass == TRANCLASS_SERIALIZABLE ||
+			tran->tranclass == TRANCLASS_MODSNAP) {
             rc = bdb_osql_cache_table_versions(bdb_state, tran, trak, bdberr);
             if (rc) {
                 logmsg(LOGMSG_ERROR,
@@ -1368,6 +1372,13 @@ tran_type *bdb_tran_begin_socksql(bdb_state_type *bdb_state, int trak,
 {
     return bdb_tran_begin_shadow_int(bdb_state, TRANCLASS_SOSQL, trak, bdberr,
                                      0, 0, 0, 0);
+}
+
+tran_type *bdb_tran_begin_modsnap(bdb_state_type *bdb_state, int trak,
+                                       int *bdberr)
+{
+    return bdb_tran_begin_shadow_int(bdb_state, TRANCLASS_MODSNAP, trak,
+                                     bdberr, 0, 0, 0, 0);
 }
 
 tran_type *bdb_tran_begin_snapisol(bdb_state_type *bdb_state, int trak,
@@ -1566,6 +1577,7 @@ int bdb_tran_commit_with_seqnum_int(bdb_state_type *bdb_state, tran_type *tran,
     /* fallthrough */
     case TRANCLASS_SOSQL:
     case TRANCLASS_READCOMMITTED:
+    case TRANCLASS_MODSNAP:
         bdb_tran_free_shadows(bdb_state, tran);
         break;
 
@@ -2196,6 +2208,8 @@ int bdb_tran_commit(bdb_state_type *bdb_state, tran_type *tran, int *bdberr)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_READCOMMITTED)
         has_bdblock = 0;
+    else if (tran->tranclass == TRANCLASS_MODSNAP)
+        has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_SNAPISOL)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_SERIALIZABLE)
@@ -2277,6 +2291,7 @@ int bdb_tran_abort_int_int(bdb_state_type *bdb_state, tran_type *tran,
     /* fallthrough */
     case TRANCLASS_SOSQL:
     case TRANCLASS_READCOMMITTED:
+    case TRANCLASS_MODSNAP:
         bdb_tran_free_shadows(bdb_state, tran);
         break;
 
@@ -2398,6 +2413,8 @@ int bdb_tran_abort_wrap(bdb_state_type *bdb_state, tran_type *tran, int *bdberr,
     else if (tran->tranclass == TRANCLASS_SOSQL)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_READCOMMITTED)
+        has_bdblock = 0;
+    else if (tran->tranclass == TRANCLASS_MODSNAP)
         has_bdblock = 0;
     else if (tran->tranclass == TRANCLASS_SNAPISOL)
         has_bdblock = 0;
@@ -2666,6 +2683,142 @@ int bdb_add_rep_blob(bdb_state_type *bdb_state, tran_type *tran, int session,
         *bdberr = BDBERR_MISC;
         rc = -1;
     }
+    return rc;
+}
+
+int bdb_get_lowest_modsnap_file(bdb_state_type *bdb_state)
+{
+    DB_ENV *dbenv;
+    MODSNAP_TXN *outstanding_modsnap;
+    int itr, min_file;
+
+    itr = 0;
+    min_file = -1;
+    dbenv = bdb_state->dbenv;
+
+    pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
+
+    LISTC_FOR_EACH(&dbenv->outstanding_modsnaps, outstanding_modsnap, lnk) {
+        min_file = itr++ == 0 || outstanding_modsnap->prior_checkpoint_lsn.file < min_file 
+        ? outstanding_modsnap->prior_checkpoint_lsn.file : min_file;
+    }
+
+    pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
+
+    return min_file;
+}
+
+int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration)
+{
+    DB_ENV *dbenv;
+    MODSNAP_TXN *outstanding_modsnap;
+
+    dbenv = bdb_state->dbenv;
+    outstanding_modsnap = (MODSNAP_TXN *) registration;
+
+    pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
+    listc_rfl(&dbenv->outstanding_modsnaps, outstanding_modsnap);
+    pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
+
+    free(outstanding_modsnap);
+
+    return 0;
+}
+
+int bdb_register_modsnap(bdb_state_type *bdb_state,
+                        int snapshot_epoch,
+                        unsigned int *last_commit_lsn_file,
+                        unsigned int *last_commit_lsn_offset,
+                        unsigned int *highest_commit_lsn_asof_ckpt_file,
+                        unsigned int *highest_commit_lsn_asof_ckpt_offset,
+                        void ** registration)
+{
+    DB_ENV *dbenv;
+    DB_LSN outlastcommitlsn;
+    DB_LSN outhighest_commit_lsn_asof_ckpt;
+    int rc;
+
+    rc = 0;
+    dbenv = bdb_state->dbenv;
+
+    if (snapshot_epoch) {
+        bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &outlastcommitlsn, 0, &rc); 
+        if (rc != 0) {
+            return rc;
+        }
+
+        bdb_checkpoint_list_get_ckplsn_before_lsn(outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt);
+    } else {
+        if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
+            return rc;
+        }
+    }
+
+    if (last_commit_lsn_file) {
+        *last_commit_lsn_file = outlastcommitlsn.file;
+    }
+    if (last_commit_lsn_offset) {
+        *last_commit_lsn_offset = outlastcommitlsn.offset;
+    }
+    if (highest_commit_lsn_asof_ckpt_file) {
+        *highest_commit_lsn_asof_ckpt_file = outhighest_commit_lsn_asof_ckpt.file;
+    }
+    if (highest_commit_lsn_asof_ckpt_offset) {
+        *highest_commit_lsn_asof_ckpt_offset = outhighest_commit_lsn_asof_ckpt.offset;
+    }
+
+    MODSNAP_TXN *outstanding_modsnap = malloc(sizeof(MODSNAP_TXN));
+    if (!outstanding_modsnap) {
+        rc = ENOMEM;
+        return rc;
+    }
+    outstanding_modsnap->prior_checkpoint_lsn = outhighest_commit_lsn_asof_ckpt;
+
+    pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
+    listc_atl(&dbenv->outstanding_modsnaps, outstanding_modsnap);
+    pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
+
+    * (void **)registration = (void *) outstanding_modsnap;
+
+    return rc;
+}
+
+int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
+                            unsigned int *file, unsigned int *offset)
+{
+        DB_LSN outlsn;
+	int rc;
+
+	rc = 0;
+
+	if ((rc = __txn_commit_map_get_highest_commit_lsn(bdb_state->dbenv, &outlsn)) != 0) {
+            return rc;
+	}
+
+	if (file)
+            *file = outlsn.file;
+        if (offset)
+            *offset = outlsn.offset;
+
+        return rc;
+}
+
+int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
+                            unsigned int *file, unsigned int *offset)
+{
+    int rc;
+    DB_TXN_COMMIT_MAP *txmap;
+
+    rc = 0;
+    txmap = bdb_state->dbenv->txmap;
+
+    if (file) {
+        *file = txmap->highest_commit_lsn_asof_checkpoint.file;
+    }
+    if (offset) {
+        *offset = txmap->highest_commit_lsn_asof_checkpoint.offset;
+    }
+
     return rc;
 }
 

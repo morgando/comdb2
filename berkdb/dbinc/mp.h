@@ -10,6 +10,7 @@
 #ifndef	_DB_MP_H_
 #define	_DB_MP_H_
 
+#include <semaphore.h>
 
 struct __bh;
 typedef struct __bh BH;
@@ -322,6 +323,15 @@ struct __bh {
 	/* The begin LSN of the transaction that
 	   marked the page from clean to dirty. */
 	DB_LSN first_dirty_tx_begin_lsn;
+
+	u_int64_t is_copy;
+	u_int16_t writer_refs;
+	u_int16_t readers;
+	pthread_t writer_id;
+	pthread_mutex_t *turnstile_mutexp;
+	sem_t *empty_semp;
+	pthread_mutex_t *readers_mutexp;
+	
 
 	/*
 	 * !!!

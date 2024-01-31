@@ -27,23 +27,18 @@ static const char revid[] = "$Id: bt_rec.c,v 11.64 2003/09/13 18:48:58 bostic Ex
 	(TYPE(pagep) == P_IBTREE ||					\
 	 TYPE(pagep) == P_LBTREE || TYPE(pagep) == P_LDUP)
 
-extern int __bam_repl_undo(DB *, DB_ENV *, DBC *, DBT *, u_int8_t *, BKEYDATA *bk, PAGE *, __bam_repl_args *);
-extern int __bam_repl_redo(DB_ENV *, DBC *, DBT *, u_int8_t *, BKEYDATA *bk, PAGE *, __bam_repl_args *, DB_LSN *lsnp);
-extern int __bam_prefix_redo(DB_ENV *, DBC *, PAGE **, PAGE *, __bam_prefix_args *, DB_LSN *);
-extern int __bam_prefix_undo(DB_ENV *, DBC *, PAGE **, PAGE *, __bam_prefix_args *);
-extern void __bam_cdel_redo(DB *, PAGE *, __bam_cdel_args *, DB_LSN *);
+extern int __bam_repl_undo(DB *, DB_ENV *, DBC *, BKEYDATA *bk, PAGE *, __bam_repl_args *);
+extern int __bam_prefix_undo(DB_ENV *, DBC *, PAGE *, __bam_prefix_args *);
 extern void __bam_cdel_undo(DB *, PAGE *, __bam_cdel_args *, int);
 
 extern void __bam_cadjust_undo(DB *file_dbp, PAGE *pagep, __bam_cadjust_args *argp);
 
 extern int __bam_adj_undo(DBC *dbc, PAGE *pagep, __bam_adj_args *argp);
 
-extern void __bam_rsplit_redo(PAGE *pagep, DB_LSN *lsnp);
-extern void __bam_rsplit_undo(PAGE *pagep, __bam_rsplit_args *argp);
-extern void __bam_rsplit_root_redo(PAGE *pagep, __bam_rsplit_args *argp, DB_LSN *lsnp);
+extern void __bam_rsplit_target_undo(PAGE *pagep, __bam_rsplit_args *argp);
 extern int __bam_rsplit_root_undo(DB *file_dbp, DBC *dbc, PAGE *pagep, __bam_rsplit_args *argp);
 
-extern void __bam_split_undo(PAGE *pagep, __bam_split_args *argp);
+extern void __bam_split_target_undo(PAGE *pagep, __bam_split_args *argp);
 extern void __bam_split_rootsplit_left_undo(PAGE *pagep, __bam_split_args *argp);
 extern void __bam_split_right_undo(PAGE *pagep, __bam_split_args *argp);
 extern void __bam_split_next_undo(PAGE *pagep, __bam_split_args *argp);
@@ -77,7 +72,7 @@ __bam_split_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 
 	if (rootsplit) {
 		if (pgin == argp->root_pgno) {
-			__bam_split_undo(pagep, argp);
+			__bam_split_target_undo(pagep, argp);
 		} else if (pgin == argp->left) {
 			__bam_split_rootsplit_left_undo(pagep, argp);
 		} else if (pgin == argp->right) {
@@ -87,7 +82,7 @@ __bam_split_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 		}
 	} else {
 		if (pgin == argp->left) {
-			__bam_split_undo(pagep, argp);
+			__bam_split_target_undo(pagep, argp);
 		} else if (pgin == argp->npgno) {
 			__bam_split_next_undo(pagep, argp);
 		} else if (pgin == argp->right) {
@@ -128,7 +123,7 @@ __bam_rsplit_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	db_pgno_t pgno_in = PGNO(pagep);
 
 	if (pgno_in == argp->pgno) {
-		__bam_rsplit_undo(pagep, argp);
+		__bam_rsplit_target_undo(pagep, argp);
 	} else if(pgno_in == argp->root_pgno) {
 		if ((ret  = __bam_rsplit_root_undo(file_dbp, dbc, pagep, argp)) != 0) {
 			goto out;
@@ -266,7 +261,7 @@ __bam_repl_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 
 	bk = GET_BKEYDATA(file_dbp, pagep, argp->indx);
 
-	ret = __bam_repl_undo(file_dbp, dbenv, dbc, &dbt, p, bk, pagep, argp);
+	ret = __bam_repl_undo(file_dbp, dbenv, dbc, bk, pagep, argp);
 
 done:
 	REC_CLOSE;
@@ -298,7 +293,7 @@ __bam_prefix_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	ret = 0;
 	REC_INTRO(__bam_prefix_read, 1);
 
-	ret = __bam_prefix_undo(dbenv, dbc, &c, pagep, argp);
+	ret = __bam_prefix_undo(dbenv, dbc, pagep, argp);
 
 out:
 done:

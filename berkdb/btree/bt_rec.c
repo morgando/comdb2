@@ -822,40 +822,6 @@ out:	if (pagep != NULL)
 	REC_CLOSE;
 }
 
-void __bam_cadjust_redo(DB *file_dbp, PAGE *pagep, __bam_cadjust_args *argp, DB_LSN *lsnp)
-{
-	if (IS_BTREE_PAGE(pagep)) {
-		GET_BINTERNAL(file_dbp, pagep, argp->indx)->nrecs +=
-			argp->adjust;
-		if (argp->opflags & CAD_UPDATEROOT)
-			RE_NREC_ADJ(pagep, argp->adjust);
-	} else {
-		GET_RINTERNAL(file_dbp, pagep, argp->indx)->nrecs +=
-			argp->adjust;
-		if (argp->opflags & CAD_UPDATEROOT)
-			RE_NREC_ADJ(pagep, argp->adjust);
-	}
-
-	LSN(pagep) = *lsnp;
-}
-
-void __bam_cadjust_undo(DB *file_dbp, PAGE *pagep, __bam_cadjust_args *argp)
-{
-	if (IS_BTREE_PAGE(pagep)) {
-		GET_BINTERNAL(file_dbp, pagep, argp->indx)->nrecs -=
-			argp->adjust;
-		if (argp->opflags & CAD_UPDATEROOT)
-			RE_NREC_ADJ(pagep, -(argp->adjust));
-	} else {
-		GET_RINTERNAL(file_dbp, pagep, argp->indx)->nrecs -=
-			argp->adjust;
-		if (argp->opflags & CAD_UPDATEROOT)
-			RE_NREC_ADJ(pagep, -(argp->adjust));
-	}
-
-	LSN(pagep) = argp->lsn;
-}
-
 /*
  * __bam_cadjust_redo --
  *
@@ -1195,7 +1161,6 @@ __bam_repl_recover(dbenv, dbtp, lsnp, op, info)
 	int cmp_n, cmp_p, modified, ret;
     int check_page = gbl_check_page_in_recovery;
 
-	p = NULL;
 	pagep = NULL;
 	COMPQUIET(info, NULL);
 

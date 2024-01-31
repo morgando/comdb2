@@ -27,15 +27,13 @@ extern int __db_addrem_verify_fileid(DB_ENV *, DB *, DB_LSN *, DB_LSN *, int32_t
 
 extern void __db_relink_next_add_undo_rem_redo(PAGE *, __db_relink_args *, db_recops, DB_LSN *);
 extern void __db_relink_next_add_redo_rem_undo(PAGE *, __db_relink_args *, db_recops, DB_LSN *);
-extern void __db_relink_rem_undo(PAGE *, __db_relink_args *);
+extern void __db_relink_target_rem_undo(PAGE *, __db_relink_args *);
 extern void __db_relink_prev_rem_undo(PAGE *, __db_relink_args *);
 
 extern void __db_pg_free_undo(PAGE *pagep, __db_pg_freedata_args *argp, int data);
 extern void __db_pg_free_meta_undo(DBMETA *meta, __db_pg_freedata_args *argp);
 
-extern void __db_pg_alloc_undo(DB *file_dbp, PAGE *pagep, __db_pg_alloc_args *argp);
-extern void __db_pg_alloc_redo(DB *file_dbp, PAGE *pagep, __db_pg_alloc_args *argp, DB_LSN *lsnp);
-extern void __db_pg_alloc_meta_redo(DBMETA *meta, __db_pg_alloc_args *argp, DB_LSN *lsnp);
+extern void __db_pg_alloc_target_undo(DB *file_dbp, PAGE *pagep, __db_pg_alloc_args *argp);
 extern void __db_pg_alloc_meta_undo(DB *file_dbp, DBMETA *meta, __db_pg_alloc_args *argp);
 
 extern void __db_ovref_undo(PAGE *pagep, __db_ovref_args *argp);
@@ -185,7 +183,7 @@ __db_relink_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 		}
 	} else if(argp->opcode == DB_REM_PAGE) {
 		if (argp->pgno == PGNO(pagep)) {
-			__db_relink_rem_undo(pagep, argp);
+			__db_relink_target_rem_undo(pagep, argp);
 		} else if (argp->next == PGNO(pagep)) {
 			__db_relink_next_add_redo_rem_undo(pagep, argp, op, NULL);
 		} else if (argp->prev == PGNO(pagep)) {
@@ -284,7 +282,7 @@ __db_pg_alloc_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	REC_INTRO(__db_pg_alloc_read, 1);
 
 	if (argp->pgno == PGNO(pagep)) {
-		__db_pg_alloc_undo(file_dbp, pagep, (__db_pg_alloc_args *) argp);
+		__db_pg_alloc_target_undo(file_dbp, pagep, (__db_pg_alloc_args *) argp);
 	} else if (PGNO_BASE_MD == PGNO(pagep)) {
 		__db_pg_free_meta_undo((DBMETA *) pagep, (__db_pg_freedata_args *) argp);
 		if (argp->pgno > ((DBMETA *) pagep)->last_pgno) {

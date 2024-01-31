@@ -205,11 +205,8 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 		   *apply = __bam_pgcompact_recover;
 		   break;*/
 		default:
-			if (DEBUG_PAGES1) {
-				logmsg(LOGMSG_USER, "Op type of log record is unrecognized %d\n", rectype);
-			}
-			ret = 1;
-			goto done;
+			logmsg(LOGMSG_ERROR, "Op type of log record is unrecognized %d\n", rectype);
+			abort();
 			break;
 	}
 done:		
@@ -261,9 +258,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	// Get current version of the page
 
 	if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET | flags, &page)) != 0) {
-		if (DEBUG_PAGES) {
-			printf("%s: Failed to get initial page version\n", __func__);
-		}
+		printf("%s: Failed to get initial page version\n", __func__);
 		ret = 1;
 		goto done;
 	}
@@ -283,9 +278,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 		page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
 		if (!page_image) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to allocate page image\n", __func__);
-			}
+			printf("%s: Failed to allocate page image\n", __func__);
 			ret = ENOMEM;
 			goto done;
 		}
@@ -315,9 +308,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 			}
 
 			if ((ret = __log_cursor(dbenv, &logc)) != 0) {
-				if (DEBUG_PAGES) {
-					printf("%s: Failed to create log cursor\n", __func__);
-				}
+				printf("%s: Failed to create log cursor\n", __func__);
 				ret = 1;
 				goto done;
 			}
@@ -348,17 +339,13 @@ search:
 		// Move log cursor
 		ret = __log_c_get(logc, &curPageLsn, &dbt, DB_SET);
 		if (ret || (dbt.size < sizeof(int))) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to get log cursor\n", __func__);
-			}
+			printf("%s: Failed to get log cursor\n", __func__);
 			ret = 1;
 			goto done;
 		}
 
 		if ((ret = __mempv_read_log_record(dbenv, data_t != NULL ? data_t : dbt.data, &apply, &prevPageLsn, &utxnid, PGNO(page_image))) != 0) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to read log record\n", __func__);
-			}
+			printf("%s: Failed to read log record\n", __func__);
 			ret = 1;
 			goto done;
 		}
@@ -376,9 +363,7 @@ search:
 
 
 		if((ret = apply(dbenv, &dbt, &curPageLsn, DB_TXN_ABORT, page_image)) != 0) {
-			if (DEBUG_PAGES) {
-				printf("%s: Failed to undo log record\n", __func__);
-			}
+			printf("%s: Failed to undo log record\n", __func__);
 			ret = 1;
 			goto done;
 		}

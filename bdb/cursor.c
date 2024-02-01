@@ -8701,7 +8701,7 @@ static void *db_count(void *varg)
         return NULL;
     }
     if (arg->is_snapcur) {
-        dbc->flags |= DBC_SNAPSHOT; // TODO: Use F_SET
+        dbc->flags |= DBC_SNAPSHOT; 
         dbc->snapshot_lsn = arg->last_commit_lsn;
         dbc->highest_ckpt_commit_lsn = arg->highest_ckpt_commit_lsn;
     }

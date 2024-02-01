@@ -364,7 +364,7 @@ search:
 
 done:
 	if (add_to_cache == 1) {
-	   ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
+	   __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
 	if (DEBUG_MEMPV) {
 		__mempv_update_stats(cache_hit, cache_miss);
@@ -376,6 +376,9 @@ err:
 	if (dbt.data) {
 		__os_free(dbenv, dbt.data);
 		dbt.data = NULL;
+	}
+	if (ret != 0 && bhp != NULL) {
+		__os_free(dbenv, bhp);
 	}
 	return ret;
 }

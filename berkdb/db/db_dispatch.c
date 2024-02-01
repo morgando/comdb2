@@ -426,7 +426,6 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 			memcpy(fuid, (char *)dbp->fileid, DB_FILE_ID_LEN);
 		}
 	}
-
 	/*
 	 * Some records have nothing to do with files.  These always
 	 * get returned as 0 and are all processed in the same thread

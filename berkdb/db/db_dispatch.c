@@ -436,32 +436,6 @@ ufid_for_recovery_record(DB_ENV *env, DB_LSN *lsn, int rectype,
 	return is_fuid;
 }
 
-int needs_info_for_recovery(rectype)
-	u_int32_t rectype;
-{
-	switch (rectype) {
-		case DB___txn_regop:
-		case DB___txn_regop_gen:
-		case DB___txn_regop_rowlocks:
-		case DB___txn_ckp:
-		case DB___txn_child:
-		case DB___txn_xa_regop:
-		case DB___txn_recycle:
-		case DB___db_pg_prealloc:
-		case DB___db_pg_prepare:
-		case DB___db_pg_new:
-		case DB___db_pg_alloc:
-		case DB___ham_groupalloc:
-		case DB___qam_incfirst:
-		case DB___qam_mvptr:
-		case DB___fop_file_remove:
-		case DB___dbreg_register:
-			return 1;
-		default:
-			return 0;
-	}
-}
-
 
 /*
  * __db_dispatch --
@@ -786,11 +760,7 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 				return (EINVAL);
 			}
 			/* let's do this only on the replicants, for now */
-			if (needs_info_for_recovery(rectype)) {
-				return (dtab[rectype](dbenv, db, lsnp, redo, info));
-			} else {
-				return (dtab[rectype](dbenv, db, lsnp, redo, NULL));
-			}
+			return (dtab[rectype](dbenv, db, lsnp, redo, info));
 		}
 	}
 

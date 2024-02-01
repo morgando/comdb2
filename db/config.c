@@ -428,7 +428,8 @@ static char *legacy_options[] = {
     "setattr max_sql_idle_time 864000",
     "utxnid_log off",
     "commit_lsn_map off",
-    "enable_modsnap_snapshot_implementation off"
+    "enable_modsnap_snapshot_implementation off",
+    "use_modsnap_for_snapshot off"
 };
 int gbl_legacy_defaults = 0;
 int pre_read_legacy_defaults(void *_, void *__)

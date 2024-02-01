@@ -254,7 +254,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 
 	if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET | flags, &page)) != 0) {
 		logmsg(LOGMSG_ERROR, "%s: Failed to get initial page version\n", __func__);
-		goto done;
+		goto err;
 	}
 
 	cur_page_lsn = LSN(page);
@@ -273,7 +273,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 		if (!page_image) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to allocate page image\n", __func__);
 			ret = ENOMEM;
-			goto done;
+			goto err;
 		}
 
 		if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
@@ -285,7 +285,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 
 			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
 				logmsg(LOGMSG_ERROR, "%s: Failed to return initial page version\n", __func__);
-				goto done;
+				goto err;
 			}
 		} else {
 			cache_miss = 1;
@@ -295,12 +295,12 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 
 			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
 				logmsg(LOGMSG_ERROR, "%s: Failed to return initial page version\n", __func__);
-				goto done;
+				goto err;
 			}
 
 			if ((ret = __log_cursor(dbenv, &logc)) != 0) {
 				logmsg(LOGMSG_ERROR, "%s: Failed to create log cursor\n", __func__);
-				goto done;
+				goto err;
 			}
 		}
 
@@ -333,12 +333,12 @@ search:
 		ret = __log_c_get(logc, &cur_page_lsn, &dbt, DB_SET);
 		if (ret || (dbt.size < sizeof(int))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to get log cursor\n", __func__);
-			goto done;
+			goto err;
 		}
 
 		if ((ret = __mempv_read_log_record(dbenv, data_t != NULL ? data_t : dbt.data, &apply, &utxnid, PGNO(page_image))) != 0) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to read log record\n", __func__);
-			goto done;
+			goto err;
 		}
 
 		 // If the transaction that wrote this page committed before us, return this page.
@@ -354,26 +354,28 @@ search:
 
 		if((ret = apply(dbenv, &dbt, &cur_page_lsn, DB_TXN_ABORT, page_image)) != 0) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to undo log record\n", __func__);
-			goto done;
+			goto err;
 		}
 
 		cur_page_lsn = LSN(page_image);
 	}
 
 	*(void **)ret_page = (void *) page_image;
+
 done:
 	if (add_to_cache == 1) {
 	   ret = __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
+	if (DEBUG_MEMPV) {
+		__mempv_update_stats(cache_hit, cache_miss);
+	}
+err:
 	if (logc) {
 		__log_c_close(logc);
 	}
 	if (dbt.data) {
 		__os_free(dbenv, dbt.data);
 		dbt.data = NULL;
-	}
-	if (DEBUG_MEMPV) {
-		__mempv_update_stats(cache_hit, cache_miss);
 	}
 	return ret;
 }

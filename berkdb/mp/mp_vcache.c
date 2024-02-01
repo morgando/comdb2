@@ -33,15 +33,11 @@
 #include <pool.h>
 #include "locks_wrap.h"
 
-// void *gbl_mempv_base = NULL;
+int MEMPV_CACHE_ENTRY_NOT_FOUND = 1;
 static int MAX_NUM_CACHED_PAGES = 50;
 static int num_cached_pages = 0;
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
-extern void dopage(DB *dbp, PAGE *p);
-
-extern int __db_check_chksum_no_crypto __P((DB_ENV *, DB_CIPHER *, u_int8_t *, void *, size_t, int));
-extern void __db_chksum_no_crypto __P((u_int8_t *, size_t, u_int8_t *));
 
 int __mempv_cache_init(dbenv, cache, size)
 	DB_ENV *dbenv;
@@ -58,16 +54,7 @@ int __mempv_cache_init(dbenv, cache, size)
 		goto done;
 	}
 
-	listc_init(&cache->evict_list, offsetof(MEMPV_CACHE_PAGE_HEADER, evict_link)); // B: init
-
-/*	gbl_mempv_base = malloc(size);
-	if (!gbl_mempv_base) {
-		ret = ENOMEM;
-		goto done;
-	}
-
-	cache->msp = create_mspace_with_base(gbl_mempv_base, size, 1);*/
-
+	listc_init(&cache->evict_list, offsetof(MEMPV_CACHE_PAGE_HEADER, evict_link)); 
 	pthread_rwlock_init(&(cache->lock), NULL);
 
 done:
@@ -89,13 +76,11 @@ static int __mempv_cache_evict_page(dbp, cache, versions)
 	hash_del(to_evict->cache->versions, to_evict);
 	if ((versions != to_evict->cache) && (hash_get_num_entries(to_evict->cache->versions) == 0)) {
 		hash_del(cache->pages, to_evict->cache);
-		hash_free(to_evict->cache->versions); // D: destroy
-		__os_free(dbp->dbenv, to_evict->cache); // C: destroy
+		hash_free(to_evict->cache->versions); 
+		__os_free(dbp->dbenv, to_evict->cache); 
 	}
 
-	// mspace_free(cache->msp, to_evict);
-	__os_free(dbp->dbenv, to_evict); // E: destroy
-
+	__os_free(dbp->dbenv, to_evict); 
 	num_cached_pages--;
 	
 	return 0;
@@ -132,14 +117,15 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	}
 
 create_new_cache:
-	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions); // C: init
-	if (ret) {
+	__os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions); 
+	if (versions == NULL) {
+		ret = ENOMEM;
 		goto err;
 	}
 	allocd_versions = 1;
 
 	versions->key = key;
-	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN)); // D: init
+	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN)); 
 	if (versions->versions == NULL) {
 		ret = ENOMEM;
 		goto err;
@@ -158,16 +144,16 @@ put_version:
 	}
 
 	if(num_cached_pages == MAX_NUM_CACHED_PAGES) {
-		// page_header = (MEMPV_CACHE_PAGE_HEADER *) mspace_malloc(cache->msp, offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + dbp->pgsize);
-
-		if (__mempv_cache_evict_page(dbp, cache, versions) != 0) {
-			abort();
+		if ((ret = __mempv_cache_evict_page(dbp, cache, versions)), ret != 0) {
+			logmsg(LOGMSG_ERROR, "%s: Could not evict cache page\n", __func__);
+			goto err;
 		}
 	}
 
 
-	ret = __os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-sizeof(u_int8_t) + SSZA(BH, buf) + dbp->pgsize, &page_header); // E: Init
-	if (ret) {
+	__os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-sizeof(u_int8_t) + SSZA(BH, buf) + dbp->pgsize, &page_header); // E: Init
+	if (page_header == NULL) {
+		ret = ENOMEM;
 		goto err;
 	}
 	allocd_header = 1;
@@ -181,6 +167,7 @@ put_version:
 
 	ret = hash_add(versions->versions, page_header);
 	if (ret) {
+		logmsg(LOGMSG_ERROR, "%s: Could not add entry to cache\n", __func__);
 		goto err;
 	}
 
@@ -192,8 +179,6 @@ done:
 	
 err:
 	pthread_rwlock_unlock(&(cache->lock));
-	printf("ERR\n");
-	abort();
 
 	return ret;
 }
@@ -222,13 +207,13 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 
 	versions = hash_find_readonly(cache->pages, &key);
 	if (versions == NULL) {
-		ret = 1; // Better "not found" return code
+		ret = MEMPV_CACHE_ENTRY_NOT_FOUND; 
 		goto done;
 	}
 
 	page_header = hash_find_readonly(versions->versions, &target_lsn);
 	if (page_header == NULL) {
-		ret = 1;
+		ret = MEMPV_CACHE_ENTRY_NOT_FOUND;
 		goto done;
 	}
 
@@ -244,11 +229,6 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 done:
 	pthread_rwlock_unlock(&(cache->lock));
 
-	return ret;
-
-err:
-	printf("ERR\n");
-	abort();
 	return ret;
 }
 

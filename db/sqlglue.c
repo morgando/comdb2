@@ -5261,7 +5261,8 @@ int sqlite3BtreeRollback(Btree *pBt, int dummy, int writeOnlyDummy)
     clear_session_tbls(clnt);
 
     /* UPSERT: Restore the isolation level back to what it was. */
-    if ((clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_MODSNAP /* ? */) && clnt->translevel_changed) {
+	// No modsnap here -- we went from sosql to recom, not modsnap.
+    if ((clnt->dbtran.mode == TRANLEVEL_RECOM) && clnt->translevel_changed) {
         clnt->dbtran.mode = TRANLEVEL_SOSQL;
         clnt->translevel_changed = 0;
         logmsg(LOGMSG_DEBUG, "%s: switched back to %s\n", __func__,

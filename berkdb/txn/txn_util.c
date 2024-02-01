@@ -674,14 +674,14 @@ int __txn_commit_map_add_nolock(dbenv, utxnid, commit_lsn)
                 listc_init(&to_delete->commit_utxnids, offsetof(UTXNID, lnk));
                 hash_add(txmap->logfile_lists, to_delete);
 
-				if (commit_lsn.file < txmap->smallest_logfile || txmap->smallest_logfile == -1) {
-						txmap->smallest_logfile = commit_lsn.file;
-				}
+            if (commit_lsn.file < txmap->smallest_logfile || txmap->smallest_logfile == -1) {
+                txmap->smallest_logfile = commit_lsn.file;
+            }
         }
 
-	if (log_compare(&txmap->highest_commit_lsn, &commit_lsn) <= 0) {
-		txmap->highest_commit_lsn = commit_lsn;
-	}
+        if (log_compare(&txmap->highest_commit_lsn, &commit_lsn) <= 0) {
+            txmap->highest_commit_lsn = commit_lsn;
+        }
 
         txn->utxnid = utxnid;
         txn->commit_lsn = commit_lsn;

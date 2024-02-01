@@ -4969,11 +4969,11 @@ int sqlite3BtreeCommit(Btree *pBt)
         currangearr_coalesce(clnt->selectv_arr);
 
     if (!clnt->in_sqlite_init && (clnt->ctrl_sqlengine != SQLENG_INTRANS_STATE) && (clnt->ctrl_sqlengine != SQLENG_STRT_STATE)) {
-	    clnt->last_commit_lsn_isset = 0;
-      if (clnt->modsnap_registration) {
-           bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
-           clnt->modsnap_registration = NULL;
-      }
+        clnt->last_commit_lsn_isset = 0;
+        if (clnt->modsnap_registration) {
+            bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
+            clnt->modsnap_registration = NULL;
+        }
     }
     if (!clnt->intrans || clnt->in_sqlite_init ||
         (!clnt->in_sqlite_init && clnt->ctrl_sqlengine != SQLENG_FNSH_STATE &&
@@ -5023,7 +5023,7 @@ int sqlite3BtreeCommit(Btree *pBt)
         goto done;
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
+    case TRANLEVEL_MODSNAP:
 
         /*
          * Because we don't see begin/commit here, this is processed only
@@ -5191,7 +5191,7 @@ int rollback_tran(struct sql_thread *thd, struct sqlclntstate *clnt)
         break;
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
+    case TRANLEVEL_MODSNAP:
         if (clnt->dbtran.shadow_tran) {
             rc = recom_abort(clnt);
             if (rc)
@@ -7832,7 +7832,7 @@ static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
         if (clnt->dbtran.shadow_tran &&
             (clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
              clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-			 clnt->dbtran.mode == TRANLEVEL_MODSNAP)) {
+             clnt->dbtran.mode == TRANLEVEL_MODSNAP)) {
             /* make sure btrees have not changed since the transaction started
              */
             rc = bdb_osql_check_table_version(
@@ -8306,7 +8306,7 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
         clnt->dbtran.mode == TRANLEVEL_RECOM ||
         clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
         clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-		clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+        clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
         shadow_tran = clnt->dbtran.shadow_tran;
     }
 
@@ -10621,7 +10621,7 @@ static int is_sql_update_mode(int mode)
     case TRANLEVEL_RECOM:
     case TRANLEVEL_SNAPISOL:
     case TRANLEVEL_SERIAL:
-	case TRANLEVEL_MODSNAP: return 1;
+    case TRANLEVEL_MODSNAP: return 1;
     default: return 0;
     }
 }

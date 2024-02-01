@@ -389,7 +389,7 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
         clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
         clnt->dbtran.mode == TRANLEVEL_SERIAL ||
         clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-		clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+        clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
         osql_shadtbl_begin_query(thedb->bdb_env, clnt);
     }
 
@@ -444,7 +444,7 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
         clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
         clnt->dbtran.mode == TRANLEVEL_SERIAL ||
         clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-		clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+        clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
         osql_shadtbl_done_query(thedb->bdb_env, clnt);
     }
 
@@ -499,7 +499,7 @@ int fdb_svc_trans_rollback(char *tid, enum transaction_level lvl,
 
     switch (clnt->dbtran.mode) {
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP: {
+    case TRANLEVEL_MODSNAP: {
         rc = recom_abort(clnt);
         if (rc)
             logmsg(LOGMSG_ERROR, "%s: recom abort failed %d??\n", __func__, rc);
@@ -575,7 +575,7 @@ _fdb_svc_cursor_start(BtCursor *pCur, struct sqlclntstate *clnt, char *tblname,
         clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
         clnt->dbtran.mode == TRANLEVEL_SERIAL ||
         clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-		clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+        clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
         osql_shadtbl_begin_query(thedb->bdb_env, clnt);
     }
 
@@ -649,7 +649,7 @@ static int _fdb_svc_cursor_end(BtCursor *pCur, struct sqlclntstate *clnt,
         clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
         clnt->dbtran.mode == TRANLEVEL_SERIAL ||
         clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-		clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
+        clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
         osql_shadtbl_done_query(thedb->bdb_env, clnt);
     }
 

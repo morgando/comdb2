@@ -1214,7 +1214,7 @@ tran_type *bdb_tran_begin_shadow_int(bdb_state_type *bdb_state, int tranclass,
 
         if (tran->tranclass == TRANCLASS_SNAPISOL ||
             tran->tranclass == TRANCLASS_SERIALIZABLE ||
-			tran->tranclass == TRANCLASS_MODSNAP) {
+            tran->tranclass == TRANCLASS_MODSNAP) {
             rc = bdb_osql_cache_table_versions(bdb_state, tran, trak, bdberr);
             if (rc) {
                 logmsg(LOGMSG_ERROR,

@@ -50,7 +50,7 @@ enum transaction_level {
     TRANLEVEL_RECOM = 10,
     TRANLEVEL_SERIAL = 11,
     TRANLEVEL_SNAPISOL = 12,
-	TRANLEVEL_MODSNAP = 13
+    TRANLEVEL_MODSNAP = 13
 };
 
 /* I'm now splitting handle_fastsql_requests into two functions.  The
@@ -947,7 +947,7 @@ struct sqlclntstate {
     u_int32_t highest_ckpt_commit_lsn_offset;
     int last_commit_lsn_isset;
 
-	void *modsnap_registration; 
+    void *modsnap_registration; 
 
     int lastresptype;
     char *externalAuthUser;

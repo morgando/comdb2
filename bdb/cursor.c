@@ -8701,9 +8701,9 @@ static void *db_count(void *varg)
         return NULL;
     }
     if (arg->is_snapcur) {
-	    dbc->flags |= DBC_SNAPSHOT; // TODO: Use F_SET
-	    dbc->snapshot_lsn = arg->last_commit_lsn;
-      dbc->highest_ckpt_commit_lsn = arg->highest_ckpt_commit_lsn;
+        dbc->flags |= DBC_SNAPSHOT; // TODO: Use F_SET
+        dbc->snapshot_lsn = arg->last_commit_lsn;
+        dbc->highest_ckpt_commit_lsn = arg->highest_ckpt_commit_lsn;
     }
     int64_t count = 0;
     while ((rc = dbc->c_get(dbc, &k, &v, DB_NEXT | DB_MULTIPLE_KEY)) == 0) {
@@ -8756,11 +8756,11 @@ int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt, int is_sna
     pthread_t thds[stripes];
     for (int i = 0; i < stripes; ++i) {
         args[i].db = db[i];
-	args[i].is_snapcur = is_snapcur;
-	args[i].last_commit_lsn.file = last_commit_lsn_file;
-	args[i].last_commit_lsn.offset = last_commit_lsn_offset;
-    args[i].highest_ckpt_commit_lsn.file = highest_ckpt_commit_lsn_file;
-    args[i].highest_ckpt_commit_lsn.offset = highest_ckpt_commit_lsn_offset;
+        args[i].is_snapcur = is_snapcur;
+        args[i].last_commit_lsn.file = last_commit_lsn_file;
+        args[i].last_commit_lsn.offset = last_commit_lsn_offset;
+        args[i].highest_ckpt_commit_lsn.file = highest_ckpt_commit_lsn_file;
+        args[i].highest_ckpt_commit_lsn.offset = highest_ckpt_commit_lsn_offset;
         if (parallel_count) {
             args[i].sqlthd = pthread_getspecific(query_info_key);
             pthread_create(&thds[i], &attr, db_count, &args[i]);

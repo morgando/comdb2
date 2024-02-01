@@ -33,8 +33,7 @@
 #include <pool.h>
 #include "locks_wrap.h"
 
-int MEMPV_CACHE_ENTRY_NOT_FOUND = 1;
-static int MAX_NUM_CACHED_PAGES = 50;
+int MEMPV_CACHE_ENTRY_NOT_FOUND = -1;
 static int num_cached_pages = 0;
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
@@ -48,7 +47,7 @@ int __mempv_cache_init(dbenv, cache, size)
 
 	ret = 0;
 
-	cache->pages = hash_init_o(offsetof(MEMPV_CACHE_PAGE_VERSIONS, key), sizeof(MEMPV_CACHE_PAGE_KEY)); // A: init
+	cache->pages = hash_init_o(offsetof(MEMPV_CACHE_PAGE_VERSIONS, key), sizeof(MEMPV_CACHE_PAGE_KEY)); 
 	if (cache->pages == NULL) {
 		ret = ENOMEM;
 		goto done;
@@ -143,7 +142,7 @@ put_version:
 		goto done;
 	}
 
-	if(num_cached_pages == MAX_NUM_CACHED_PAGES) {
+	if(num_cached_pages == dbp->dbenv->attr.mempv_max_cache_entries) {
 		if ((ret = __mempv_cache_evict_page(dbp, cache, versions)), ret != 0) {
 			logmsg(LOGMSG_ERROR, "%s: Could not evict cache page\n", __func__);
 			goto err;
@@ -151,7 +150,7 @@ put_version:
 	}
 
 
-	__os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-sizeof(u_int8_t) + SSZA(BH, buf) + dbp->pgsize, &page_header); // E: Init
+	__os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-sizeof(u_int8_t) + SSZA(BH, buf) + dbp->pgsize, &page_header); 
 	if (page_header == NULL) {
 		ret = ENOMEM;
 		goto err;
@@ -174,8 +173,6 @@ put_version:
 	num_cached_pages++;
 
 done:
-	pthread_rwlock_unlock(&(cache->lock));
-	return ret;
 	
 err:
 	pthread_rwlock_unlock(&(cache->lock));

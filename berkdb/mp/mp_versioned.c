@@ -94,9 +94,10 @@ int __mempv_destroy(dbenv)
 }
 
 static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, PAGE *), u_int64_t *utxnid, db_pgno_t pgno) {
-	int ret, utxnid_logged;
+	int ret, utxnid_logged, mempv_debug;
 	u_int32_t rectype;
 
+	mempv_debug = dbenv->attr.mempv_debug;
 	ret = 0;
 
 	LOGCOPY_32(&rectype, data);
@@ -114,85 +115,85 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 
 	switch (rectype) {
 		case DB___db_addrem:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is addrem \n");
 			}
 			*apply = __db_addrem_snap_recover;
 			break;
 		case DB___db_big:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is db big \n");
 			}
 			*apply = __db_big_snap_recover;
 			break;
 		case DB___db_ovref:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is ovref \n");
 			}
 			*apply = __db_ovref_snap_recover;
 			break;
 		case DB___db_relink:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is relink \n");
 			}
 			*apply = __db_relink_snap_recover;
 			break;
 		case DB___db_pg_alloc:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is pg alloc \n");
 			}
 			*apply = __db_pg_alloc_snap_recover;
 			break;
 		case DB___bam_split:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam split\n");
 			}
 		   *apply = __bam_split_snap_recover;
 		   break;
 		case DB___bam_rsplit:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam rsplit\n");
 			}
 		   *apply = __bam_rsplit_snap_recover;
 		   break;
 		case DB___bam_repl:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam repl\n");
 			}
 		   *apply = __bam_repl_snap_recover;
 		   break;
 		case DB___bam_adj:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam adj\n");
 			}
 		   *apply = __bam_adj_snap_recover;
 		   break;
 		case DB___bam_cadjust:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam cadj\n");
 			}
 		   *apply = __bam_cadjust_snap_recover;
 		   break;
 		case DB___bam_cdel: 
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam cdel\n");
 			}
 		   *apply = __bam_cdel_snap_recover;
 		   break;
 		case DB___bam_prefix:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is bam prefix\n");
 			}
 		   *apply = __bam_prefix_snap_recover;
 		   break;
 		case DB___db_pg_freedata:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is pg freedata\n");
 			}
 		   *apply = __db_pg_freedata_snap_recover;
 		   break;
 		case DB___db_pg_free:
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "Op type of log record is pg free\n");
 			}
 		   *apply = __db_pg_free_snap_recover;
@@ -228,7 +229,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	u_int32_t flags;
 {
 	int (*apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, PAGE *);
-	int add_to_cache, found, ret, cache_hit, cache_miss;
+	int add_to_cache, found, ret, cache_hit, cache_miss, mempv_debug;
 	u_int64_t utxnid;
 	int64_t smallest_logfile;
 	DB_LOGC *logc;
@@ -247,6 +248,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	DBT dbt = {0};
 	dbt.flags = DB_DBT_REALLOC;
 	dbenv = mpf->dbenv;
+	mempv_debug = dbenv->attr.mempv_debug;
 	highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
 	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
 	smallest_logfile = dbenv->txmap->smallest_logfile;
@@ -260,7 +262,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	cur_page_lsn = LSN(page);
 
 	if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, cur_page_lsn)) {
-		if (DEBUG_MEMPV) {
+		if (mempv_debug) {
 			logmsg(LOGMSG_USER, "%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
 		}
 		found = 1;
@@ -277,7 +279,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 		}
 
 		if (!__mempv_cache_get(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, target_lsn, bhp)) {
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "%s: Found in cache\n", __func__);
 			}
 			cache_hit = 1;
@@ -309,7 +311,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 search:
 	while (!found) 
 	{
-		if (DEBUG_MEMPV) {
+		if (mempv_debug) {
 			logmsg(LOGMSG_USER, "%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d. Highest asof checkpoint %d:%d\n", 
 				__func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset,
 				highest_commit_lsn_asof_checkpoint.file, highest_commit_lsn_asof_checkpoint.offset
@@ -323,7 +325,7 @@ search:
 		}
 
 		if (IS_ZERO_LSN(cur_page_lsn)) {
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "%s: Got to page with zero / unlogged LSN\n", __func__);
 			}
 			ret = 1;
@@ -343,7 +345,7 @@ search:
 
 		 // If the transaction that wrote this page committed before us, return this page.
 		if (!__txn_commit_map_get(dbenv, utxnid, &commit_lsn) && (log_compare(&commit_lsn, &target_lsn) <= 0)) {
-			if (DEBUG_MEMPV) {
+			if (mempv_debug) {
 				logmsg(LOGMSG_USER, "%s: %u Found the right page version\n", __func__, PGNO(page_image));
 			}
 			add_to_cache = 1;
@@ -366,7 +368,7 @@ done:
 	if (add_to_cache == 1) {
 	   __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
-	if (DEBUG_MEMPV) {
+	if (dbenv->attr.mempv_collect_metrics) {
 		__mempv_update_stats(cache_hit, cache_miss);
 	}
 err:

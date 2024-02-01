@@ -210,7 +210,6 @@ __db_next_freepage(DB *dbp, db_pgno_t * pg)
 
 	mpf = dbp->mpf;
 
-	// TODO
 	rc = __memp_fget(mpf, pg, 0, &h);
 	if (rc)
 		return rc;
@@ -263,7 +262,6 @@ __db_dump_freepages(DB *dbp, FILE *out)
     int lastcr = 0;
     int i = 0;
 
-	// TODO
     mpf = dbp->mpf;
     rc = __memp_fget(mpf, &pg, 0, &meta);
     if (rc) {

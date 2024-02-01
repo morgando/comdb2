@@ -23,7 +23,6 @@ static const char revid[] = "$Id: db_rec.c,v 11.48 2003/08/27 03:54:18 ubell Exp
 extern int __db_addrem_redo_add_undo_del(DBC *, __db_addrem_args *, PAGE *, db_recops op, DB_LSN *lsnp);
 extern int __db_addrem_undo_add_redo_del(DBC *, __db_addrem_args *, PAGE *, db_recops op, DB_LSN *lsnp);
 extern void __db_big_redo_add_undo_del(DB *, PAGE *, __db_big_args *, db_recops, DB_LSN *);
-extern int __db_addrem_verify_fileid(DB_ENV *, DB *, DB_LSN *, DB_LSN *, int32_t);
 
 extern void __db_relink_next_add_undo_rem_redo(PAGE *, __db_relink_args *, db_recops, DB_LSN *);
 extern void __db_relink_next_add_redo_rem_undo(PAGE *, __db_relink_args *, db_recops, DB_LSN *);
@@ -58,16 +57,6 @@ __db_addrem_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 
 	ret = 0;
 	REC_INTRO(__db_addrem_read, 1);
-
-	if (dbenv->attr.debug_addrem_dbregs) {
-		// TODO: do I need to do this?
-		ret =
-		    __db_addrem_verify_fileid(dbenv, file_dbp, lsnp,
-		    &argp->prev_lsn, argp->fileid);
-		if (ret) {
-			goto out;
-		}
-	}
 
 	if (IS_REM_OPCODE(argp->opcode)) {
  		if ((ret = __db_addrem_redo_add_undo_del(dbc, argp, pagep, op, NULL)) != 0) {

@@ -549,6 +549,8 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 		}
 
 		if (log_compare(&txmap->highest_commit_lsn, &to_delete->highest_commit_lsn) == 0) {
+			// We are deleting the highest logfile represented in our map. 
+			// Find the next highest logfile to set highest_commit_lsn.
 			for (int prev_log=del_log-1; prev_log >= 0; --prev_log) {
 				successor = hash_find(txmap->logfile_lists, &prev_log);
 				if (successor) {
@@ -563,7 +565,7 @@ int __txn_commit_map_delete_logfile_txns(dbenv, del_log)
 		}
 
 		if (del_log == txmap->smallest_logfile) {
-			// TODO: Can this happen?
+			// We are deleting the smallest logfile. Find the next smallest.
 			do {
 				txmap->smallest_logfile++;
 				successor = hash_find(txmap->logfile_lists, &txmap->smallest_logfile);

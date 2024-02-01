@@ -63,32 +63,35 @@ __bam_split_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret, rootsplit;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO_PANIC(__bam_split_read, 1);
 
-	db_pgno_t pgin = PGNO(pagep);
+	pgno_in = PGNO(pagep);
 	rootsplit = argp->root_pgno != PGNO_INVALID;
 
 	if (rootsplit) {
-		if (pgin == argp->root_pgno) {
+		if (pgno_in == argp->root_pgno) {
 			__bam_split_target_undo(pagep, argp);
-		} else if (pgin == argp->left) {
+		} else if (pgno_in == argp->left) {
 			__bam_split_rootsplit_left_undo(pagep, argp);
-		} else if (pgin == argp->right) {
+		} else if (pgno_in == argp->right) {
 			__bam_split_right_undo(pagep, argp);
 		} else {
-			abort();
+			logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+			ret = 1;
 		}
 	} else {
-		if (pgin == argp->left) {
+		if (pgno_in == argp->left) {
 			__bam_split_target_undo(pagep, argp);
-		} else if (pgin == argp->npgno) {
+		} else if (pgno_in == argp->npgno) {
 			__bam_split_next_undo(pagep, argp);
-		} else if (pgin == argp->right) {
+		} else if (pgno_in == argp->right) {
 			__bam_split_right_undo(pagep, argp);
 		} else {
-			abort();
+			logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+			ret = 1;
 		}
 	}
 
@@ -116,11 +119,12 @@ __bam_rsplit_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO_PANIC(__bam_rsplit_read, 1);
 
-	db_pgno_t pgno_in = PGNO(pagep);
+	pgno_in = PGNO(pagep);
 
 	if (pgno_in == argp->pgno) {
 		__bam_rsplit_target_undo(pagep, argp);
@@ -129,7 +133,8 @@ __bam_rsplit_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 			goto out;
 		}
 	} else {
-		abort(); // TODO: Verify no right page
+		logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+		ret = 1;
 	}
 
 out:

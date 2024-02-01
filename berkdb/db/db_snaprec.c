@@ -131,20 +131,24 @@ __db_big_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO(__db_big_read, 1);
+	pgno_in = PGNO(pagep);
 
-	if (PGNO(pagep) == argp->pgno) {
+	if (pgno_in == argp->pgno) {
 		if (argp->opcode == DB_REM_BIG) {
 			__db_big_redo_add_undo_del(file_dbp, pagep, argp, op, lsnp);
 		} else {
 			__db_big_undo_add_redo_del(pagep, argp, op, lsnp);
 		}
-	} else if (PGNO(pagep) == argp->prev_pgno) {
+	} else if (pgno_in == argp->prev_pgno) {
 		__db_big_prev_redo_del_undo_add(pagep, argp, op, lsnp);
-	} else if (PGNO(pagep) == argp->next_pgno) {
+	} else if (pgno_in == argp->next_pgno) {
 		__db_big_next_undo(pagep, argp);
+	} else {
+		logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
 	}
 
 out:
@@ -169,25 +173,30 @@ __db_relink_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO(__db_relink_read, 1);
 
+	pgno_in = PGNO(pagep);
+
 	if (argp->opcode == DB_ADD_PAGE) {
-		if (argp->pgno == PGNO(pagep)) {
-			abort();
-		} else if (argp->next == PGNO(pagep)) {
+		if (argp->next == pgno_in) {
 			__db_relink_next_add_undo_rem_redo(pagep, argp, op, NULL);
-		} else if (argp->prev == PGNO(pagep)) {
-			abort();
+		} else {
+			logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+			ret = 1;
 		}
 	} else if(argp->opcode == DB_REM_PAGE) {
-		if (argp->pgno == PGNO(pagep)) {
+		if (argp->pgno == pgno_in) {
 			__db_relink_target_rem_undo(pagep, argp);
-		} else if (argp->next == PGNO(pagep)) {
+		} else if (argp->next == pgno_in) {
 			__db_relink_next_add_redo_rem_undo(pagep, argp, op, NULL);
-		} else if (argp->prev == PGNO(pagep)) {
+		} else if (argp->prev == pgno_in) {
 			__db_relink_prev_rem_undo(pagep, argp);
+		} else {
+			logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+			ret = 1;
 		}
 	}
 
@@ -213,14 +222,19 @@ __db_pg_freedata_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO(__db_pg_freedata_read, 1);
+	pgno_in = PGNO(pagep);
 
-	if (argp->pgno == PGNO(pagep)) {
+	if (argp->pgno == pgno_in) {
 		__db_pg_free_undo(pagep, argp, 1);
-	} else if (PGNO_BASE_MD == PGNO(pagep)) {
+	} else if (PGNO_BASE_MD == pgno_in) {
 		__db_pg_free_meta_undo((DBMETA *) pagep, argp);
+	} else {
+		logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+		ret = 1;
 	}
 
 out:
@@ -245,14 +259,19 @@ __db_pg_free_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO(__db_pg_free_read, 1);
+	pgno_in = PGNO(pagep);
 
-	if (argp->pgno == PGNO(pagep)) {
+	if (argp->pgno == pgno_in) {
 		__db_pg_free_undo(pagep, (__db_pg_freedata_args *) argp, 0);
-	} else if (PGNO_BASE_MD == PGNO(pagep)) {
+	} else if (PGNO_BASE_MD == pgno_in) {
 		__db_pg_free_meta_undo((DBMETA *) pagep, (__db_pg_freedata_args *) argp);
+	} else {
+		logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+		ret = 1;
 	}
 
 out:
@@ -277,17 +296,22 @@ __db_pg_alloc_snap_recover(dbenv, dbtp, lsnp, op, pagep)
 	DBC *dbc;
 	DB_MPOOLFILE *mpf;
 	int ret;
+	db_pgno_t pgno_in;
 
 	ret = 0;
 	REC_INTRO(__db_pg_alloc_read, 1);
+	pgno_in = PGNO(pagep);
 
-	if (argp->pgno == PGNO(pagep)) {
+	if (argp->pgno == pgno_in) {
 		__db_pg_alloc_target_undo(file_dbp, pagep, (__db_pg_alloc_args *) argp);
-	} else if (PGNO_BASE_MD == PGNO(pagep)) {
+	} else if (PGNO_BASE_MD == pgno_in) {
 		__db_pg_free_meta_undo((DBMETA *) pagep, (__db_pg_freedata_args *) argp);
 		if (argp->pgno > ((DBMETA *) pagep)->last_pgno) {
 			((DBMETA *) pagep)->last_pgno = argp->pgno;
 		}
+	} else {
+		logmsg(LOGMSG_ERROR, "%s:[%d:%d] Page %d is not a valid recovery target\n", __func__, lsnp->file, lsnp->offset, pgno_in);
+		ret = 1;
 	}
 
 out:

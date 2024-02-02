@@ -346,7 +346,7 @@ columnname(A) ::= nm(A) typetoken(Y). {sqlite3AddColumn(pParse,&A,&Y);}
   CHECK COMMITSLEEP CONSUMER CONVERTSLEEP COUNTER COVERAGE CRLE
   DATA DATABLOB DATACOPY DBPAD DEFERRABLE DETERMINISTIC DISABLE 
   DISTRIBUTION DRYRUN ENABLE EXEC EXECUTE FORCE FUNCTION GENID48 GET 
-  GRANT INCLUDE INCREMENT IPU ISC KW LUA LZ4 MANUAL MERGE NONE
+  GRANT IMPORT INCLUDE INCREMENT IPU ISC KW LUA LZ4 MANUAL MERGE NONE
   ODH OFF OP OPTION OPTIONS
   PAGEORDER PARTITIONED PASSWORD PAUSE PERIOD PENDING PROCEDURE PUT
   REBUILD READ READONLY REC RESERVED RESUME RETENTION REVOKE RLE ROWLOCKS
@@ -2330,6 +2330,12 @@ scctrl ::= SCHEMACHANGE scaction(A) nm(T) dbnm(X). {
     comdb2SchemachangeControl(pParse,A,&T,&X);
 }
 
+//////////////////////////////////// IMPORT //////////////////////////////////// 
+
+cmd ::= IMPORT nexprlist(A) FROM nm(B). { 
+    comdb2Import(pParse, A, &B);
+}
+
 /////////////////////////////////// GRANT /////////////////////////////////////
 
 %type sql_permission {int}
@@ -2387,6 +2393,7 @@ cmd ::= dryrun TRUNCATE table_opt nm(T) dbnm(Y). {
 cmd ::= BULKIMPORT nm(A) DOT nm(B) nm(C) DOT nm(D). {
     comdb2bulkimport(pParse, &A, &B, &C, &D);
 }
+
 
 ////////////////////////////// CREATE PARTITION ///////////////////////////////
 

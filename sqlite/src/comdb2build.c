@@ -1592,6 +1592,18 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
            nm->z, nm2->n +lnm2->n, nm2->z);
 }
 
+/********************* IMPORT ****************************************************/
+
+void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
+{
+    char command[200]; // TODO Replace with good length
+    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 --import --tables %s --src %s", nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+    printf("command %s\n", command);
+    int res = system(command);
+    printf("Import started comdb2 with res %d\n", res);
+    return;
+}
+
 /********************* ANALYZE ***************************************************/
 
 int comdb2vdbeAnalyze(OpFunc *f)

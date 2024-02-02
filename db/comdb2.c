@@ -315,6 +315,9 @@ char *gbl_myuri;      /* added for fdb uri for this db: dbname@hostname */
 int gbl_myroom;
 int gbl_exit = 0;        /* exit requested.*/
 int gbl_create_mode = 0; /* turn on create-if-not-exists mode*/
+int gbl_import_mode = 0; /* turn on import mode */
+char *gbl_import_table; /* Import table */
+char *gbl_import_src; /* Import source */
 const char *gbl_repoplrl_fname = NULL; /* if != NULL this is the fname of the
                                         * external lrl file to create with
                                         * this db's settings and table defs */
@@ -3474,6 +3477,56 @@ static int init(int argc, char **argv)
 
     handle_cmdline_options(argc, argv, &lrlname);
 
+    if (gbl_import_mode) {
+        gbl_exit = 1;
+        mkdir("/tmp/import", 0700);
+        mkdir("/tmp/import/logs", 0700);
+      /*  
+        FILE *lrl = fopen("/tmp/import/import.lrl", "a");
+        fprintf(lrl, "name import\n"); 
+        fprintf(lrl, "dir /tmp/import\n"); */
+
+        cdb2_hndl_tp *hndl;
+        int rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
+        if (rc) {
+            exit(1);
+        }
+        char query[200];
+        snprintf(query, sizeof(query), "SELECT filename, content FROM COMDB2_FILES WHERE filename LIKE '%s_%%' OR filename LIKE 'log.%%' ORDER BY filename, offset", gbl_import_table);
+        rc = cdb2_run_statement(hndl, query);
+        if (rc) {
+            const char * err = cdb2_errstr(hndl);
+            printf("err %s\n", err);
+            exit(1);
+        }
+
+        char * fname = NULL;
+        char myfname[100];
+        FILE *f = NULL;
+        while(cdb2_next_record(hndl) == CDB2_OK) {
+            char * nextFname = (char *) cdb2_column_value(hndl, 0);
+            int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
+            if (newFile) {
+				if (fname != NULL) {
+					free(fname);
+				}
+            	fname = strdup(nextFname);
+                snprintf(myfname, sizeof(myfname), "/tmp/import/%s", fname);
+                f = fopen(myfname, "a");
+            }
+            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
+        }
+		if (fname != NULL) {
+			free(fname);
+		}
+		rc = system("mv /tmp/import/log.* /tmp/import/logs");
+		printf("system return %d\n", rc);
+
+        exit(0);
+
+        
+    }
+
     if (gbl_create_mode) {        /*  10  */
         logmsg(LOGMSG_INFO, "create mode.\n");
         gbl_exit = 1;
@@ -3488,11 +3541,11 @@ static int init(int argc, char **argv)
         gbl_local_mode = 1; /*local mode, so no connect to network*/
     }
 
-    if (optind >= argc) {
+    if (!gbl_import_mode && optind >= argc) {
         fprintf(stderr, "Must provide DBNAME as first argument\n");
         exit(1);
     }
-    dbname = argv[optind++];
+    dbname = gbl_import_mode ? "import" : argv[optind++];
     int namelen = strlen(dbname);
     if (namelen == 0 || namelen >= MAX_DBNAME_LENGTH) {
         logmsg(LOGMSG_FATAL, "Invalid dbname, must be < %d characters\n",

@@ -139,7 +139,7 @@ static int write_pidfile(const char *pidfile)
     return 0;
 }
 
-static void set_dbdir(char *dir)
+void set_dbdir(char *dir)
 {
     if (dir == NULL)
         return;

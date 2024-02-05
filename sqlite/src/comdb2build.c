@@ -27,6 +27,7 @@
 #include "cdb2_constants.h"
 #include "db_access.h" /* gbl_check_access_controls */
 #include "comdb2_atomic.h"
+#include <sys/stat.h>
 
 #define COMDB2_INVALID_AUTOINCREMENT "invalid datatype for autoincrement"
 
@@ -1597,7 +1598,15 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
 void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 {
     char command[200]; // TODO Replace with good length
-    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 --import --tables %s --src %s", nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+	char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
+	snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
+	printf("gbl %s tmp db dir %s\n", thedb->basedir, tmpDbDir);
+    mkdir(tmpDbDir, 0700);
+	char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];
+	snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
+    mkdir(tmpDbLogDir, 0700);
+
+    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s &> ~/tmpout", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
     printf("command %s\n", command);
     int res = system(command);
     printf("Import started comdb2 with res %d\n", res);

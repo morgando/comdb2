@@ -178,6 +178,7 @@ void berkdb_use_malloc_for_regions_with_callbacks(void *mem,
                                                   void *(*alloc)(void *, int),
                                                   void (*free)(void *, void *));
 
+extern void set_dbdir(char *dir);
 extern void bb_berkdb_reset_worst_lock_wait_time_us();
 extern int has_low_headroom(const char *path, int headroom, int debug);
 extern void *clean_exit_thd(void *unused);
@@ -3473,55 +3474,6 @@ static int init(int argc, char **argv)
 
     handle_cmdline_options(argc, argv, &lrlname);
 
-    if (gbl_import_mode) {
-        gbl_exit = 1;
-        mkdir("/tmp/import", 0700);
-        mkdir("/tmp/import/logs", 0700);
-      /*  
-        FILE *lrl = fopen("/tmp/import/import.lrl", "a");
-        fprintf(lrl, "name import\n"); 
-        fprintf(lrl, "dir /tmp/import\n"); */
-
-        cdb2_hndl_tp *hndl;
-        int rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
-        if (rc) {
-            exit(1);
-        }
-        char query[200];
-        snprintf(query, sizeof(query), "SELECT filename, content FROM COMDB2_FILES WHERE filename LIKE '%s_%%' OR filename LIKE 'log.%%' ORDER BY filename, offset", gbl_import_table);
-        rc = cdb2_run_statement(hndl, query);
-        if (rc) {
-            const char * err = cdb2_errstr(hndl);
-            printf("err %s\n", err);
-            exit(1);
-        }
-
-        char * fname = NULL;
-        char myfname[100];
-        FILE *f = NULL;
-        while(cdb2_next_record(hndl) == CDB2_OK) {
-            char * nextFname = (char *) cdb2_column_value(hndl, 0);
-            int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
-            if (newFile) {
-				if (fname != NULL) {
-					free(fname);
-				}
-            	fname = strdup(nextFname);
-                snprintf(myfname, sizeof(myfname), "/tmp/import/%s", fname);
-                f = fopen(myfname, "a");
-            }
-            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
-        }
-		if (fname != NULL) {
-			free(fname);
-		}
-		rc = system("mv /tmp/import/log.* /tmp/import/logs");
-		printf("system return %d\n", rc);
-
-        exit(0);
-
-        
-    }
 
     if (gbl_create_mode) {        /*  10  */
         logmsg(LOGMSG_INFO, "create mode.\n");
@@ -3569,6 +3521,69 @@ static int init(int argc, char **argv)
     Pthread_key_create(&comdb2_open_key, NULL);
     Pthread_key_create(&query_info_key, NULL);
     Pthread_key_create(&DBG_FREE_CURSOR, free);
+
+    if (gbl_import_mode) {
+        gbl_exit = 1;
+
+        cdb2_hndl_tp *hndl;
+        int rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
+        if (rc) {
+			logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
+            exit(1);
+        }
+        char query[200];
+        snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
+        rc = cdb2_run_statement(hndl, query);
+        if (rc) {
+            const char * err = cdb2_errstr(hndl);
+            printf("err %s\n", err);
+            exit(1);
+        }
+        while(cdb2_next_record(hndl) == CDB2_OK) {}
+
+        snprintf(query, sizeof(query), "SELECT filename, content FROM COMDB2_FILES WHERE filename LIKE '%s_%%' OR filename LIKE 'log.%%' ORDER BY filename, offset", gbl_import_table);
+        rc = cdb2_run_statement(hndl, query);
+
+        if (rc) {
+            const char * err = cdb2_errstr(hndl);
+            printf("err %s\n", err);
+            exit(1);
+        }
+
+        char * fname = NULL;
+		char txndir[2*strlen(gbl_dbdir) + strlen("/.txn")];
+
+		if (gbl_nonames)
+			snprintf(txndir, sizeof(txndir), "%s/logs", gbl_dbdir);
+		else
+			snprintf(txndir, sizeof(txndir), "%s/%s.txn", gbl_dbdir, gbl_dbname);
+
+		printf("basedir %s txndir %s\n", gbl_dbdir, txndir);
+
+		char * copy_dst;
+        char myfname[100];
+        FILE *f = NULL;
+        while(cdb2_next_record(hndl) == CDB2_OK) {
+            char * nextFname = (char *) cdb2_column_value(hndl, 0);
+            int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
+            if (newFile) {
+				if (fname != NULL) {
+					free(fname);
+				}
+            	fname = strdup(nextFname);
+
+				copy_dst = strstr(fname, "log.") != NULL ? txndir : gbl_dbdir;
+
+                snprintf(myfname, sizeof(myfname), "%s/%s", copy_dst, fname);
+                f = fopen(myfname, "a");
+            }
+            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
+        }
+		if (fname != NULL) {
+			free(fname);
+		}
+        
+    }
 
     if (lrlname == NULL) {
         char *lrlenv = getenv("COMDB2_CONFIG");

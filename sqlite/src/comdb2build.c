@@ -1597,7 +1597,8 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
 
 void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 {
-    char command[200]; // TODO Replace with good length
+    char command[300]; // TODO Replace with good length
+    char query[200];
 	char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
 	snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
 	printf("gbl %s tmp db dir %s\n", thedb->basedir, tmpDbDir);
@@ -1606,10 +1607,55 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 	snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
     mkdir(tmpDbLogDir, 0700);
 
-    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s &> ~/tmpout", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+	char fname[10+sizeof(tmpDbDir)+2];
+	snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
+	FILE *fp = fopen(fname, "w");
+	fprintf(fp, "name import\ndir %s", tmpDbDir);
+	fclose(fp);
+
+
+    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 import --create --lrl %s/import.lrl; ~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s &> ~/tmpout; mv %s/%s* %s", tmpDbDir, tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z, tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
     printf("command %s\n", command);
     int res = system(command);
     printf("Import started comdb2 with res %d\n", res);
+
+	int i, bdberr, dbnums[MAX_NUM_TABLES];
+	char *tblnames[MAX_NUM_TABLES];
+
+	int numDb = 1;
+	for (i =0; i<numDb; ++i) {
+		tblnames[i] = nm->a[0].pExpr->u.zToken;
+		dbnums[i] = 0;
+	}
+
+	if (bdb_llmeta_set_tables(NULL, tblnames, dbnums, numDb, &bdberr) || bdberr != BDBERR_NOERROR) {
+		printf("fail\n");
+		return;
+	}
+
+        // GET SCHEMAS
+        snprintf(query, sizeof(query), "SELECT csc2, version FROM comdb2_schemaversions WHERE tablename='%s'",nm->a[0].pExpr->u.zToken);
+
+        cdb2_hndl_tp *hndl;
+        int rc = cdb2_open(&hndl, nm2->z, "local", 0);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
+            exit(1);
+        }
+
+        rc = cdb2_run_statement(hndl, query);
+        if (rc) {
+            const char * err = cdb2_errstr(hndl);
+            printf("err %s\n", err);
+            exit(1);
+        }
+
+        while(cdb2_next_record(hndl) == CDB2_OK) {
+            char * csc2 = (char *) cdb2_column_value(hndl, 0);
+            int version = *((int *) cdb2_column_value(hndl, 1));
+            put_csc2_file(nm->a[0].pExpr->u.zToken, NULL, version, csc2);
+            printf("put vers %d csc2 %s into llmeta\n", version, csc2);
+        }
     return;
 }
 

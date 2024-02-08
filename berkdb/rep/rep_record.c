@@ -668,8 +668,11 @@ static void *apply_thread(void *arg)
 				if (ret == 0 || ret == DB_REP_ISPERM) {
 					bdb_set_seqnum(dbenv->app_private);
 
-					if (ret == DB_REP_ISPERM && ((!gbl_early && !gbl_reallyearly) || gbl_modsnap)) {
+					if (ret == DB_REP_ISPERM && ((!gbl_early && !gbl_reallyearly))) {
 						/* Call this but not really early anymore */
+						if (gbl_modsnap) {
+							wait_for_running_transactions(dbenv);
+						}
 						comdb2_early_ack(dbenv, ret_lsnp, q->gen);
 					}
 				}
@@ -3706,7 +3709,7 @@ gap_check:		max_lsn_dbtp = NULL;
 			(u_int8_t *) & dbreg_args));
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
-			if (!gbl_modsnap && dbenv->num_recovery_processor_threads &&
+			if (/*!gbl_modsnap &&*/ dbenv->num_recovery_processor_threads &&
 				dbenv->num_recovery_worker_threads) {
 				wait_for_running_transactions(dbenv);
 			}
@@ -3788,7 +3791,7 @@ gap_check:		max_lsn_dbtp = NULL;
 						rep->committed_gen);
 				}
 
-				if (!gbl_modsnap && dbenv->num_recovery_processor_threads &&
+				if (/*!gbl_modsnap &&*/ dbenv->num_recovery_processor_threads &&
 					dbenv->num_recovery_worker_threads) {
 					ret =
 						__rep_process_txn_concurrent(dbenv,

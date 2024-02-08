@@ -969,7 +969,7 @@ __dbenv_get_concurrent(dbenv, val)
     DB_ENV *dbenv;
     int *val;
 {
-    if(!gbl_modsnap && dbenv->num_recovery_processor_threads > 0 &&
+    if(/*!gbl_modsnap &&*/ dbenv->num_recovery_processor_threads > 0 &&
             dbenv->num_recovery_worker_threads > 0)
     {
         *val = 1;

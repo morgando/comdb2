@@ -2218,7 +2218,7 @@ static inline int db_get_alias(void *tran, dbtable *tbl)
 
 /* gets the table names and dbnums from the low level meta table and sets up the
  * dbenv accordingly.  returns 0 on success and anything else otherwise */
-static int llmeta_load_tables(struct dbenv *dbenv, void *tran)
+int llmeta_load_tables(struct dbenv *dbenv, void *tran)
 {
     char *dbname = dbenv->envname;
     int rc = 0, bdberr, dbnums[MAX_NUM_TABLES], fndnumtbls, i;
@@ -3498,8 +3498,79 @@ static int init(int argc, char **argv)
         exit(1);
     }
 
+    // TODO: Import here
+        // TODO: 1) Select db files 2) flush 3) select log files ?
     if (gbl_import_mode) {
         gbl_exit = 1;
+
+
+        // GET HANDLE TO SOURCE
+
+        cdb2_hndl_tp *hndl;
+        int rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
+            exit(1);
+        }
+
+        // FLUSH SOURCE
+        char query[200];
+        snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
+        rc = cdb2_run_statement(hndl, query);
+        if (rc) {
+            const char * err = cdb2_errstr(hndl);
+            printf("err %s\n", err);
+            exit(1);
+        }
+        while(cdb2_next_record(hndl) == CDB2_OK) {}
+
+
+        // GET DBS + LOGS
+
+        snprintf(query, sizeof(query), "SELECT filename, content FROM comdb2_files WHERE filename LIKE '%s_%%' OR filename LIKE 'log.%%' ORDER BY filename, offset", gbl_import_table);
+        rc = cdb2_run_statement(hndl, query);
+
+        if (rc) {
+            const char * err = cdb2_errstr(hndl);
+            printf("err %s\n", err);
+            exit(1);
+        }
+
+        char * fname = NULL;
+        char txndir[2*strlen(gbl_dbdir) + strlen("/.txn")];
+
+        if (gbl_nonames)
+            snprintf(txndir, sizeof(txndir), "%s/logs", gbl_dbdir);
+        else
+            snprintf(txndir, sizeof(txndir), "%s/%s.txn", gbl_dbdir, gbl_dbname);
+
+        printf("basedir %s txndir %s\n", gbl_dbdir, txndir);
+
+        char * copy_dst;
+        char myfname[100];
+        FILE *f = NULL;
+        while(cdb2_next_record(hndl) == CDB2_OK) {
+            char * nextFname = (char *) cdb2_column_value(hndl, 0);
+            int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
+            if (newFile) {
+                if (fname != NULL) {
+                    free(fname);
+                }
+                fname = strdup(nextFname);
+
+                copy_dst = strstr(fname, "log.") != NULL ? txndir : gbl_dbdir;
+
+                snprintf(myfname, sizeof(myfname), "%s/%s", copy_dst, fname);
+                f = fopen(myfname, "a");
+            }
+            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
+        }
+        if (f) { fclose(f); }
+
+        if (fname != NULL) {
+            free(fname);
+        }
+        
     }
 
     dbname = gbl_import_mode ? "import" : argv[optind++];
@@ -3835,78 +3906,6 @@ static int init(int argc, char **argv)
     if (gbl_sbuftimeout)
         bdb_attr_set(thedb->bdb_attr, BDB_ATTR_SBUFTIMEOUT, gbl_sbuftimeout);
 
-    // TODO: Import here
-        // TODO: 1) Select db files 2) flush 3) select log files ?
-    if (gbl_import_mode) {
-        gbl_exit = 1;
-
-
-        // GET HANDLE TO SOURCE
-
-        cdb2_hndl_tp *hndl;
-        int rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
-        if (rc) {
-            logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
-            exit(1);
-        }
-
-        // FLUSH SOURCE
-        char query[200];
-        snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
-        rc = cdb2_run_statement(hndl, query);
-        if (rc) {
-            const char * err = cdb2_errstr(hndl);
-            printf("err %s\n", err);
-            exit(1);
-        }
-        while(cdb2_next_record(hndl) == CDB2_OK) {}
-
-
-        // GET DBS + LOGS
-
-        snprintf(query, sizeof(query), "SELECT filename, content FROM comdb2_files WHERE filename LIKE '%s_%%' OR filename LIKE 'log.%%' ORDER BY filename, offset", gbl_import_table);
-        rc = cdb2_run_statement(hndl, query);
-
-        if (rc) {
-            const char * err = cdb2_errstr(hndl);
-            printf("err %s\n", err);
-            exit(1);
-        }
-
-        char * fname = NULL;
-        char txndir[2*strlen(gbl_dbdir) + strlen("/.txn")];
-
-        if (gbl_nonames)
-            snprintf(txndir, sizeof(txndir), "%s/logs", gbl_dbdir);
-        else
-            snprintf(txndir, sizeof(txndir), "%s/%s.txn", gbl_dbdir, gbl_dbname);
-
-        printf("basedir %s txndir %s\n", gbl_dbdir, txndir);
-
-        char * copy_dst;
-        char myfname[100];
-        FILE *f = NULL;
-        while(cdb2_next_record(hndl) == CDB2_OK) {
-            char * nextFname = (char *) cdb2_column_value(hndl, 0);
-            int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
-            if (newFile) {
-                if (fname != NULL) {
-                    free(fname);
-                }
-                fname = strdup(nextFname);
-
-                copy_dst = strstr(fname, "log.") != NULL ? txndir : gbl_dbdir;
-
-                snprintf(myfname, sizeof(myfname), "%s/%s", copy_dst, fname);
-                f = fopen(myfname, "a");
-            }
-            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
-        }
-        if (fname != NULL) {
-            free(fname);
-        }
-        
-    }
     /* open up the bdb_env now that we have set all the attributes */
     if (open_bdb_env(thedb)) {
         logmsg(LOGMSG_FATAL, "failed to open bdb_env for %s\n", dbname);

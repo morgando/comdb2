@@ -42,10 +42,13 @@ extern int gbl_lightweight_rename;
 
 int gbl_view_feature = 1;
 
+extern int llmeta_load_tables(struct dbenv *dbenv, void *tran);
 extern int sqlite3GetToken(const unsigned char *z, int *tokenType);
 extern int sqlite3ParserFallback(int iToken);
 extern int comdb2_save_ddl_context(char *name, void *ctx, comdb2ma mem);
 extern void *comdb2_get_ddl_context(char *name);
+extern int new_table_from_schema_buf(struct dbenv *dbenv, char *tblname,
+                              char *csc2, int dbnum, char *tok);
 /******************* Utility ****************************/
 
 static inline int setError(Parse *pParse, int rc, const char *msg)
@@ -1614,13 +1617,21 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 	fclose(fp);
 
 
-    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 import --create --lrl %s/import.lrl; ~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s &> ~/tmpout; mv %s/%s* %s", tmpDbDir, tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z, tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
+    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
     printf("command %s\n", command);
     int res = system(command);
     printf("Import started comdb2 with res %d\n", res);
 
+    snprintf(command,sizeof(command), "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
+    printf("command %s\n", command);
+    res = system(command);
+    printf("mv res %d\n", res);
+
 	int i, bdberr, dbnums[MAX_NUM_TABLES];
 	char *tblnames[MAX_NUM_TABLES];
+	char * tname = nm->a[0].pExpr->u.zToken;
+
+	// CREATE TABLES FROM SCHEMAS
 
 	int numDb = 1;
 	for (i =0; i<numDb; ++i) {
@@ -1634,7 +1645,7 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 	}
 
         // GET SCHEMAS
-        snprintf(query, sizeof(query), "SELECT csc2, version FROM comdb2_schemaversions WHERE tablename='%s'",nm->a[0].pExpr->u.zToken);
+        snprintf(query, sizeof(query), "SELECT csc2, version FROM comdb2_schemaversions WHERE tablename='%s' ORDER BY csc2, version DESC",nm->a[0].pExpr->u.zToken);
 
         cdb2_hndl_tp *hndl;
         int rc = cdb2_open(&hndl, nm2->z, "local", 0);
@@ -1650,12 +1661,28 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
             exit(1);
         }
 
+        if (cdb2_next_record(hndl) == CDB2_OK) {
+            char * csc2 = (char *) cdb2_column_value(hndl, 0);
+            int version = *((int *) cdb2_column_value(hndl, 1));
+            
+            thedb->dbs = realloc(thedb->dbs,
+                             (thedb->num_dbs + 1) * sizeof(struct dbtable *));
+            if (new_table_from_schema_buf(thedb, tname, csc2, 0, NULL)) {
+                return;
+            }
+            put_csc2_file(tname, NULL, version, csc2);
+            printf("put vers %d csc2 %s into llmeta\n", version, csc2);
+        }
+
+
         while(cdb2_next_record(hndl) == CDB2_OK) {
             char * csc2 = (char *) cdb2_column_value(hndl, 0);
             int version = *((int *) cdb2_column_value(hndl, 1));
             put_csc2_file(nm->a[0].pExpr->u.zToken, NULL, version, csc2);
             printf("put vers %d csc2 %s into llmeta\n", version, csc2);
         }
+
+    llmeta_load_tables(thedb, NULL);
     return;
 }
 

@@ -659,18 +659,10 @@ static int lrltokignore(char *tok, int ltok)
     return 1;
 }
 
-static int new_table_from_schema(struct dbenv *dbenv, char *tblname,
-                                 char *fname, int dbnum, char *tok)
+int new_table_from_schema_buf(struct dbenv *dbenv, char *tblname,
+                              char *csc2, int dbnum, char *tok)
 {
     struct dbtable *db;
-    char *csc2;
-
-    csc2 = load_text_file(fname);
-    if (!csc2) {
-        logmsg(LOGMSG_ERROR, "Error loading text from file %s\n", fname);
-        return -1;
-    }
-
     struct errstat err = {0};
     db = create_new_dbtable(dbenv, tblname, csc2, dbnum, 0, 0, 0, &err);
     if (!db) {
@@ -687,6 +679,20 @@ static int new_table_from_schema(struct dbenv *dbenv, char *tblname,
     hash_add(dbenv->db_hash, db);
 
     return 0;
+}
+
+static int new_table_from_schema(struct dbenv *dbenv, char *tblname,
+                                 char *fname, int dbnum, char *tok)
+{
+    char *csc2;
+
+    csc2 = load_text_file(fname);
+    if (!csc2) {
+        logmsg(LOGMSG_ERROR, "Error loading text from file %s\n", fname);
+        return -1;
+    }
+
+    return new_table_from_schema_buf(dbenv, tblname, csc2, dbnum, tok);
 }
 
 #define parse_lua_funcs(pfx)                                                   \

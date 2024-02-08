@@ -1609,6 +1609,7 @@ static int bdb_new_file_version(
     int file_num,                       /* ixnum or dtanum */
     unsigned long long inversion_num, int *bdberr)
 {
+	printf("dbname %s. file num %d\n", db_name, file_num);
     int retries = 0, rc;
     char key[LLMETA_IXLEN] = {0};
     struct llmeta_version_number_type version_num;

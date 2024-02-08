@@ -605,6 +605,14 @@ int bdb_form_file_name(bdb_state_type *bdb_state, int is_data_file, int filenum,
                              stripenum, version_num, outbuf, buflen);
 }
 
+int bdb_get_file_version_from_name(
+    const char *name)
+{
+	return 0;
+
+}
+
+
 /*figures out what the version number is (if any) and calls form_file_name_ex*/
 static int form_file_name(bdb_state_type *bdb_state, DB_TXN *tid,
                           int is_data_file, int file_num, int isstriped,
@@ -642,9 +650,11 @@ static int form_file_name(bdb_state_type *bdb_state, DB_TXN *tid,
                     file_num);
     }
 
-    return form_file_name_ex(bdb_state, is_data_file, file_num,
+    rc =  form_file_name_ex(bdb_state, is_data_file, file_num,
                              1 /*add_prefix*/, isstriped, stripenum,
                              version_num, outbuf, buflen);
+	printf("version %llu fname %s\n", version_num, outbuf);
+	return rc;
 }
 
 /* calls form_file_name for a datafile */

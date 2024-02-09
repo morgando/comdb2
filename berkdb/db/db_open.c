@@ -96,7 +96,7 @@ __db_open(dbp, txn, fname, dname, type, flags, mode, meta_pgno)
 		LF_SET(DB_THREAD);
 
 	/* Convert any DB->open flags. */
-	if (LF_ISSET(DB_RDONLY))
+	if (LF_ISSET(DB_RDONLY)) {
 		F_SET(dbp, DB_AM_RDONLY);
 	} else {
 		// Need to do this here because __db_open doesn't always acquire locks over pages

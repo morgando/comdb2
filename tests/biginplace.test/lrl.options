@@ -1,3 +1,5 @@
 table t1 t1.csc2
 dtastripe 16
 enable_snapshot_isolation
+use_modsnap_for_snapshot on
+enable_modsnap_snapshot_implementation on

@@ -52,6 +52,76 @@ static int __memp_pgwrite_multi
 __P((DB_ENV *, DB_MPOOLFILE *, DB_MPOOL_HASH **, BH **, int, int));
 
 /*
+ * __memp_bhrdlock --
+ *	Acquire read lock on a buffer header.
+ *
+ * PUBLIC: int __memp_bhrdlock __P((BH *));
+ */
+int memp_bhrdlock(bhp)
+	BH * bhp;
+{
+	pthread_mutex_lock(bhp->turnstile_mutexp);
+	pthread_mutex_unlock(bhp->turnstile_mutexp);
+
+	pthread_mutex_lock(bhp->readers_mutexp);
+	bhp->readers++;
+	if (bhp->readers == 1) {
+		sem_wait(bhp->empty_semp);
+	}
+	pthread_mutex_unlock(bhp->readers_mutexp);
+
+	return 0;
+}
+
+/*
+ * __memp_bhwrlock --
+ *	Acquire write lock on a buffer header.
+ *
+ * PUBLIC: int __memp_bhwrlock __P((BH *));
+ */
+int memp_bhwrlock(bhp)
+	BH * bhp;
+{
+	pthread_mutex_lock(bhp->turnstile_mutexp);
+	sem_wait(bhp->empty_semp);
+
+	return 0;
+}
+
+/*
+ * __memp_bhwrunlock --
+ *	Release write lock on a buffer header.
+ *
+ * PUBLIC: int __memp_bhwrunlock __P((BH *));
+ */
+int memp_bhwrunlock(bhp)
+	BH * bhp;
+{
+	pthread_mutex_unlock(bhp->turnstile_mutexp);
+	sem_post(bhp->empty_semp);
+
+	return 0;
+}
+
+/*
+ * __memp_bhrdunlock --
+ *	Release read lock on a buffer header.
+ *
+ * PUBLIC: int __memp_bhrdunlock __P((BH *));
+ */
+int memp_bhrdunlock(bhp)
+	BH * bhp;
+{
+	pthread_mutex_lock(bhp->readers_mutexp);
+	if (--bhp->readers == 0) {
+		sem_post(bhp->empty_semp);
+	}
+	pthread_mutex_unlock(bhp->readers_mutexp);
+
+	return 0;
+}
+
+/*
  * __memp_bhwrite --
  *	Write the page associated with a given buffer header.
  *
@@ -1188,6 +1258,16 @@ __memp_bhfree(dbmp, hp, bhp, free_mem)
 	dbenv = dbmp->dbenv;
 	mp = dbmp->reginfo[0].primary;
 	n_cache = NCACHE(mp, bhp->mpf, bhp->pgno);
+
+	pthread_mutex_destroy(bhp->turnstile_mutexp);
+	pthread_mutex_destroy(bhp->readers_mutexp);
+	sem_destroy(bhp->empty_semp);
+	free (bhp->turnstile_mutexp);
+	free (bhp->readers_mutexp);
+	free (bhp->empty_semp);
+	bhp->turnstile_mutexp = NULL;
+	bhp->readers_mutexp = NULL;
+	bhp->empty_semp = NULL;
 
 	/*
 	 * Delete the buffer header from the hash bucket queue and reset

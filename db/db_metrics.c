@@ -726,6 +726,20 @@ int refresh_metrics(void)
     stats.auth_denied = gbl_num_auth_denied;
     curtran_puttran(trans);
 
+<<<<<<< HEAD
+=======
+	pthread_mutex_lock(&gbl_modsnap_stats_mutex);
+	stats.modsnap_cache_hits = gbl_modsnap_cache_hits;
+	stats.modsnap_cache_misses = gbl_modsnap_cache_misses;
+	stats.modsnap_total_requests = gbl_modsnap_total_requests;
+	stats.modsnap_buffer_wait_time = gbl_modsnap_buffer_wait_time;
+	stats.modsnap_buffer_waits = gbl_modsnap_buffer_waits;
+	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
+
+	stats.modsnap_cache_hit_rate = (double)stats.modsnap_cache_hits;
+	stats.modsnap_rollback_rate = (double)stats.modsnap_cache_misses;
+
+>>>>>>> 23c4a6e6 (Remove locking)
     update_fastsql_metrics();
 
     return 0;

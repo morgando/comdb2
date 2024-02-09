@@ -665,6 +665,9 @@ tran_type *bdb_tran_begin_socksql(bdb_state_type *, int trak, int *bdberr);
 tran_type *bdb_tran_begin_readcommitted(bdb_state_type *, int trak,
                                         int *bdberr);
 
+tran_type *bdb_tran_begin_modsnap(bdb_state_type *, int trak,
+                                        int *bdberr);
+
 tran_type *bdb_tran_begin_serializable(bdb_state_type *bdb_state, int trak,
                                        int *bdberr, int epoch, int file,
                                        int offset, int is_ha_retry);
@@ -1401,6 +1404,26 @@ int bdb_genid_exists(bdb_state_type *bdb_state, unsigned long long genid,
 unsigned long long bdb_get_current_lsn(bdb_state_type *bdb_state,
                                        unsigned int *file,
                                        unsigned int *offset);
+
+int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
+                                     unsigned int *file,
+                                     unsigned int *offset);
+
+int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
+                                    unsigned int *file,
+                                    unsigned int *offset);
+
+int bdb_get_lowest_modsnap_file(bdb_state_type *bdb_state);
+
+int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration);
+
+int bdb_register_modsnap(bdb_state_type *bdb_state,
+                        int snapshot_epoch,
+                        unsigned int *last_commit_lsn_file,
+                        unsigned int *last_commit_lsn_offset,
+                        unsigned int *highest_commit_lsn_asof_ckpt_file,
+                        unsigned int *highest_commit_lsn_asof_ckpt_offset,
+                        void ** registration);
 
 void bdb_set_tran_verify_updateid(tran_type *tran);
 

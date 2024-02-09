@@ -3841,6 +3841,17 @@ low_headroom:
                 break;
             }
 
+            int lowest_in_use_modsnap_file = bdb_get_lowest_modsnap_file(bdb_state);
+            if (lowest_in_use_modsnap_file != -1 && filenum >= lowest_in_use_modsnap_file) {
+                if (bdb_state->attr->debug_log_deletion) {
+                    logmsg(LOGMSG_USER, "not ok to delete log %d, log file "
+                                    "needed to maintain current modsnap "
+                                    "transactions\n",
+                          filenum);
+                }
+                break;
+            }
+
             if (gbl_new_snapisol_asof) {
                 /* avoid trace between reading and writting recoverable lsn */
                 Pthread_mutex_lock(&bdb_gbl_recoverable_lsn_mutex);

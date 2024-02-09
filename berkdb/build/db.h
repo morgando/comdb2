@@ -754,15 +754,11 @@ struct __db_log_stat {
 /* Flag values for DB_MPOOLFILE->get. */
 #define	DB_MPOOL_COMPACT	0x080   /* Compact a page if necessary */
 
-/* Flag values for DB_MPOOLFILE->get. */
-#define	DB_MPOOL_SNAPGET	0x100	/* page got by snapshot cursor */
-
 /* Flag values for DB_MPOOLFILE->put, DB_MPOOLFILE->set. */
 #define	DB_MPOOL_CLEAN		0x001	/* Page is not modified. */
 #define	DB_MPOOL_DIRTY		0x002	/* Page is modified. */
 #define	DB_MPOOL_DISCARD	0x004	/* Don't cache the page. */
 #define	DB_MPOOL_PFPUT		0x008	/* page got by prefault */
-#define	DB_MPOOL_SNAPPUT	0x010	/* page got by snapshot cursor */
 
 /* Flag values for DB_MPOOLFILE->alloc. */
 #define DB_MPOOL_LOWPRI		0x001   /* Evict low-priority pages. */

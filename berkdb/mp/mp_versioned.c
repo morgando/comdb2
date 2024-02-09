@@ -254,7 +254,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	smallest_logfile = dbenv->txmap->smallest_logfile;
 	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
 
-	if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_SNAPGET | flags, &page)) != 0) {
+	if ((ret = __memp_fget(mpf, &pgno, flags, &page)) != 0) {
 		logmsg(LOGMSG_ERROR, "%s: Failed to get initial page version\n", __func__);
 		goto err;
 	}
@@ -285,7 +285,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 			cache_hit = 1;
 			found = 1;
 
-			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
+			if ((ret = __memp_fput(mpf, page, 0)) != 0) {
 				logmsg(LOGMSG_ERROR, "%s: Failed to return initial page version\n", __func__);
 				goto err;
 			}
@@ -295,7 +295,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 			memcpy(bhp, ((char*)page) - offsetof(BH, buf), offsetof(BH, buf) + dbp->pgsize);
 			bhp->is_copy = 1; 
 
-			if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)) != 0) {
+			if ((ret = __memp_fput(mpf, page, 0)) != 0) {
 				logmsg(LOGMSG_ERROR, "%s: Failed to return initial page version\n", __func__);
 				goto err;
 			}
@@ -436,7 +436,7 @@ int __mempv_fput(mpf, page, flags)
 		if (bhp->is_copy == 1) {
 			// I am a copy
 			__os_free(dbenv, bhp);
-		} else if ((ret = __memp_fput(mpf, page, DB_MPOOL_SNAPPUT)), ret != 0) {
+		} else if ((ret = __memp_fput(mpf, page, 0)), ret != 0) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to return initial page version\n", __func__);
 		}
 

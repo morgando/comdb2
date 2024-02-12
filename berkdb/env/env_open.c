@@ -412,7 +412,7 @@ __dbenv_open(dbenv, db_home, flags, mode)
 	Pthread_mutex_init(&dbenv->outstanding_modsnap_lock, NULL);
 
 	if (LF_ISSET(DB_INIT_LOCK) && LF_ISSET(DB_INIT_LOG) && LF_ISSET(DB_INIT_REP)) {
-		if ((ret = __mempv_init(dbenv, 10*(offsetof(MEMPV_CACHE_PAGE_HEADER, page) + offsetof(BH, buf) + 20000))) != 0) {
+		if ((ret = __mempv_init(dbenv)) != 0) {
 			goto err;
 		}
 	} else {

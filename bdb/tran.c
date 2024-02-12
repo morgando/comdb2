@@ -65,8 +65,8 @@
 static unsigned int curtran_counter = 0;
 extern int gbl_debug_txn_sleep;
 extern int __txn_getpriority(DB_TXN *txnp, int *priority);
-extern int __txn_commit_map_get_highest_commit_lsn(DB_ENV *dbenv, DB_LSN *outlsn);
-extern int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(DB_ENV *dbenv, DB_LSN *lsn, DB_LSN *ckp_lsn);
+extern int __txn_commit_map_get_highest_checkpoint_lsn(DB_ENV *dbenv, DB_LSN *out_highest_checkpoint_lsn, int lock); 
+extern int __txn_commit_map_get_highest_commit_lsn(DB_ENV *dbenv, DB_LSN *out_last_commit_lsn, int lock); 
 
 #if 0
 int __lock_dump_region_lockerid __P((DB_ENV *, const char *, FILE *, u_int32_t lockerid));
@@ -2734,37 +2734,46 @@ int bdb_register_modsnap(bdb_state_type *bdb_state,
                         void ** registration)
 {
     DB_ENV *dbenv;
-    DB_LSN outlastcommitlsn;
-    DB_LSN outhighest_commit_lsn_asof_ckpt;
+    DB_LSN out_last_commit_lsn;
+    DB_LSN out_highest_checkpoint_lsn;
+	DB_TXN_COMMIT_MAP *txmap;
     int rc;
 
     rc = 0;
     dbenv = bdb_state->dbenv;
+	txmap = dbenv->txmap;
 
     if (snapshot_epoch) {
-        bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &outlastcommitlsn, 0, &rc); 
+        bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &out_last_commit_lsn, 0, &rc); 
         if (rc != 0) {
             return rc;
         }
 
-        bdb_checkpoint_list_get_ckplsn_before_lsn(outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt);
+        bdb_checkpoint_list_get_ckplsn_before_lsn(out_last_commit_lsn, &out_highest_checkpoint_lsn);
     } else {
-        if ((rc = __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, &outlastcommitlsn, &outhighest_commit_lsn_asof_ckpt)) != 0) {
+        Pthread_mutex_lock(&txmap->txmap_mutexp);
+        if ((rc = __txn_commit_map_get_highest_checkpoint_lsn(dbenv, &out_highest_checkpoint_lsn, 0)) != 0) {
+            Pthread_mutex_unlock(&txmap->txmap_mutexp);
             return rc;
         }
+        if ((rc = __txn_commit_map_get_highest_commit_lsn(dbenv, &out_last_commit_lsn, 0)) != 0) {
+            Pthread_mutex_unlock(&txmap->txmap_mutexp);
+            return rc;
+        }
+        Pthread_mutex_unlock(&txmap->txmap_mutexp);
     }
 
     if (last_commit_lsn_file) {
-        *last_commit_lsn_file = outlastcommitlsn.file;
+        *last_commit_lsn_file = out_last_commit_lsn.file;
     }
     if (last_commit_lsn_offset) {
-        *last_commit_lsn_offset = outlastcommitlsn.offset;
+        *last_commit_lsn_offset = out_last_commit_lsn.offset;
     }
     if (highest_commit_lsn_asof_ckpt_file) {
-        *highest_commit_lsn_asof_ckpt_file = outhighest_commit_lsn_asof_ckpt.file;
+        *highest_commit_lsn_asof_ckpt_file = out_highest_checkpoint_lsn.file;
     }
     if (highest_commit_lsn_asof_ckpt_offset) {
-        *highest_commit_lsn_asof_ckpt_offset = outhighest_commit_lsn_asof_ckpt.offset;
+        *highest_commit_lsn_asof_ckpt_offset = out_highest_checkpoint_lsn.offset;
     }
 
     MODSNAP_TXN *outstanding_modsnap = malloc(sizeof(MODSNAP_TXN));
@@ -2772,52 +2781,13 @@ int bdb_register_modsnap(bdb_state_type *bdb_state,
         rc = ENOMEM;
         return rc;
     }
-    outstanding_modsnap->prior_checkpoint_lsn = outhighest_commit_lsn_asof_ckpt;
+    outstanding_modsnap->prior_checkpoint_lsn = out_highest_checkpoint_lsn;
 
     pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
     listc_atl(&dbenv->outstanding_modsnaps, outstanding_modsnap);
     pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
 
     * (void **)registration = (void *) outstanding_modsnap;
-
-    return rc;
-}
-
-int bdb_get_last_commit_lsn(bdb_state_type *bdb_state,
-                            unsigned int *file, unsigned int *offset)
-{
-        DB_LSN outlsn;
-	int rc;
-
-	rc = 0;
-
-	if ((rc = __txn_commit_map_get_highest_commit_lsn(bdb_state->dbenv, &outlsn)) != 0) {
-            return rc;
-	}
-
-	if (file)
-            *file = outlsn.file;
-        if (offset)
-            *offset = outlsn.offset;
-
-        return rc;
-}
-
-int bdb_get_highest_commit_lsn_asof_checkpoint(bdb_state_type *bdb_state,
-                            unsigned int *file, unsigned int *offset)
-{
-    int rc;
-    DB_TXN_COMMIT_MAP *txmap;
-
-    rc = 0;
-    txmap = bdb_state->dbenv->txmap;
-
-    if (file) {
-        *file = txmap->highest_commit_lsn_asof_checkpoint.file;
-    }
-    if (offset) {
-        *offset = txmap->highest_commit_lsn_asof_checkpoint.offset;
-    }
 
     return rc;
 }

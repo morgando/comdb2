@@ -34,13 +34,11 @@
 #include <pool.h>
 #include "locks_wrap.h"
 
-#define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, pglsn) (log_compare(&highest_commit_lsn_asof_checkpoint, &pglsn) >= 0 || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
-
-static int DEBUG_MEMPV = 0;
+#define PAGE_VERSION_IS_GUARANTEED_TARGET(highest_checkpoint_lsn, smallest_logfile, target_lsn, pglsn) (log_compare(&highest_checkpoint_lsn, &pglsn) >= 0 || IS_NOT_LOGGED_LSN(pglsn) || (pglsn.file < smallest_logfile))
 
 extern int __txn_commit_map_get(DB_ENV *, u_int64_t, DB_LSN *);
 
-extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache, int size);
+extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache);
 extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
 extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
 
@@ -56,11 +54,10 @@ pthread_mutex_t gbl_modsnap_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
  *	Initialize versioned memory pool.
  *
  * PUBLIC: int __mempv_init
- * PUBLIC:	   __P((DB_ENV *, int));
+ * PUBLIC:	   __P((DB_ENV *));
  */
-int __mempv_init(dbenv, size)
+int __mempv_init(dbenv)
 	DB_ENV *dbenv;
-	int size;
 {
 	DB_MEMPV *mempv;
 	int ret;
@@ -70,7 +67,7 @@ int __mempv_init(dbenv, size)
 		goto done;
 	}
 
-	if ((ret = __mempv_cache_init(dbenv, &(mempv->cache), size)), ret != 0) {
+	if ((ret = __mempv_cache_init(dbenv, &(mempv->cache))), ret != 0) {
 		goto done;
 	}
 
@@ -219,12 +216,12 @@ done:
  * PUBLIC: int __mempv_fget
  * PUBLIC:	   __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, DB_LSN, void *, u_int32_t));
  */
-int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, flags)
+int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_checkpoint_lsn, ret_page, flags)
 	DB_MPOOLFILE *mpf;
 	DB *dbp;
 	db_pgno_t pgno;
 	DB_LSN target_lsn;
-	DB_LSN highest_ckpt_commit_lsn;
+	DB_LSN highest_checkpoint_lsn;
 	void *ret_page;
 	u_int32_t flags;
 {
@@ -234,7 +231,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	int64_t smallest_logfile;
 	DB_LOGC *logc;
 	PAGE *page, *page_image;
-	DB_LSN cur_page_lsn, commit_lsn, highest_commit_lsn_asof_checkpoint;
+	DB_LSN cur_page_lsn, commit_lsn;
 	DB_ENV *dbenv;
 	BH *bhp;
 	void *data_t;
@@ -249,7 +246,6 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 	dbt.flags = DB_DBT_REALLOC;
 	dbenv = mpf->dbenv;
 	mempv_debug = dbenv->attr.mempv_debug;
-	highest_commit_lsn_asof_checkpoint = highest_ckpt_commit_lsn;
 	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
 	smallest_logfile = dbenv->txmap->smallest_logfile;
 	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
@@ -261,7 +257,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_ckpt_commit_lsn, ret_page, 
 
 	cur_page_lsn = LSN(page);
 
-	if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, cur_page_lsn)) {
+	if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_checkpoint_lsn, smallest_logfile, target_lsn, cur_page_lsn)) {
 		if (mempv_debug) {
 			logmsg(LOGMSG_USER, "%s: Original page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
 		}
@@ -314,11 +310,11 @@ search:
 		if (mempv_debug) {
 			logmsg(LOGMSG_USER, "%s: Rolling back page %u with initial LSN %d:%d to prior LSN %d:%d. Highest asof checkpoint %d:%d\n", 
 				__func__, PGNO(page_image), LSN(page_image).file, LSN(page_image).offset, target_lsn.file, target_lsn.offset,
-				highest_commit_lsn_asof_checkpoint.file, highest_commit_lsn_asof_checkpoint.offset
+				highest_checkpoint_lsn.file, highest_checkpoint_lsn.offset
 			);
 		}
 
-		if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_commit_lsn_asof_checkpoint, smallest_logfile, target_lsn, cur_page_lsn)) {
+		if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_checkpoint_lsn, smallest_logfile, target_lsn, cur_page_lsn)) {
 			add_to_cache = 1;
 			found = 1;
 			break;

@@ -2865,7 +2865,7 @@ struct __txn_commit_map {
 	pthread_mutex_t txmap_mutexp;
 	int64_t smallest_logfile;
 	DB_LSN highest_commit_lsn;
-	DB_LSN highest_commit_lsn_asof_checkpoint;
+	DB_LSN highest_checkpoint_lsn;
 	hash_t *transactions;
 	hash_t *logfile_lists;
 };

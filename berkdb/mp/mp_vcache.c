@@ -38,10 +38,9 @@ static int num_cached_pages = 0;
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
 
-int __mempv_cache_init(dbenv, cache, size)
+int __mempv_cache_init(dbenv, cache)
 	DB_ENV *dbenv;
 	MEMPV_CACHE *cache;
-	int size;
 {
 	int ret;
 

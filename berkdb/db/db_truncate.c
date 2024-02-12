@@ -176,8 +176,6 @@ __db_cursor_check(dbp)
 	DB_CQ_HASH *h;
 	int found;
 
-	// SNAPSHOT?
-
 	dbenv = dbp->dbenv;
 
 	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);

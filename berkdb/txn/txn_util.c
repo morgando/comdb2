@@ -367,7 +367,7 @@ int __txn_commit_map_init(dbenv)
 		goto err;
 	}
 
-	LSN_NOT_LOGGED(txmap->highest_commit_lsn_asof_checkpoint);
+	LSN_NOT_LOGGED(txmap->highest_checkpoint_lsn);
 	LSN_NOT_LOGGED(txmap->highest_commit_lsn);
 	txmap->smallest_logfile = -1;
 	Pthread_mutex_init(&txmap->txmap_mutexp, NULL);
@@ -469,52 +469,52 @@ static int __txn_commit_map_remove_nolock(dbenv, utxnid)
 }
 
 /*
- * __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt --
- *  Get the highest commit lsn and the highest commit lsn asof the last checkpoint
- *  from the commit LSN map.	
+ * __txn_commit_map_get_highest_checkpoint_lsn --
+ *  Get the highest checkpoint lsn
+ *  from the commit LSN map. If `lock` neq 0 then will acquire lock over data access.
  *
- * PUBLIC: int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt
- * PUBLIC:     __P((DB_ENV *, DB_LSN *, DB_LSN *));
+ * PUBLIC: int __txn_commit_map_get_highest_checkpoint_lsn
+ * PUBLIC:     __P((DB_ENV *, DB_LSN *, int));
  */
-int __txn_commit_map_get_last_commit_lsn_and_highest_commit_lsn_asof_ckpt(dbenv, lastcommitlsn, highest_commit_lsn_asof_ckpt)
+int __txn_commit_map_get_highest_checkpoint_lsn(dbenv, highest_checkpoint_lsn, lock)
 	DB_ENV *dbenv;
-	DB_LSN *lastcommitlsn;
-	DB_LSN *highest_commit_lsn_asof_ckpt;
+	DB_LSN *highest_checkpoint_lsn;
+	int lock;
 {
 	DB_TXN_COMMIT_MAP *txmap;
 
 	txmap = dbenv->txmap;
 
-	Pthread_mutex_lock(&txmap->txmap_mutexp);
+	if (lock) { Pthread_mutex_lock(&txmap->txmap_mutexp); }
 
-	*lastcommitlsn = txmap->highest_commit_lsn;
-	*highest_commit_lsn_asof_ckpt = txmap->highest_commit_lsn_asof_checkpoint;
+	*highest_checkpoint_lsn = txmap->highest_checkpoint_lsn;
 
-	Pthread_mutex_unlock(&txmap->txmap_mutexp);
+	if (lock) { Pthread_mutex_unlock(&txmap->txmap_mutexp); }
 	return 0;
 }
 
 /*
  * __txn_commit_map_get_highest_commit_lsn --
  *  Get the highest commit lsn
- *  from the commit LSN map.	
+ *  from the commit LSN map. If `lock` neq 0 then will acquire lock over data access.
  *
  * PUBLIC: int __txn_commit_map_get_highest_commit_lsn
- * PUBLIC:     __P((DB_ENV *, DB_LSN *));
+ * PUBLIC:     __P((DB_ENV *, DB_LSN *, int));
  */
-int __txn_commit_map_get_highest_commit_lsn(dbenv, highest_commit_lsn)
+int __txn_commit_map_get_highest_commit_lsn(dbenv, highest_commit_lsn, lock)
 	DB_ENV *dbenv;
 	DB_LSN *highest_commit_lsn;
+	int lock;
 {
 	DB_TXN_COMMIT_MAP *txmap;
 
 	txmap = dbenv->txmap;
 
-	Pthread_mutex_lock(&txmap->txmap_mutexp);
+	if (lock) { Pthread_mutex_lock(&txmap->txmap_mutexp); }
 
 	*highest_commit_lsn = txmap->highest_commit_lsn;
 
-	Pthread_mutex_unlock(&txmap->txmap_mutexp);
+	if (lock) { Pthread_mutex_unlock(&txmap->txmap_mutexp); }
 	return 0;
 }
 

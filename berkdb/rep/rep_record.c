@@ -146,6 +146,7 @@ extern int dumptxn(DB_ENV * dbenv, DB_LSN * lsnpp);
 extern void wait_for_sc_to_stop(const char *operation, const char *func, int line);
 extern void allow_sc_to_run(void);
 extern int __txn_commit_map_add_nolock(DB_ENV *, u_int64_t, DB_LSN);
+extern int __txn_commit_map_add(DB_ENV *, u_int64_t, DB_LSN);
 
 int64_t gbl_rep_trans_parallel = 0, gbl_rep_trans_serial =
 	0, gbl_rep_trans_deadlocked = 0, gbl_rep_trans_inline =
@@ -4564,13 +4565,7 @@ processor_thd(struct thdpool *pool, void *work, void *thddata, int op)
 	}
 
 	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
-
-	if (commit_lsn_map && (ret = __txn_commit_map_add_nolock(dbenv, rp->utxnid, rp->commit_lsn))) {
-		Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
-		logmsg(LOGMSG_DEBUG, "%s failed at line %d\n", __func__, __LINE__);
-		goto err;
-	}
-
+	
 	if (commit_lsn_map && (rp->lc.child_utxnids != NULL)) {
 		UTXNID *elt;
 
@@ -4972,7 +4967,6 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		dist_txnid = alloca(txn_dist_commit_args->dist_txnid.size + 1);
 		memcpy(dist_txnid, txn_dist_commit_args->dist_txnid.data, txn_dist_commit_args->dist_txnid.size);
 		dist_txnid[txn_dist_commit_args->dist_txnid.size] = '\0';
-
 	} else {
 		/* We're a prepare. */
 		DB_ASSERT(rectype == DB___txn_xa_regop);
@@ -5119,6 +5113,36 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 			static int lastpr = 0;
 			int now;
 
+			// Must add to commit lsn map after acquiring locks but before early acking.
+			//
+			// Why?
+			//
+			// 1) Must add to commit lsn map before early acking. If not:
+			//		DB early acks to the client ->
+			//		client starts snapshot txn. snapshot target lsn may be less than the lsn of 
+			//		the client's previous committed txn ->
+			//		snapshot rolls back the client's previous committed txn.
+			//
+			// * By adding to the commit lsn map before early acking, we ensure that snapshot 
+			// txns never roll back a txn that committed before it started from the client's perspective.
+			//
+			// 2) Must acquire locks before adding to the commit lsn map. If not:
+			// 		txn commit lsn is added to the map ->
+			//		new snapshot starts with this txn's commit lsn as its target lsn ->
+			//		if snapshot views a page before the other txn acquires a lock on it, it uses the old state;
+			//		otherwise, it blocks on the lock and uses the new state.
+			//
+			// * By adding to the commit lsn map after acquiring locks we ensure that a snapshot txn whose 
+			// target lsn is the commit lsn of an incompletely applied transaction sees all of its updates.
+			//
+			if (commit_lsn_map) {
+				if ((ret = __txn_commit_map_add(dbenv, 
+						utxnid, rep->committed_lsn)), ret != 0) {
+					logmsg(LOGMSG_DEBUG, "%s failed at line %d\n", __func__, __LINE__);
+					return ret;
+				}
+			}
+
 			if (gbl_early_ack_trace && ((now = time(NULL)) - lastpr)) {
 				logmsg(LOGMSG_USER, "%s line %d send early-ack for %d:%d "
 						"commit-gen %d\n", __func__, __LINE__, maxlsn.file,
@@ -5262,13 +5286,19 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 			ret = 0;
 	}
 
-	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
 
-	if (commit_lsn_map && (ret = __txn_commit_map_add_nolock(dbenv, utxnid, rep->committed_lsn))) {
-		Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
-		logmsg(LOGMSG_DEBUG, "%s failed at line %d\n", __func__, __LINE__);
-		return ret;
-	}
+	// We don't need to worry about a snapshot txn that started after the parent was early acked seeing a page 
+	// that these children updated before they are added to the commit lsn map: 
+	//		We had locks before we early acked, and we still have locks at this point.
+	//
+	// We don't need to worry about a snapshot that started after the parent was early acked rolling back
+	// these children's updates: 
+	// 		The children have the same commit lsn as the parent, and the parent's commit lsn
+	// 		was added to the map before the early ack. 
+	//		This means that any snapshot txn that started after this early ack 
+	// 		will have a target lsn >= the parent/child commit lsn.
+
+	Pthread_mutex_lock(&dbenv->txmap->txmap_mutexp);
 
 	if (commit_lsn_map && (lc.child_utxnids != NULL)) {
 		UTXNID *elt;
@@ -5282,6 +5312,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 	}
 
 	Pthread_mutex_unlock(&dbenv->txmap->txmap_mutexp);
+
 
 	if (td_stats) {
 		x2 = bb_berkdb_fasttime();
@@ -6003,6 +6034,13 @@ bad_resize:	;
 		) {
 		static int lastpr = 0;
 		int now;
+		if (commit_lsn_map) {
+			if ((ret = __txn_commit_map_add(dbenv, 
+					utxnid, ctrllsn)), ret != 0) {
+				logmsg(LOGMSG_DEBUG, "%s failed at line %d\n", __func__, __LINE__);
+				return ret;
+			}
+		}
 
 		/* got all the locks.  ack back early */
 		if (gbl_early_ack_trace && ((now = time(NULL)) - lastpr)) {

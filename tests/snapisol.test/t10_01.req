@@ -1,0 +1,11 @@
+1 create table z(i int)
+1 create procedure insert_itrs version 'v1' { local function main(itrs) for i=1,itrs do local result, rc = db:exec("insert into z values(1), (1), (1), (1), (1), (1), (1), (1), (1), (1)"); end end }
+1 exec procedure insert_itrs(100)
+1 set transaction snapshot isolation
+1 begin
+1 select count(*) from z
+2 begin
+2 delete from z where i=1
+2 commit
+1 select count(*) from z
+1 commit

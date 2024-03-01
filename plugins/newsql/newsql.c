@@ -1603,6 +1603,8 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                             clnt->verify_retries = 0;
                             if (clnt->hasql_on == 1) {
                                 newsql_set_high_availability(clnt);
+                                logmsg(LOGMSG_ERROR, "Enabling snapshot (modsnap) isolation "
+                                                     "high availability\n");
                             }
                         } else {
                             clnt->dbtran.mode = TRANLEVEL_SNAPISOL;
@@ -1619,6 +1621,8 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                         clnt->verify_retries = 0;
                         if (clnt->hasql_on == 1) {
                             newsql_set_high_availability(clnt);
+                            logmsg(LOGMSG_ERROR, "Enabling snapshot (modsnap) isolation "
+                                                 "high availability\n");
                         }
                     }
                     if (clnt->dbtran.mode == TRANLEVEL_INVALID) {

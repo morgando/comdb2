@@ -399,7 +399,7 @@ __db_moff(dbc, dbp, dbt, pgno, tlen, cmpfunc, cmpp)
 		buf = NULL;
 		bufsize = 0;
 
-		if ((ret = __db_goff(NULL, dbp,
+		if ((ret = __db_goff(dbc, dbp,
 		    &local_dbt, tlen, pgno, &buf, &bufsize)) != 0)
 			return (ret);
 		/* Pass the key as the first argument */

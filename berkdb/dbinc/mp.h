@@ -323,7 +323,7 @@ struct __bh {
 	   marked the page from clean to dirty. */
 	DB_LSN first_dirty_tx_begin_lsn;
 
-	u_int64_t is_copy;
+	u_int64_t is_copy; // Indicates whether page is a copy made by versioned memory pool.
 
 	/*
 	 * !!!

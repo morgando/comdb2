@@ -1517,8 +1517,10 @@ static const char *__tran_2_str(enum transaction_level lvl)
 {
     if (lvl == TRANLEVEL_SOSQL)
         return "SOSQL";
-    if (lvl == TRANLEVEL_RECOM || lvl == TRANLEVEL_MODSNAP) /* ? */
+    if (lvl == TRANLEVEL_RECOM)
         return "RECOM";
+    if (lvl == TRANLEVEL_MODSNAP)
+        return "MODSNAP";
     if (lvl == TRANLEVEL_SNAPISOL)
         return "SNAPISOL";
     return "???";

@@ -600,8 +600,9 @@ char *tranlevel_tostr(int lvl)
     case TRANLEVEL_SOSQL:
         return "TRANLEVEL_SOSQL";
     case TRANLEVEL_RECOM:
-    case TRANLEVEL_MODSNAP: /* ? */
         return "TRANLEVEL_RECOM";
+    case TRANLEVEL_MODSNAP:
+        return "TRANLEVEL_MODSNAP";
     case TRANLEVEL_SERIAL:
         return "TRANLEVEL_SERIAL";
     default:

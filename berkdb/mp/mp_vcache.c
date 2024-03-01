@@ -34,10 +34,22 @@
 #include "locks_wrap.h"
 
 int MEMPV_CACHE_ENTRY_NOT_FOUND = -1;
-static int num_cached_pages = 0;
+static int num_cached_pages = 0; // TODO: make this per cache
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
 
+/*
+ * __mempv_cache_init --
+ * Initializes a cache. 
+ *
+ * dbenv: Associated dbenv.
+ * cache: Allocated cache to be initialized.
+ *
+ * Returns 0 on success and non-0 on failure.
+ *
+ * PUBLIC: int __mempv_cache_init
+ * PUBLIC:	__P((DB_ENV *, MEMPV_CACHE *));
+ */
 int __mempv_cache_init(dbenv, cache)
 	DB_ENV *dbenv;
 	MEMPV_CACHE *cache;
@@ -59,10 +71,25 @@ done:
 	return ret;
 }
 
-static int __mempv_cache_evict_page(dbp, cache, versions)
+/*
+ * __mempv_cache_evict_page --
+ * Evicts a page version from the cache and frees its resources.
+ * If the evicted version is the only version of a page in the cache, then the list of versions 
+ * associated with that page is freed UNLESS this list is passed in as `pinned_version_list`.
+ *
+ * dbp: Open db.
+ * cache: Target cache.
+ * pinned_version_list: A list of versions that cannot be freed or NULL.
+ *
+ * Returns 0 on success and non-0 on failure.
+ *
+ * PUBLIC: static int __mempv_cache_evict_page
+ * PUBLIC:	__P((DB *, MEMPV_CACHE *, MEMPV_CACHE_PAGE_VERSIONS *));
+ */
+static int __mempv_cache_evict_page(dbp, cache, pinned_version_list)
 	DB *dbp;
 	MEMPV_CACHE *cache;
-	MEMPV_CACHE_PAGE_VERSIONS *versions;
+	MEMPV_CACHE_PAGE_VERSIONS *pinned_version_list;
 {
 	MEMPV_CACHE_PAGE_HEADER *to_evict;
 
@@ -71,8 +98,12 @@ static int __mempv_cache_evict_page(dbp, cache, versions)
 		return 1;
 	}
 
+	// Delete this version from the list of versions for its page.
 	hash_del(to_evict->cache->versions, to_evict);
-	if ((versions != to_evict->cache) && (hash_get_num_entries(to_evict->cache->versions) == 0)) {
+	if ((pinned_version_list != to_evict->cache) && (hash_get_num_entries(to_evict->cache->versions) == 0)) {
+		// If we emptied the list of versions for a page and we are not about to add a version for the page,
+		// then we can delete the list of versions.
+
 		hash_del(cache->pages, to_evict->cache);
 		hash_free(to_evict->cache->versions); 
 		__os_free(dbp->dbenv, to_evict->cache); 
@@ -84,6 +115,23 @@ static int __mempv_cache_evict_page(dbp, cache, versions)
 	return 0;
 }
 
+/*
+ * __mempv_cache_put --
+ * Puts *a copy* of the page version given by `bhp` into the cache.
+ *
+ * dbp: Open db.
+ * cache: Target cache.
+ * file_id: File id associated with the page.
+ * pgno: Page number.
+ * bhp: Buffer header for the page.
+ * target_lsn: Target LSN of the running snapshot transaction. A transaction can
+ * 				use this cached version iff it has the same target LSN.
+ *
+ * Returns 0 on success and non-0 on failure.
+ *
+ * PUBLIC: int __mempv_cache_put
+ * PUBLIC:	__P((DB *, MEMPV_CACHE *, u_int8_t[DB_FILE_ID_LEN], db_pgno_t, BH *, DB_LSN));
+ */
 int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	DB *dbp;
 	MEMPV_CACHE *cache;
@@ -95,26 +143,26 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	MEMPV_CACHE_PAGE_VERSIONS *versions;
 	MEMPV_CACHE_PAGE_KEY key;
 	MEMPV_CACHE_PAGE_HEADER *page_header;
+	PAGE *page_image;
 	int ret, allocd_versions, allocd_header;
 
 	versions = NULL;
 	page_header = NULL;
-	ret = 0;
-	allocd_versions = 0;
-	allocd_header = 0;
+	ret = allocd_versions = allocd_header = 0;
 	key.pgno = pgno;
 	memcpy(key.ufid, file_id, DB_FILE_ID_LEN);
+	page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
 	pthread_rwlock_wrlock(&(cache->lock));
 
-	PAGE *page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
-
 	versions = hash_find(cache->pages, &key);
 	if (versions != NULL) {
+		// If we already have a list of versions for this page, we can just add this version to that list.
 		goto put_version;
 	}
 
-create_new_cache:
+	// We don't already have a list of versions for this page. Create one.
+
 	__os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_VERSIONS), &versions); 
 	if (versions == NULL) {
 		ret = ENOMEM;
@@ -129,7 +177,6 @@ create_new_cache:
 		goto err;
 	}
 
-
 	ret = hash_add(cache->pages, versions);
 	if (ret) {
 		goto err;
@@ -138,8 +185,11 @@ create_new_cache:
 put_version:
 	page_header = hash_find_readonly(versions->versions, &target_lsn);
 	if (page_header != NULL) {
+		// We already have this exact version in the cache. Do nothing.
 		goto done;
 	}
+
+	// We need to allocate space for the new page version.
 
 	if(num_cached_pages == dbp->dbenv->attr.mempv_max_cache_entries) {
 		if ((ret = __mempv_cache_evict_page(dbp, cache, versions)), ret != 0) {
@@ -147,7 +197,6 @@ put_version:
 			goto err;
 		}
 	}
-
 
 	__os_malloc(dbp->dbenv, sizeof(MEMPV_CACHE_PAGE_HEADER)-sizeof(u_int8_t) + SSZA(BH, buf) + dbp->pgsize, &page_header); 
 	if (page_header == NULL) {
@@ -162,7 +211,6 @@ put_version:
 	page_header->cache = versions;
 	listc_abl(&cache->evict_list, page_header);
 
-
 	ret = hash_add(versions->versions, page_header);
 	if (ret) {
 		logmsg(LOGMSG_ERROR, "%s: Could not add entry to cache\n", __func__);
@@ -174,11 +222,28 @@ put_version:
 done:
 	
 err:
+	// TODO: Cleanup on error.
 	pthread_rwlock_unlock(&(cache->lock));
 
 	return ret;
 }
 
+/*
+ * __mempv_cache_get --
+ * Gets a page version from the cache.
+ *
+ * dbp: Open db.
+ * cache: Target cache.
+ * file_id: File id associated with the page.
+ * pgno: Page number.
+ * target_lsn: Target LSN of the running snapshot transaction.
+ * bhp: Buffer header for the page.
+ *
+ * Returns 0 on a cache hit or MEMPV_CACHE_ENTRY_NOT_FOUND on a cache miss.
+ *
+ * PUBLIC: int __mempv_cache_get
+ * PUBLIC:	__P((DB *, MEMPV_CACHE *, u_int8_t[DB_FILE_ID_LEN], db_pgno_t, DB_LSN, BH *));
+ */
 int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 	DB *dbp;
 	MEMPV_CACHE *cache;
@@ -213,14 +278,12 @@ int __mempv_cache_get(dbp, cache, file_id, pgno, target_lsn, bhp)
 		goto done;
 	}
 
-	/* Update LRU */
+	// Found the page in the cache. Update lru and copy it out.
+
 	listc_rfl(&cache->evict_list, page_header);
 	listc_abl(&cache->evict_list, page_header);
 
 	memcpy(bhp, (char*)(page_header->page), offsetof(BH, buf) + dbp->pgsize);
-	PAGE *page_image = (PAGE *) (bhp + offsetof(BH, buf));
-
-	page_image =(PAGE *) (page_header->page + offsetof(BH, buf));
 
 done:
 	pthread_rwlock_unlock(&(cache->lock));

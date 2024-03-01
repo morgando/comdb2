@@ -1902,7 +1902,7 @@ void abort_dbtran(struct sqlclntstate *clnt)
         break;
 
     case TRANLEVEL_RECOM:
-	case TRANLEVEL_MODSNAP:
+    case TRANLEVEL_MODSNAP:
         recom_abort(clnt);
         break;
 

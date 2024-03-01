@@ -205,7 +205,6 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
     int lwmrc = 0;
     int cmp;
     u_int32_t curflags = 0;
-    //bdb_state_type *env = bdb_state->parent;
 
     *bdberr = 0;
 

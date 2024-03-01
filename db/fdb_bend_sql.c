@@ -394,8 +394,8 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
     }
 
     switch (clnt->dbtran.mode) {
+    case TRANLEVEL_MODSNAP:
     case TRANLEVEL_RECOM: {
-	case TRANLEVEL_MODSNAP:
         /* here we handle the communication with bp */
         rc = recom_commit(clnt, NULL, clnt->tzname, 1);
         /* if a transaction exists

@@ -4853,10 +4853,20 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
 #endif
 
     struct dbtable *db =
-	    &thedb->static_table; 
+        &thedb->static_table; 
     /* Latch last commit LSN */
     if ((clnt->dbtran.mode == TRANLEVEL_MODSNAP) && !clnt->last_commit_lsn_isset && (db->handle != NULL)) {
-            bdb_register_modsnap(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
+            if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset)) {
+                logmsg(LOGMSG_ERROR, "%s: Failed to get modsnap txn start state\n", __func__);
+                rc = SQLITE_INTERNAL;
+                goto done;
+            }
+
+            if (bdb_register_modsnap(db->handle, clnt->highest_ckpt_commit_lsn_file, clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration)) {
+                logmsg(LOGMSG_ERROR, "%s: Failed to register modsnap txn\n", __func__);
+                rc = SQLITE_INTERNAL;
+                goto done;
+            }
             clnt->last_commit_lsn_isset = 1;
     }
 

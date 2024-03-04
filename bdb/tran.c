@@ -2708,7 +2708,7 @@ int bdb_get_lowest_modsnap_file(bdb_state_type *bdb_state)
     return min_file;
 }
 
-int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration)
+void bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration)
 {
     DB_ENV *dbenv;
     MODSNAP_TXN *outstanding_modsnap;
@@ -2721,74 +2721,78 @@ int bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration)
     pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
 
     free(outstanding_modsnap);
-
-    return 0;
 }
 
-int bdb_register_modsnap(bdb_state_type *bdb_state,
+int bdb_get_modsnap_start_state(bdb_state_type *bdb_state,
                         int snapshot_epoch,
                         unsigned int *last_commit_lsn_file,
                         unsigned int *last_commit_lsn_offset,
-                        unsigned int *highest_commit_lsn_asof_ckpt_file,
-                        unsigned int *highest_commit_lsn_asof_ckpt_offset,
-                        void ** registration)
+                        unsigned int *last_checkpoint_lsn_file,
+                        unsigned int *last_checkpoint_lsn_offset)
 {
     DB_ENV *dbenv;
-    DB_LSN out_last_commit_lsn;
-    DB_LSN out_highest_checkpoint_lsn;
-	DB_TXN_COMMIT_MAP *txmap;
+    DB_LSN last_commit_lsn;
+    DB_LSN last_checkpoint_lsn;
+    DB_TXN_COMMIT_MAP *txmap;
     int rc;
 
     rc = 0;
     dbenv = bdb_state->dbenv;
-	txmap = dbenv->txmap;
+    txmap = dbenv->txmap;
 
     if (snapshot_epoch) {
-        bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &out_last_commit_lsn, 0, &rc); 
+        bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &last_commit_lsn, 0, &rc); 
         if (rc != 0) {
             return rc;
         }
 
-        bdb_checkpoint_list_get_ckplsn_before_lsn(out_last_commit_lsn, &out_highest_checkpoint_lsn);
+        bdb_checkpoint_list_get_ckplsn_before_lsn(last_commit_lsn, &last_checkpoint_lsn);
     } else {
         Pthread_mutex_lock(&txmap->txmap_mutexp);
-        if ((rc = __txn_commit_map_get_highest_checkpoint_lsn(dbenv, &out_highest_checkpoint_lsn, 0)) != 0) {
+        if ((rc = __txn_commit_map_get_highest_checkpoint_lsn(dbenv, &last_checkpoint_lsn, 0)) != 0) {
             Pthread_mutex_unlock(&txmap->txmap_mutexp);
             return rc;
         }
-        if ((rc = __txn_commit_map_get_highest_commit_lsn(dbenv, &out_last_commit_lsn, 0)) != 0) {
+        if ((rc = __txn_commit_map_get_highest_commit_lsn(dbenv, &last_commit_lsn, 0)) != 0) {
             Pthread_mutex_unlock(&txmap->txmap_mutexp);
             return rc;
         }
         Pthread_mutex_unlock(&txmap->txmap_mutexp);
     }
+    
+    *last_commit_lsn_file = last_commit_lsn.file;
+    *last_commit_lsn_offset = last_commit_lsn.offset;
+    *last_checkpoint_lsn_file = last_checkpoint_lsn.file;
+    *last_checkpoint_lsn_offset = last_checkpoint_lsn.offset;
 
-    if (last_commit_lsn_file) {
-        *last_commit_lsn_file = out_last_commit_lsn.file;
-    }
-    if (last_commit_lsn_offset) {
-        *last_commit_lsn_offset = out_last_commit_lsn.offset;
-    }
-    if (highest_commit_lsn_asof_ckpt_file) {
-        *highest_commit_lsn_asof_ckpt_file = out_highest_checkpoint_lsn.file;
-    }
-    if (highest_commit_lsn_asof_ckpt_offset) {
-        *highest_commit_lsn_asof_ckpt_offset = out_highest_checkpoint_lsn.offset;
-    }
+    return rc;
+}
+
+int bdb_register_modsnap(bdb_state_type *bdb_state,
+                        unsigned int last_checkpoint_lsn_file,
+                        unsigned int last_checkpoint_lsn_offset,
+                        void ** registration)
+{
+    DB_ENV *dbenv;
+    int rc;
+
+    rc = 0;
+    dbenv = bdb_state->dbenv;
 
     MODSNAP_TXN *outstanding_modsnap = malloc(sizeof(MODSNAP_TXN));
     if (!outstanding_modsnap) {
         rc = ENOMEM;
         return rc;
     }
-    outstanding_modsnap->prior_checkpoint_lsn = out_highest_checkpoint_lsn;
+    outstanding_modsnap->prior_checkpoint_lsn.file = last_checkpoint_lsn_file;
+    outstanding_modsnap->prior_checkpoint_lsn.offset = last_checkpoint_lsn_offset;
 
     pthread_mutex_lock(&dbenv->outstanding_modsnap_lock);
     listc_atl(&dbenv->outstanding_modsnaps, outstanding_modsnap);
     pthread_mutex_unlock(&dbenv->outstanding_modsnap_lock);
 
     * (void **)registration = (void *) outstanding_modsnap;
-
+    
     return rc;
 }
 

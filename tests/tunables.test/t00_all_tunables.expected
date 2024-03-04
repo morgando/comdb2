@@ -541,7 +541,6 @@
 (name='memptrickle.stacksz', description='Thread stack size.', type='INTEGER', value='1048576', read_only='N')
 (name='memptricklemsecs', description='Pause for this many ms between runs of the cache flusher.', type='INTEGER', value='1000', read_only='N')
 (name='memptricklepercent', description='Try to keep at least this percentage of the buffer pool clean. Write pages periodically until that's achieved.', type='INTEGER', value='99', read_only='N')
-(name='mempv_collect_metrics', description='Maintain statistics about versioned memory pool', type='BOOLEAN', value='OFF', read_only='N')
 (name='mempv_debug', description='Produce debug output in versioned memory pool', type='BOOLEAN', value='OFF', read_only='N')
 (name='mempv_max_cache_entries', description='Maximum number of cache entries in versioned memory pool', type='INTEGER', value='50', read_only='N')
 (name='memstat_autoreport_freq', description='Dump memory usage to trace files at this frequency (in secs). (Default: 180 secs)', type='INTEGER', value='300', read_only='Y')

@@ -1841,10 +1841,11 @@ inline int replicant_is_able_to_retry(struct sqlclntstate *clnt)
     if ((clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
          clnt->dbtran.mode == TRANLEVEL_SERIAL) &&
         !get_asof_snapshot(clnt) && gbl_snapshot_serial_verify_retry)
-        return !clnt->sent_data_to_client;
+        return !clnt->sent_data_to_client; // TODO
 
     return clnt->dbtran.mode != TRANLEVEL_SNAPISOL &&
-           clnt->dbtran.mode != TRANLEVEL_SERIAL;
+           clnt->dbtran.mode != TRANLEVEL_SERIAL &&
+           clnt->dbtran.mode != TRANLEVEL_MODSNAP;
 }
 
 static inline int replicant_can_retry_rc(struct sqlclntstate *clnt, int rc)
@@ -1856,12 +1857,13 @@ static inline int replicant_can_retry_rc(struct sqlclntstate *clnt, int rc)
     if ((rc == CDB2ERR_NOTSERIAL || rc == CDB2ERR_VERIFY_ERROR) &&
         !clnt->sent_data_to_client && !get_asof_snapshot(clnt) &&
         gbl_snapshot_serial_verify_retry)
-        return 1;
+        return 1; // TODO
 
     /* Verify error can be retried in reccom or lower */
     return (rc == CDB2ERR_VERIFY_ERROR) &&
            (clnt->dbtran.mode != TRANLEVEL_SNAPISOL) &&
-           (clnt->dbtran.mode != TRANLEVEL_SERIAL);
+           (clnt->dbtran.mode != TRANLEVEL_SERIAL) && 
+           (clnt->dbtran.mode != TRANLEVEL_MODSNAP);
 }
 
 static int free_clnt_ddl_context(void *obj, void *arg)

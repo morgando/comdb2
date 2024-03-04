@@ -1716,6 +1716,10 @@ static void reqlog_setup_begin_commit_rollback(struct sqlthdstate *thd, struct s
 int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
                      enum trans_clntcomm sideeffects)
 {
+    int rc;
+
+    rc = SQLITE_OK;
+
     Pthread_mutex_lock(&clnt->wait_mutex);
     /* if this is a new chunk, do not stop the hearbeats.*/
     if (sideeffects != TRANS_CLNTCOMM_CHUNK)
@@ -1738,7 +1742,17 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     struct dbtable *db = &thedb->static_table;
     assert(db->handle);
     if (clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
-        bdb_register_modsnap(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration);
+        if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset)) {
+            logmsg(LOGMSG_ERROR, "%s: Failed to get modsnap txn start state\n", __func__);
+            rc = SQLITE_INTERNAL;
+            goto done;
+        }
+
+        if (bdb_register_modsnap(db->handle, clnt->highest_ckpt_commit_lsn_file, clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration)) {
+            logmsg(LOGMSG_ERROR, "%s: Failed to register modsnap txn\n", __func__);
+            rc = SQLITE_INTERNAL;
+            goto done;
+        }
         clnt->last_commit_lsn_isset = 1;
     }
 
@@ -1760,7 +1774,7 @@ done:
         reqlog_end_request(thd->logger, -1, __func__, __LINE__);
     }
 
-    return SQLITE_OK;
+    return rc;
 }
 
 static int handle_sql_wrongstate(struct sqlthdstate *thd,

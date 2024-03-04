@@ -64,4 +64,3 @@ BERK_DEF_ATTR(elect_highest_committed_gen, "Bias election by the highest generat
 BERK_DEF_ATTR(sync_standalone, "Force a log-sync at commit for standalone instances", BERK_ATTR_TYPE_BOOLEAN, 0)
 BERK_DEF_ATTR(mempv_max_cache_entries, "Maximum number of cache entries in versioned memory pool", BERK_ATTR_TYPE_INTEGER, 50)
 BERK_DEF_ATTR(mempv_debug, "Produce debug output in versioned memory pool", BERK_ATTR_TYPE_BOOLEAN, 0)
-BERK_DEF_ATTR(mempv_collect_metrics, "Maintain statistics about versioned memory pool", BERK_ATTR_TYPE_BOOLEAN, 0)

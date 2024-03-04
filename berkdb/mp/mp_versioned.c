@@ -42,13 +42,6 @@ extern int __mempv_cache_init(DB_ENV *, MEMPV_CACHE *cache);
 extern int __mempv_cache_get(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, DB_LSN target_lsn, BH *bhp);
 extern int __mempv_cache_put(DB *dbp, MEMPV_CACHE *cache, u_int8_t file_id[DB_FILE_ID_LEN], db_pgno_t pgno, BH *bhp, DB_LSN target_lsn);
 
-int gbl_modsnap_cache_hits = 0;
-int gbl_modsnap_cache_misses = 0;
-int gbl_modsnap_total_requests = 0;
-int gbl_modsnap_metrics_period = 1000000000;
-
-pthread_mutex_t gbl_modsnap_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 /*
  * __mempv_init --
  *	Initialize versioned memory pool.
@@ -364,9 +357,6 @@ done:
 	if (add_to_cache == 1) {
 	   __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}
-	if (dbenv->attr.mempv_collect_metrics) {
-		__mempv_update_stats(cache_hit, cache_miss);
-	}
 err:
 	if (logc) {
 		__log_c_close(logc);
@@ -379,32 +369,6 @@ err:
 		__os_free(dbenv, bhp);
 	}
 	return ret;
-}
-
-/*
- * __mempv_update_stats --
- * Update mempv statistics
- *
- * PUBLIC: static void __mempv_update_stats
- * PUBLIC:		__P((int, int));
- */
-static void __mempv_update_stats(cache_hit, cache_miss)
-	int cache_hit;
-	int cache_miss;
-{
-	pthread_mutex_lock(&gbl_modsnap_stats_mutex);
-	gbl_modsnap_total_requests++;
-	if (cache_hit) {
-		gbl_modsnap_cache_hits++;
-	} else if (cache_miss) {
-		gbl_modsnap_cache_misses++;
-	}
-	if (gbl_modsnap_total_requests == gbl_modsnap_metrics_period) {
-		gbl_modsnap_total_requests = 0;
-		gbl_modsnap_cache_hits = 0;
-		gbl_modsnap_cache_misses = 0;
-	}
-	pthread_mutex_unlock(&gbl_modsnap_stats_mutex);
 }
 
 /*

@@ -2741,6 +2741,8 @@ int bdb_get_modsnap_start_state(bdb_state_type *bdb_state,
     txmap = dbenv->txmap;
 
     if (snapshot_epoch) {
+        // This LSN is not necessarily a commit LSN but this is okay --
+        // it can still serve as our start point.
         bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &last_commit_lsn, 0, &rc); 
         if (rc != 0) {
             return rc;

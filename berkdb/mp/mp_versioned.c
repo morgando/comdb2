@@ -206,7 +206,20 @@ done:
 
 /*
  * __mempv_fget --
- *	Return a page in the version that it was at a past LSN.
+ * Gets a page from the file after unrolling all modifications 
+ * to the page made by transactions that committed after the target lsn.
+ * Callers should never write to these pages.
+ *
+ * This function never modifies the actual page. "Unrolling" is done 
+ * on a copy of the page.
+ *
+ * mpf: Memory pool file.
+ * dbp: Open db.
+ * pgno: Page number.
+ * target_lsn: Modifications to the page made by any transaction that committed after this LSN will be unwound. 
+ * last_checkpoint_lsn: Checkpoint preceding the target LSN.
+ * ret_page: This gets set to point to the page at the target version.
+ * flags: See `memp_fget` flags.
  *
  * PUBLIC: int __mempv_fget
  * PUBLIC:	   __P((DB_MPOOLFILE *, DB *, db_pgno_t, DB_LSN, DB_LSN, void *, u_int32_t));
@@ -376,6 +389,10 @@ err:
 /*
  * __mempv_fput --
  *	Release a page accessed with __mempv_fget.
+ *
+ * mpf: Memory pool file.
+ * page: Page accessed with __mempv_fget
+ * flags: See memp_fput flags.
  *
  * PUBLIC: int __mempv_fput
  * PUBLIC:	   __P((DB_MPOOLFILE *, void *, u_int32_t));

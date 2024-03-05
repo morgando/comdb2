@@ -2078,8 +2078,8 @@ struct __dbc {
 	char*	   pf; // Added by Fabio for prefaulting the index pages
 	db_pgno_t   lastpage; // pgno of last move
 
-	DB_LSN snapshot_lsn;
-	DB_LSN highest_ckpt_commit_lsn;
+	DB_LSN last_commit_lsn; /* Commit LSN prior to modsnap start point */
+	DB_LSN last_checkpoint_lsn; /* Checkpoint LSN prior to modsnap start point */
 };
 extern pthread_key_t DBG_FREE_CURSOR;
 

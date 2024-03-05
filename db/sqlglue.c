@@ -4855,19 +4855,19 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
     struct dbtable *db =
         &thedb->static_table; 
     /* Latch last commit LSN */
-    if ((clnt->dbtran.mode == TRANLEVEL_MODSNAP) && !clnt->last_commit_lsn_isset && (db->handle != NULL)) {
-            if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset)) {
+    if ((clnt->dbtran.mode == TRANLEVEL_MODSNAP) && !clnt->modsnap_in_progress && (db->handle != NULL)) {
+            if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->last_checkpoint_lsn_file, &clnt->last_checkpoint_lsn_offset)) {
                 logmsg(LOGMSG_ERROR, "%s: Failed to get modsnap txn start state\n", __func__);
                 rc = SQLITE_INTERNAL;
                 goto done;
             }
 
-            if (bdb_register_modsnap(db->handle, clnt->highest_ckpt_commit_lsn_file, clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration)) {
+            if (bdb_register_modsnap(db->handle, clnt->last_checkpoint_lsn_file, clnt->last_checkpoint_lsn_offset, &clnt->modsnap_registration)) {
                 logmsg(LOGMSG_ERROR, "%s: Failed to register modsnap txn\n", __func__);
                 rc = SQLITE_INTERNAL;
                 goto done;
             }
-            clnt->last_commit_lsn_isset = 1;
+            clnt->modsnap_in_progress = 1;
     }
 
     /* already have a transaction, keep using it until it commits/aborts */
@@ -4979,7 +4979,7 @@ int sqlite3BtreeCommit(Btree *pBt)
         currangearr_coalesce(clnt->selectv_arr);
 
     if (!clnt->in_sqlite_init && (clnt->ctrl_sqlengine != SQLENG_INTRANS_STATE) && (clnt->ctrl_sqlengine != SQLENG_STRT_STATE)) {
-        clnt->last_commit_lsn_isset = 0;
+        clnt->modsnap_in_progress = 0;
         if (clnt->modsnap_registration) {
             bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
             clnt->modsnap_registration = NULL;
@@ -8186,11 +8186,10 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     }
     cur->tableversion = cur->db->tableversion;
 
-    assert(clnt->last_commit_lsn_isset);
     clnt->dbtran.cursor_tran->last_commit_lsn.file = clnt->last_commit_lsn_file;
     clnt->dbtran.cursor_tran->last_commit_lsn.offset = clnt->last_commit_lsn_offset;
-    clnt->dbtran.cursor_tran->highest_ckpt_commit_lsn.file = clnt->highest_ckpt_commit_lsn_file;
-    clnt->dbtran.cursor_tran->highest_ckpt_commit_lsn.offset = clnt->highest_ckpt_commit_lsn_offset;
+    clnt->dbtran.cursor_tran->last_checkpoint_lsn.file = clnt->last_checkpoint_lsn_file;
+    clnt->dbtran.cursor_tran->last_checkpoint_lsn.offset = clnt->last_checkpoint_lsn_offset;
 
     /* initialize the shadow, if any  */
     cur->shadtbl = osql_get_shadow_bydb(thd->clnt, cur->db);
@@ -10829,7 +10828,7 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
             }
 
             rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, pCur->clnt->dbtran.mode == TRANLEVEL_MODSNAP ? 1 : 0, pCur->clnt->last_commit_lsn_file, pCur->clnt->last_commit_lsn_offset, 
-                    pCur->clnt->highest_ckpt_commit_lsn_file, pCur->clnt->highest_ckpt_commit_lsn_offset);
+                    pCur->clnt->last_checkpoint_lsn_file, pCur->clnt->last_checkpoint_lsn_offset);
             if (rc == BDBERR_DEADLOCK &&
                 recover_deadlock(thedb->bdb_env, clnt, NULL, 0)) {
                 break;

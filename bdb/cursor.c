@@ -8667,9 +8667,9 @@ struct count_arg {
     int rc;
     /* the sql_thread struct from parent thread. sql_tick() needs it. */
     void *sqlthd;
-    int is_snapcur;
-    DB_LSN last_commit_lsn;
-    DB_LSN highest_ckpt_commit_lsn;
+    int is_snapcur; /* 1 if transaction is modsnap. Otherwise 0. */
+    DB_LSN last_commit_lsn; /* Commit LSN prior to modsnap start point */
+    DB_LSN last_checkpoint_lsn; /* Checkpoint LSN prior to modsnap start point */
 };
 
 extern pthread_key_t query_info_key;
@@ -8702,8 +8702,8 @@ static void *db_count(void *varg)
     }
     if (arg->is_snapcur) {
         dbc->flags |= DBC_SNAPSHOT; 
-        dbc->snapshot_lsn = arg->last_commit_lsn;
-        dbc->highest_ckpt_commit_lsn = arg->highest_ckpt_commit_lsn;
+        dbc->last_commit_lsn = arg->last_commit_lsn;
+        dbc->last_checkpoint_lsn = arg->last_checkpoint_lsn;
     }
     int64_t count = 0;
     while ((rc = dbc->c_get(dbc, &k, &v, DB_NEXT | DB_MULTIPLE_KEY)) == 0) {
@@ -8731,7 +8731,7 @@ static void *db_count(void *varg)
 }
 
 int gbl_parallel_count = 0;
-int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt, int is_snapcur, uint32_t last_commit_lsn_file, uint32_t last_commit_lsn_offset, uint32_t highest_ckpt_commit_lsn_file, uint32_t highest_ckpt_commit_lsn_offset)
+int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt, int is_snapcur, uint32_t last_commit_lsn_file, uint32_t last_commit_lsn_offset, uint32_t last_checkpoint_lsn_file, uint32_t last_checkpoint_lsn_offset)
 {
     int64_t count = 0;
     int parallel_count;
@@ -8759,8 +8759,8 @@ int bdb_direct_count(bdb_cursor_ifn_t *cur, int ixnum, int64_t *rcnt, int is_sna
         args[i].is_snapcur = is_snapcur;
         args[i].last_commit_lsn.file = last_commit_lsn_file;
         args[i].last_commit_lsn.offset = last_commit_lsn_offset;
-        args[i].highest_ckpt_commit_lsn.file = highest_ckpt_commit_lsn_file;
-        args[i].highest_ckpt_commit_lsn.offset = highest_ckpt_commit_lsn_offset;
+        args[i].last_checkpoint_lsn.file = last_checkpoint_lsn_file;
+        args[i].last_checkpoint_lsn.offset = last_checkpoint_lsn_offset;
         if (parallel_count) {
             args[i].sqlthd = pthread_getspecific(query_info_key);
             pthread_create(&thds[i], &attr, db_count, &args[i]);

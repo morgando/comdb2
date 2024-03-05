@@ -1742,18 +1742,18 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     struct dbtable *db = &thedb->static_table;
     assert(db->handle);
     if (clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
-        if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->highest_ckpt_commit_lsn_file, &clnt->highest_ckpt_commit_lsn_offset)) {
+        if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->last_checkpoint_lsn_file, &clnt->last_checkpoint_lsn_offset)) {
             logmsg(LOGMSG_ERROR, "%s: Failed to get modsnap txn start state\n", __func__);
             rc = SQLITE_INTERNAL;
             goto done;
         }
 
-        if (bdb_register_modsnap(db->handle, clnt->highest_ckpt_commit_lsn_file, clnt->highest_ckpt_commit_lsn_offset, &clnt->modsnap_registration)) {
+        if (bdb_register_modsnap(db->handle, clnt->last_checkpoint_lsn_file, clnt->last_checkpoint_lsn_offset, &clnt->modsnap_registration)) {
             logmsg(LOGMSG_ERROR, "%s: Failed to register modsnap txn\n", __func__);
             rc = SQLITE_INTERNAL;
             goto done;
         }
-        clnt->last_commit_lsn_isset = 1;
+        clnt->modsnap_in_progress = 1;
     }
 
     if (clnt->osql.replay)
@@ -1957,7 +1957,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 {
     int irc = 0, rc = 0, bdberr = 0;
 
-    clnt->last_commit_lsn_isset = 0;
+    clnt->modsnap_in_progress = 0;
     if (clnt->modsnap_registration) {
         bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
         clnt->modsnap_registration = NULL;
@@ -2270,7 +2270,7 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
     int rc = 0;
     int outrc = 0;
 
-    clnt->last_commit_lsn_isset = 0;
+    clnt->modsnap_in_progress = 0;
     if (clnt->modsnap_registration) {
         bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
         clnt->modsnap_registration = NULL;
@@ -5474,7 +5474,7 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
         init_bplog_socket(clnt);
     }
 
-    clnt->last_commit_lsn_isset = 0;
+    clnt->modsnap_in_progress = 0;
     if (clnt->modsnap_registration) {
         bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
         clnt->modsnap_registration = NULL;
@@ -5487,7 +5487,7 @@ void reset_clnt_flags(struct sqlclntstate *clnt)
     clnt->has_recording = 0;
     clnt->statement_timedout = 0;
     clnt->writeTransaction = 0;
-    clnt->last_commit_lsn_isset = 0;
+    clnt->modsnap_in_progress = 0;
     if (clnt->modsnap_registration) {
         bdb_unregister_modsnap(thedb->bdb_env, clnt->modsnap_registration);
         clnt->modsnap_registration = NULL;

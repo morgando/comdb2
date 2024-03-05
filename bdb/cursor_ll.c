@@ -1671,8 +1671,8 @@ DBC *get_cursor_for_cursortran_flags(cursor_tran_t *curtran, DB *db,
 
     // Set snapshot LSN to the commit LSN of the most recently 
     // committed transaction.
-    dbc->snapshot_lsn = curtran->last_commit_lsn;
-    dbc->highest_ckpt_commit_lsn = curtran->highest_ckpt_commit_lsn;
+    dbc->last_commit_lsn = curtran->last_commit_lsn;
+    dbc->last_checkpoint_lsn = curtran->last_checkpoint_lsn;
     return dbc;
 }
 

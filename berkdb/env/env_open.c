@@ -976,7 +976,9 @@ __dbenv_close(dbenv, rep_check)
 	__txn_commit_map_destroy(dbenv);
 
 	/* Release versioned memory pool */
-	__mempv_destroy(dbenv);
+	if (dbenv->mempv != NULL) {
+		__mempv_destroy(dbenv);
+	}
 
 	/* Discard the structure. */
 	memset(dbenv, CLEAR_BYTE, sizeof(DB_ENV));

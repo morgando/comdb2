@@ -74,13 +74,15 @@ done:
  * __mempv_destroy --
  *	Destroy versioned memory pool.
  *
- * PUBLIC: int __mempv_destroy
+ * PUBLIC: void __mempv_destroy
  * PUBLIC:	   __P((DB_ENV *));
  */
-int __mempv_destroy(dbenv)
+void __mempv_destroy(dbenv)
 	DB_ENV *dbenv;
 {
-	return 1;
+	__mempv_cache_destroy(&(dbenv->mempv->cache));
+	__os_free(dbenv, dbenv->mempv);
+	dbenv->mempv = NULL;
 }
 
 static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_ENV*, DBT*, DB_LSN*, db_recops, PAGE *), u_int64_t *utxnid, db_pgno_t pgno) {

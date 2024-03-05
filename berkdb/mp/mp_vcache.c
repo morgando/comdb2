@@ -33,10 +33,20 @@
 #include <pool.h>
 #include "locks_wrap.h"
 
+extern int free_it(void *obj, void *arg);
+extern void destroy_hash(hash_t *h, int (*free_func)(void *, void *));
+
 int MEMPV_CACHE_ENTRY_NOT_FOUND = -1;
 static int num_cached_pages = 0; // TODO: make this per cache
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
+
+static int __mempv_cache_page_destroy(cache_page)
+	MEMPV_CACHE_PAGE_VERSIONS *cache_page;
+{
+	destroy_hash(cache_page->versions, free_it);
+	return 0;
+}
 
 /*
  * __mempv_cache_init --
@@ -65,10 +75,29 @@ int __mempv_cache_init(dbenv, cache)
 	}
 
 	listc_init(&cache->evict_list, offsetof(MEMPV_CACHE_PAGE_HEADER, evict_link)); 
-	pthread_rwlock_init(&(cache->lock), NULL);
 
+	pthread_rwlock_init(&(cache->lock), NULL);
 done:
 	return ret;
+}
+
+/*
+ * __mempv_cache_destroy --
+ * Destroys a cache. 
+ *
+ * dbenv: Associated dbenv.
+ * cache: Cache to be destroyed
+ *
+ * PUBLIC: void __mempv_cache_destroy
+ * PUBLIC:	__P((MEMPV_CACHE *));
+ */
+void __mempv_cache_destroy(cache)
+	MEMPV_CACHE *cache;
+{
+	hash_for(cache->pages, __mempv_cache_page_destroy, NULL);
+	destroy_hash(cache->pages, free_it);
+
+	pthread_rwlock_destroy(&(cache->lock));
 }
 
 /*
@@ -314,3 +343,4 @@ void __mempv_cache_dump(cache)
 	hash_for(cache->pages, __mempv_cache_page_dump, NULL);
 	printf("--------------------\nFINISHED DUMPING PAGE CACHE\n");
 }
+

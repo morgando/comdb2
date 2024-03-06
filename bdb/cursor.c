@@ -2425,6 +2425,8 @@ int bdb_gbl_asof_modsnap_init(bdb_state_type *bdb_state)
     rc = bdberr = 0;
 
     bdb_checkpoint_list_init();
+
+    Pthread_mutex_init(&bdb_gbl_recoverable_lsn_mutex, NULL);
     
     // Asof modsnap can use the newsi timestamp table to quickly convert an 
     // epoch to a start LSN.

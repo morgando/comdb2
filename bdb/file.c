@@ -3656,6 +3656,7 @@ static void delete_log_files_int(bdb_state_type *bdb_state)
         }
     }
 
+	// TODO: Modsnap
     if (gbl_new_snapisol_asof) {
         DB_LSN asoflsn;
         extern pthread_mutex_t bdb_asof_current_lsn_mutex;
@@ -3853,6 +3854,7 @@ low_headroom:
             }
 
             if (gbl_new_snapisol_asof) {
+				// TODO: Modsnap
                 /* avoid trace between reading and writting recoverable lsn */
                 Pthread_mutex_lock(&bdb_gbl_recoverable_lsn_mutex);
                 /* check active begin-as-of transactions */
@@ -3985,6 +3987,7 @@ low_headroom:
                 delete_adjacent = 0;
             }
 
+			// TODO: Modsnap
             if (gbl_new_snapisol_asof) {
                 Pthread_mutex_unlock(&bdb_gbl_recoverable_lsn_mutex);
             }

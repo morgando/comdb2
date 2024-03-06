@@ -161,6 +161,8 @@ pthread_mutex_t bdb_gbl_timestamp_lsn_mutex;
 tmpcursor_t *bdb_gbl_timestamp_lsn_cur;
 int bdb_gbl_timestamp_lsn_ready = 0;
 extern int gbl_newsi_use_timestamp_table;
+extern int
+__scan_logfiles_for_asof_modsnap(DB_ENV *);
 
 hash_t *bdb_gbl_ltran_pglogs_hash;
 pthread_mutex_t bdb_gbl_ltran_pglogs_mutex;
@@ -2415,6 +2417,56 @@ static int my_fileid_free(void *obj, void *arg)
 {
     free(obj);
     return 0;
+}
+
+int bdb_gbl_asof_modsnap_init(bdb_state_type *bdb_state)
+{
+    int rc, bdberr;
+    rc = bdberr = 0;
+
+    bdb_checkpoint_list_init();
+    
+    // Asof modsnap can use the newsi timestamp table to quickly convert an 
+    // epoch to a start LSN.
+    if (gbl_newsi_use_timestamp_table) {
+        bdb_gbl_timestamp_lsn = bdb_temp_table_create(bdb_state, &bdberr);
+        if (bdb_gbl_timestamp_lsn == NULL) {
+            logmsg(LOGMSG_ERROR, "%s: failed to init bdb_gbl_timestamp_lsn\n",
+                    __func__);
+            rc = -1;
+            goto done;
+        }
+        bdb_gbl_timestamp_lsn_cur = bdb_temp_table_cursor(
+            bdb_state, bdb_gbl_timestamp_lsn, NULL, &bdberr);
+        if (bdb_gbl_timestamp_lsn == NULL) {
+            logmsg(LOGMSG_ERROR, 
+                    "%s: failed to init cursor for bdb_gbl_timestamp_lsn\n",
+                    __func__);
+            rc = -1;
+            goto done;
+        }
+        bdb_temp_table_set_cmp_func(bdb_gbl_timestamp_lsn,
+                                    timestamp_lsn_keycmp);
+        bdb_gbl_timestamp_lsn_ready = 1;
+    }
+
+    rc = __scan_logfiles_for_asof_modsnap(bdb_state->dbenv);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: failed to scan logfiles. asof modsnap"
+                        "might not work\n",
+                __func__);
+        Pthread_mutex_lock(&bdb_gbl_recoverable_lsn_mutex);
+        bdb_get_current_lsn(bdb_state, &(bdb_gbl_recoverable_lsn.file),
+                            &(bdb_gbl_recoverable_lsn.offset));
+        bdb_gbl_recoverable_timestamp = (int32_t)time(NULL);
+        Pthread_mutex_unlock(&bdb_gbl_recoverable_lsn_mutex);
+        logmsg(LOGMSG_ERROR, "set gbl_recoverable_lsn as [%d][%d]\n",
+               bdb_gbl_recoverable_lsn.file,
+               bdb_gbl_recoverable_lsn.offset);
+    }
+
+done:
+    return rc;
 }
 
 int bdb_gbl_pglogs_init(bdb_state_type *bdb_state)

@@ -1446,15 +1446,21 @@ int bdb_register_modsnap(bdb_state_type *bdb_state,
  * the the preceding commit lsn (its target lsn) and the preceding checkpoint lsn.
  *
  * bdb_state: Caller's bdb state.
+ * is_ha_retry: 1 if transaction is a hasql retry. 0 otherwise.
  * snapshot_epoch: Snapshot epoch if a PIT snapshot or 0 if not a PIT snapshot.
  * last_commit_lsn_file: This gets set to the preceding commit lsn file.
+ *                       If transaction is a hasql retry, 
+ *                       then this should be set by the caller to the retry start lsn file.
  * last_commit_lsn_offset: This gets set to the preceding commit lsn offset.
+ *                         If transaction is a hasql retry, 
+ *                         then this should be set by the caller to the retry start lsn offset.
  * last_checkpoint_lsn_file: This gets set to the preceding checkpoint lsn file.
  * last_checkpoint_lsn_offset: This gets set to the preceding checkpoint lsn offset.
  *
  * Returns 0 on success and non-0 on failure.
  */
 int bdb_get_modsnap_start_state(bdb_state_type *bdb_state,
+                        int is_hasql_retry,
                         int snapshot_epoch,
                         unsigned int *last_commit_lsn_file,
                         unsigned int *last_commit_lsn_offset,

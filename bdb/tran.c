@@ -2727,6 +2727,7 @@ void bdb_unregister_modsnap(bdb_state_type *bdb_state, void * registration)
 }
 
 int bdb_get_modsnap_start_state(bdb_state_type *bdb_state,
+                        int is_ha_retry,
                         int snapshot_epoch,
                         unsigned int *last_commit_lsn_file,
                         unsigned int *last_commit_lsn_offset,
@@ -2743,7 +2744,12 @@ int bdb_get_modsnap_start_state(bdb_state_type *bdb_state,
     dbenv = bdb_state->dbenv;
     txmap = dbenv->txmap;
 
-    if (snapshot_epoch) {
+    if (is_ha_retry) {
+        last_commit_lsn.file = *last_commit_lsn_file;
+        last_commit_lsn.offset = *last_commit_lsn_offset;
+
+        bdb_checkpoint_list_get_ckplsn_before_lsn(last_commit_lsn, &last_checkpoint_lsn);
+    } else if (snapshot_epoch) {
         // This LSN is not necessarily a commit LSN but this is okay --
         // it can still serve as our start point.
         bdb_get_lsn_context_from_timestamp(bdb_state, snapshot_epoch, &last_commit_lsn, 0, &rc); 

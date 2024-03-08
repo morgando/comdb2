@@ -4631,7 +4631,7 @@ void get_current_lsn(struct sqlclntstate *clnt)
     }
 }
 
-static int get_snapshot(struct sqlclntstate *clnt, int *f, int *o)
+int get_snapshot(struct sqlclntstate *clnt, int *f, int *o)
 {
     return clnt->plugin.get_snapshot(clnt, f, o);
 }
@@ -4859,7 +4859,12 @@ int sqlite3BtreeBeginTrans(Vdbe *vdbe, Btree *pBt, int wrflag, int *pSchemaVersi
         &thedb->static_table; 
     /* Latch last commit LSN */
     if ((clnt->dbtran.mode == TRANLEVEL_MODSNAP) && !clnt->modsnap_in_progress && (db->handle != NULL)) {
-            if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->last_checkpoint_lsn_file, &clnt->last_checkpoint_lsn_offset)) {
+            if (clnt->is_hasql_retry) {
+                get_snapshot(clnt, (int *) &clnt->last_commit_lsn_file, (int *) &clnt->last_commit_lsn_offset);
+            }
+            if (bdb_get_modsnap_start_state(db->handle, clnt->is_hasql_retry, clnt->snapshot, 
+                    &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->last_checkpoint_lsn_file, 
+                    &clnt->last_checkpoint_lsn_offset)) {
                 logmsg(LOGMSG_ERROR, "%s: Failed to get modsnap txn start state\n", __func__);
                 rc = SQLITE_INTERNAL;
                 goto done;

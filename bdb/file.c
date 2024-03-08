@@ -118,6 +118,7 @@ extern struct interned_string *gbl_myhostname_interned;
 extern size_t gbl_blobmem_cap;
 extern int gbl_backup_logfiles;
 extern int gbl_commit_lsn_map;
+extern int gbl_modsnap_asof;
 
 #define FILENAMELEN 100
 
@@ -3654,7 +3655,6 @@ static void delete_log_files_int(bdb_state_type *bdb_state)
         }
     }
 
-	// TODO: Modsnap
     if (gbl_new_snapisol_asof) {
         DB_LSN asoflsn;
         extern pthread_mutex_t bdb_asof_current_lsn_mutex;
@@ -3850,9 +3850,24 @@ low_headroom:
                 }
                 break;
             }
+            if (gbl_modsnap_asof) {
+                /* check if we still can maintain snapshot that begin as of
+                 * min_keep_logs_age seconds ago */
+                if (!bdb_checkpoint_list_ok_to_delete_log(
+                        bdb_state->attr->min_keep_logs_age, filenum)) {
+                    if (bdb_state->attr->debug_log_deletion)
+                        logmsg(LOGMSG_USER, "not ok to delete log, log file needed "
+                                        "to recover to at least %ds ago\n",
+                                bdb_state->attr->min_keep_logs_age);
+                    if (ctrace_info)
+                        ctrace("not ok to delete log, log file needed to "
+                               "recover to at least %ds ago\n",
+                               bdb_state->attr->min_keep_logs_age);
+                    break;
+                }
+            }
 
             if (gbl_new_snapisol_asof) {
-				// TODO: Modsnap
                 /* avoid trace between reading and writting recoverable lsn */
                 Pthread_mutex_lock(&bdb_gbl_recoverable_lsn_mutex);
                 /* check active begin-as-of transactions */
@@ -3985,7 +4000,6 @@ low_headroom:
                 delete_adjacent = 0;
             }
 
-			// TODO: Modsnap
             if (gbl_new_snapisol_asof) {
                 Pthread_mutex_unlock(&bdb_gbl_recoverable_lsn_mutex);
             }

@@ -1224,19 +1224,21 @@ tran_type *bdb_tran_begin_shadow_int(bdb_state_type *bdb_state, int tranclass,
             }
 
             /* register transaction so we start receiving log undos */
-            tran->osql =
-                bdb_osql_trn_register(bdb_state, tran, trak, bdberr, epoch,
-                                      file, offset, is_ha_retry);
-            if (!tran->osql) {
-                if (*bdberr != BDBERR_NOT_DURABLE)
-                    logmsg(LOGMSG_ERROR, "%s %d\n", __func__, *bdberr);
+            if (tran->tranclass != TRANCLASS_MODSNAP) {
+                tran->osql =
+                    bdb_osql_trn_register(bdb_state, tran, trak, bdberr, epoch,
+                                          file, offset, is_ha_retry);
+                if (!tran->osql) {
+                    if (*bdberr != BDBERR_NOT_DURABLE)
+                        logmsg(LOGMSG_ERROR, "%s %d\n", __func__, *bdberr);
 
-                myfree(tran);
-                return NULL;
-            }
+                    myfree(tran);
+                    return NULL;
+                }
 
-            listc_init(&tran->open_cursors,
-                       offsetof(struct bdb_cursor_ifn, lnk));
+                listc_init(&tran->open_cursors,
+                           offsetof(struct bdb_cursor_ifn, lnk));
+           }
         }
     }
 
@@ -2762,7 +2764,7 @@ int bdb_get_modsnap_start_state(bdb_state_type *bdb_state,
         }
         Pthread_mutex_unlock(&txmap->txmap_mutexp);
     }
-    
+
     *last_commit_lsn_file = last_commit_lsn.file;
     *last_commit_lsn_offset = last_commit_lsn.offset;
     *last_checkpoint_lsn_file = last_checkpoint_lsn.file;

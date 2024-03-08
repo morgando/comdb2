@@ -182,6 +182,7 @@ extern int gbl_disable_sql_dlmalloc;
 extern struct ruleset *gbl_ruleset;
 extern int gbl_sql_release_locks_on_slow_reader;
 extern int gbl_sql_no_timeouts_on_release_locks;
+extern int get_snapshot(struct sqlclntstate *clnt, int *f, int *o);
 
 /* gets incremented each time a user's password is changed. */
 int gbl_bpfunc_auth_gen = 1;
@@ -1743,7 +1744,12 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     struct dbtable *db = &thedb->static_table;
     assert(db->handle);
     if (clnt->dbtran.mode == TRANLEVEL_MODSNAP) {
-        if (bdb_get_modsnap_start_state(db->handle, clnt->snapshot, &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, &clnt->last_checkpoint_lsn_file, &clnt->last_checkpoint_lsn_offset)) {
+        if (clnt->is_hasql_retry) {
+            get_snapshot(clnt, (int *) &clnt->last_commit_lsn_file, (int *) &clnt->last_commit_lsn_offset);
+        }
+        if (bdb_get_modsnap_start_state(db->handle, clnt->is_hasql_retry, clnt->snapshot,
+                    &clnt->last_commit_lsn_file, &clnt->last_commit_lsn_offset, 
+                    &clnt->last_checkpoint_lsn_file, &clnt->last_checkpoint_lsn_offset)) {
             logmsg(LOGMSG_ERROR, "%s: Failed to get modsnap txn start state\n", __func__);
             rc = SQLITE_INTERNAL;
             goto done;

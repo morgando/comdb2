@@ -5172,8 +5172,6 @@ clipper_usage:
         } else {
             logmsg(LOGMSG_USER, "Commit LSN map is not active\n");
         }
-    } else if (tokcmp(tok, ltok, "use_modsnap_for_snapshot") == 0) {
-        gbl_use_modsnap_for_snapshot = 1;
     } else if (tokcmp(tok, ltok, "do_not_use_modsnap_for_snapshot") == 0) {
         gbl_use_modsnap_for_snapshot = 0;
     } else {

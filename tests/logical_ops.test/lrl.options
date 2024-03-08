@@ -1,5 +1,4 @@
 logmsg level info
 enable_snapshot_isolation
 ssl_client_mode OPTIONAL
-use_modsnap_for_snapshot on
-enable_modsnap_snapshot_implementation on
+use_modsnap_for_snapshot

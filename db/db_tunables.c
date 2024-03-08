@@ -131,8 +131,6 @@ extern int gbl_udp;
 extern int gbl_update_delete_limit;
 extern int gbl_updategenids;
 extern int gbl_use_modsnap_for_snapshot;
-extern int gbl_modsnap;
-extern int gbl_modsnap_asof;
 extern int gbl_use_appsock_as_sqlthread;
 extern int gbl_use_node_pri;
 extern int gbl_watchdog_watch_threshold;

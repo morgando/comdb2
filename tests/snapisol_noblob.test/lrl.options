@@ -10,8 +10,3 @@ pagesizedta 512
 dtastripe 1
 keycompr OFF
 use_modsnap_for_snapshot
-use_modsnap_for_snapshot
-use_modsnap_for_snapshot on
-use_modsnap_for_snapshot on
-use_modsnap_for_snapshot on
-enable_modsnap_snapshot_implementation on

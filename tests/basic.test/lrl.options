@@ -2,5 +2,4 @@ table t1 alltypes.csc2
 do reql events on
 do reql events detailed on
 reorder_idx_writes on
-use_modsnap_for_snapshot on
-enable_modsnap_snapshot_implementation on
+use_modsnap_for_snapshot

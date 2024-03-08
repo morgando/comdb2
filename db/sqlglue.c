@@ -121,6 +121,8 @@ extern int gbl_partial_indexes;
 #define SQLITE3BTREE_KEY_SET_DEL(IX) (clnt->del_keys |= (1ULL << (IX)))
 extern int gbl_expressions_indexes;
 extern int gbl_debug_tmptbl_corrupt_mem;
+extern int gbl_commit_lsn_map;
+extern int gbl_utxnid_log;
 
 // Lua threads share temp tables.
 // Don't create new btree, use this one (tmptbl_clone)
@@ -3678,7 +3680,8 @@ int sql_set_transaction_mode(sqlite3 *db, struct sqlclntstate *clnt, int mode)
     int i;
 
     /* snapshot/serializable protection */
-    if ((mode == TRANLEVEL_MODSNAP && !gbl_modsnap) || ((mode == TRANLEVEL_SERIAL || mode == TRANLEVEL_SNAPISOL) &&
+    if ((mode == TRANLEVEL_MODSNAP && (!gbl_snapisol || !gbl_commit_lsn_map || !gbl_utxnid_log)) || 
+        ((mode == TRANLEVEL_SERIAL || mode == TRANLEVEL_SNAPISOL) &&
         !(gbl_rowlocks || gbl_snapisol))) {
         logmsg(LOGMSG_ERROR, "%s REQUIRES MODIFICATIONS TO THE LRL FILE\n",
                 (mode == TRANLEVEL_SNAPISOL) ? "SNAPSHOT ISOLATION"

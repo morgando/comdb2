@@ -6,5 +6,4 @@ setattr DEBUG_LOG_DELETION 1
 MIN_KEEP_LOGS 5
 MIN_KEEP_LOGS_AGE 10
 private_blkseq_maxage 10
-use_modsnap_for_snapshot on
-enable_modsnap_snapshot_implementation on
+use_modsnap_for_snapshot

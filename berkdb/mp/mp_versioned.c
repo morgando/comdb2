@@ -190,11 +190,6 @@ static int __mempv_read_log_record(DB_ENV *dbenv, void *data, int (**apply)(DB_E
 			}
 		   *apply = __db_pg_free_snap_recover;
 		   break;
-			
-		/*case DB___bam_pgcompact:
-		   // TODO
-		   *apply = __bam_pgcompact_recover;
-		   break;*/
 		default:
 			logmsg(LOGMSG_ERROR, "Op type of log record is unrecognized %d\n", rectype);
 			ret = 1;
@@ -271,7 +266,7 @@ int __mempv_fget(mpf, dbp, pgno, target_lsn, highest_checkpoint_lsn, ret_page, f
 		}
 		found = 1;
 		page_image = page;
-		goto search;
+		goto found_page;
 	} else {
 		__os_malloc(dbenv, SSZA(BH, buf) + dbp->pgsize, (void *) &bhp);
 		page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
@@ -323,17 +318,18 @@ search:
 		}
 
 		if (PAGE_VERSION_IS_GUARANTEED_TARGET(highest_checkpoint_lsn, smallest_logfile, target_lsn, cur_page_lsn)) {
+			if (mempv_debug) {
+				logmsg(LOGMSG_USER, "%s: Page has unlogged LSN or an LSN before the last checkpoint\n", __func__);
+			}
 			add_to_cache = 1;
 			found = 1;
 			break;
 		}
 
 		if (IS_ZERO_LSN(cur_page_lsn)) {
-			if (mempv_debug) {
-				logmsg(LOGMSG_USER, "%s: Got to page with zero / unlogged LSN\n", __func__);
-			}
+			logmsg(LOGMSG_ERROR, "%s: Got to page with zero LSN\n", __func__);
 			ret = 1;
-			goto done;
+			goto err;
 		}
 		
 		ret = __log_c_get(logc, &cur_page_lsn, &dbt, DB_SET);
@@ -366,9 +362,9 @@ search:
 		cur_page_lsn = LSN(page_image);
 	}
 
+found_page:
 	*(void **)ret_page = (void *) page_image;
 
-done:
 	if (add_to_cache == 1) {
 	   __mempv_cache_put(dbp, &dbenv->mempv->cache, mpf->fileid, pgno, bhp, target_lsn);
 	}

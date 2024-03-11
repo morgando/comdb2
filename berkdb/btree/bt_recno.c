@@ -779,7 +779,7 @@ __ram_ca(dbc_arg, op)
 			for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 			    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 				cp = (BTREE_CURSOR *)dbc->internal;
-				if (!F_ISSET(dbc, DBC_SNAPSHOT) && cp_arg->root == cp->root &&
+				if (cp_arg->root == cp->root &&
 				    recno == cp->recno && CD_ISSET(cp) &&
 				    order <= cp->order)
 					order = cp->order + 1;
@@ -796,7 +796,7 @@ __ram_ca(dbc_arg, op)
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			cp = (BTREE_CURSOR *)dbc->internal;
-			if (cp_arg->root != cp->root || F_ISSET(dbc, DBC_SNAPSHOT))
+			if (cp_arg->root != cp->root)
 				continue;
 			++found;
 			adjusted = 0;

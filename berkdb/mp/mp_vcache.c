@@ -199,6 +199,7 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	}
 	allocd_versions = 1;
 
+	bzero(versions, sizeof(MEMPV_CACHE_PAGE_VERSIONS));
 	versions->key = key;
 	versions->versions = hash_init_o(offsetof(MEMPV_CACHE_PAGE_HEADER, snapshot_lsn), sizeof(DB_LSN)); 
 	if (versions->versions == NULL) {
@@ -249,11 +250,29 @@ put_version:
 	num_cached_pages++;
 
 done:
+	pthread_rwlock_unlock(&(cache->lock));
+	return ret;
 	
 err:
-	// TODO: Cleanup on error.
-	pthread_rwlock_unlock(&(cache->lock));
+	if (allocd_versions) {
+		if (hash_find(cache->pages, &key)) {
+			hash_del(cache->pages, versions);
+		}
+		if (versions->versions != NULL) {
+			hash_free(versions->versions); 
+		}
+		__os_free(dbp->dbenv, versions); 
+	}
 
+	if (allocd_header) {
+		if (!allocd_versions && hash_find(versions->versions, page_header)) {
+			hash_del(versions->versions, page_header);	
+		}
+		listc_maybe_rfl(&cache->evict_list, page_header);
+		__os_free(dbp->dbenv, page_header);
+	}
+
+	pthread_rwlock_unlock(&(cache->lock));
 	return ret;
 }
 

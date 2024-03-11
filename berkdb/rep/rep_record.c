@@ -5652,10 +5652,6 @@ __rep_process_txn_concurrent_int(dbenv, rctl, rec, ltrans, ctrllsn, maxlsn,
 		Pthread_mutex_init(&rp->lk, NULL);
 		Pthread_cond_init(&rp->wait, NULL);
 		memset(&rp->lc, 0, sizeof(rp->lc));
-		if ((ret= __os_malloc(dbenv, sizeof(LISTC_T(UTXNID)), &rp->lc.child_utxnids) != 0)) {
-			goto err;
-		}
-		listc_init(rp->lc.child_utxnids, offsetof(UTXNID, lnk));
 
 		rp->recovery_queues = NULL;
 		rp->recpool =
@@ -5716,7 +5712,6 @@ bad_resize:	;
 	if ((ret= __os_malloc(dbenv, sizeof(LISTC_T(UTXNID)), &rp->lc.child_utxnids) != 0)) {
 		goto err;
 	}
-
 	listc_init(rp->lc.child_utxnids, offsetof(UTXNID, lnk));
 
 	db_rep = dbenv->rep_handle;

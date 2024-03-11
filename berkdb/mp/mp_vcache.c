@@ -37,7 +37,6 @@ extern int free_it(void *obj, void *arg);
 extern void destroy_hash(hash_t *h, int (*free_func)(void *, void *));
 
 int MEMPV_CACHE_ENTRY_NOT_FOUND = -1;
-static int num_cached_pages = 0; // TODO: make this per cache
 
 void __mempv_cache_dump(MEMPV_CACHE *cache);
 
@@ -68,6 +67,7 @@ int __mempv_cache_init(dbenv, cache)
 
 	ret = 0;
 
+	cache->num_cached_pages = 0;
 	cache->pages = hash_init_o(offsetof(MEMPV_CACHE_PAGE_VERSIONS, key), sizeof(MEMPV_CACHE_PAGE_KEY)); 
 	if (cache->pages == NULL) {
 		ret = ENOMEM;
@@ -139,7 +139,7 @@ static int __mempv_cache_evict_page(dbp, cache, pinned_version_list)
 	}
 
 	__os_free(dbp->dbenv, to_evict); 
-	num_cached_pages--;
+	cache->num_cached_pages--;
 	
 	return 0;
 }
@@ -221,7 +221,7 @@ put_version:
 
 	// We need to allocate space for the new page version.
 
-	if(num_cached_pages == dbp->dbenv->attr.mempv_max_cache_entries) {
+	if(cache->num_cached_pages == dbp->dbenv->attr.mempv_max_cache_entries) {
 		if ((ret = __mempv_cache_evict_page(dbp, cache, versions)), ret != 0) {
 			logmsg(LOGMSG_ERROR, "%s: Could not evict cache page\n", __func__);
 			goto err;
@@ -247,7 +247,7 @@ put_version:
 		goto err;
 	}
 
-	num_cached_pages++;
+	cache->num_cached_pages++;
 
 done:
 	pthread_rwlock_unlock(&(cache->lock));

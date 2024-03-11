@@ -78,7 +78,7 @@ extern int gbl_rowlocks_bench_logical_rectype;
 extern int gbl_rowlocks;
 extern int gbl_optimize_truncate_repdb;
 extern int gbl_early;
-extern int gbl_modsnap;
+extern int gbl_lockless_modsnap;
 extern int gbl_reallyearly;
 extern int gbl_rep_process_txn_time;
 extern int gbl_is_physical_replicant;
@@ -669,7 +669,7 @@ static void *apply_thread(void *arg)
 				if (ret == 0 || ret == DB_REP_ISPERM) {
 					bdb_set_seqnum(dbenv->app_private);
 
-					if (ret == DB_REP_ISPERM && ((!gbl_early && !gbl_reallyearly) || gbl_modsnap)) {
+					if (ret == DB_REP_ISPERM && ((!gbl_early && !gbl_reallyearly) || gbl_lockless_modsnap)) {
 						/* Call this but not really early anymore */
 						comdb2_early_ack(dbenv, ret_lsnp, q->gen);
 					}
@@ -3707,7 +3707,7 @@ gap_check:		max_lsn_dbtp = NULL;
 			(u_int8_t *) & dbreg_args));
 		if (txnid == TXN_INVALID && !F_ISSET(rep, REP_F_LOGSONLY)) {
 			/* Serialization point: dbreg id are kept in memory & can change here */
-			if (!gbl_modsnap && dbenv->num_recovery_processor_threads &&
+			if (!gbl_lockless_modsnap && dbenv->num_recovery_processor_threads &&
 				dbenv->num_recovery_worker_threads) {
 				wait_for_running_transactions(dbenv);
 			}
@@ -3781,7 +3781,7 @@ gap_check:		max_lsn_dbtp = NULL;
 				 * eventually succeed.
 				 */
 
-				if (!gbl_modsnap && gbl_reallyearly &&
+				if (!gbl_lockless_modsnap && gbl_reallyearly &&
 					/* don't ack 0:0, which happens for out-of-sequence commits */
 					!(max_lsn.file == 0 && max_lsn.offset == 0)
 					) {
@@ -3789,7 +3789,7 @@ gap_check:		max_lsn_dbtp = NULL;
 						rep->committed_gen);
 				}
 
-				if (!gbl_modsnap && dbenv->num_recovery_processor_threads &&
+				if (!gbl_lockless_modsnap && dbenv->num_recovery_processor_threads &&
 					dbenv->num_recovery_worker_threads) {
 					ret =
 						__rep_process_txn_concurrent(dbenv,
@@ -5104,7 +5104,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		__rep_set_last_locked(dbenv, &(rctl->lsn));
 
 		/* got all the locks.  ack back early */
-		if (!gbl_modsnap && (gbl_early) && (!gbl_reallyearly) &&
+		if (!gbl_lockless_modsnap && (gbl_early) && (!gbl_reallyearly) &&
 			!(maxlsn.file == 0 && maxlsn.offset == 0) &&
 			(!txn_rl_args ||
 			((txn_rl_args->lflags & DB_TXN_LOGICAL_COMMIT) &&
@@ -6027,7 +6027,7 @@ bad_resize:	;
 	/* Set the last-locked lsn */
 	__rep_set_last_locked(dbenv, &(rctl->lsn));
 
-	if (!gbl_modsnap && (gbl_early) && (!gbl_reallyearly) &&
+	if (!gbl_lockless_modsnap && (gbl_early) && (!gbl_reallyearly) &&
 		!(maxlsn.file == 0 && maxlsn.offset == 0) &&
 		(!txn_rl_args || ((txn_rl_args->lflags & DB_TXN_LOGICAL_COMMIT) &&
 			!(txn_rl_args->lflags & DB_TXN_SCHEMA_LOCK)) ||

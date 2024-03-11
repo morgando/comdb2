@@ -1259,6 +1259,10 @@ REGISTER_TUNABLE("use_modsnap_for_snapshot",
                  "Use modsnap implementation for snapshot transactions. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_use_modsnap_for_snapshot, READONLY,
                  NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("enable_lockless_modsnap",
+                 "Enables lockless modsnap. This turns early ack and parallel rep off (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_lockless_modsnap, READONLY,
+                 NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("watchthreshold",
                  "Panic if node has been unhealty (unresponsive, out of resources, etc.) for more "
                  "than this many seconds. The default value is 60.",

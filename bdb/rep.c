@@ -70,6 +70,7 @@ int gbl_debug_drop_nth_rep_message = 0;
 
 extern struct thdpool *gbl_udppfault_thdpool;
 extern int gbl_commit_delay_trace;
+extern int gbl_lockless_modsnap;
 
 /* osqlcomm.c code, hurray! */
 extern void osql_decom_node(char *decom_host);
@@ -4067,7 +4068,7 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control,
               permlsn.file, permlsn.offset);
          */
 
-        if (gbl_modsnap || !gbl_early) {
+        if (gbl_lockless_modsnap || !gbl_early) {
             rc = do_ack(bdb_state, permlsn, generation);
         }
 

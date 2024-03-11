@@ -105,7 +105,7 @@ int __dbenv_dump_mintruncate_list __P((DB_ENV*));
 int __dbenv_clear_mintruncate_list __P((DB_ENV*));
 int __dbenv_build_mintruncate_list __P((DB_ENV*));
 
-extern int gbl_modsnap;
+extern int gbl_lockless_modsnap;
 
 /*
  * db_env_create --
@@ -969,7 +969,7 @@ __dbenv_get_concurrent(dbenv, val)
     DB_ENV *dbenv;
     int *val;
 {
-    if(!gbl_modsnap && dbenv->num_recovery_processor_threads > 0 &&
+    if(!gbl_lockless_modsnap && dbenv->num_recovery_processor_threads > 0 &&
             dbenv->num_recovery_worker_threads > 0)
     {
         *val = 1;

@@ -2878,6 +2878,7 @@ struct __mempv_cache_page_key
 
 struct __mempv_cache
 {
+	int num_cached_pages;
 	hash_t *pages;
 	mspace *msp;
 	pthread_rwlock_t lock;

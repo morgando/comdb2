@@ -172,7 +172,6 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	MEMPV_CACHE_PAGE_VERSIONS *versions;
 	MEMPV_CACHE_PAGE_KEY key;
 	MEMPV_CACHE_PAGE_HEADER *page_header;
-	PAGE *page_image;
 	int ret, allocd_versions, allocd_header;
 
 	versions = NULL;
@@ -180,7 +179,6 @@ int __mempv_cache_put(dbp, cache, file_id, pgno, bhp, target_lsn)
 	ret = allocd_versions = allocd_header = 0;
 	key.pgno = pgno;
 	memcpy(key.ufid, file_id, DB_FILE_ID_LEN);
-	page_image = (PAGE *) (((u_int8_t *) bhp) + SSZA(BH, buf) );
 
 	pthread_rwlock_wrlock(&(cache->lock));
 

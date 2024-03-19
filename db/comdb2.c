@@ -3559,14 +3559,14 @@ static int init(int argc, char **argv)
                 snprintf(myfname, sizeof(myfname), "%s/%s", copy_dst, fname);
                 f = fopen(myfname, "a");
             }
-            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
+            fwrite(cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
         }
         if (f) { fclose(f); }
 
         if (fname != NULL) {
             free(fname);
         }
-        
+
     }
 
     dbname = gbl_import_mode ? "import" : argv[optind++];
@@ -3935,10 +3935,13 @@ static int init(int argc, char **argv)
 
     wrlock_schema_lk();
 
+	printf("about to open llmeta\n");
     /* open the table */
     if (llmeta_open()) {
+		printf("llmeta open fail\n");
         return -1;
     }
+	printf("llmeta open success\n");
 
     logmsg(LOGMSG_INFO, "Successfully opened low level meta table\n");
 

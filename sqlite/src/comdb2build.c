@@ -1604,6 +1604,7 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
     char query[200];
 	char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
 	snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
+	rmdir(tmpDbDir);
 	printf("gbl %s tmp db dir %s\n", thedb->basedir, tmpDbDir);
     mkdir(tmpDbDir, 0700);
 	char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];

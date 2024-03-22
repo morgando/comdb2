@@ -342,6 +342,12 @@ static int read_dir(const char *dirname, db_file_t **files, int *count, char *fi
             continue;
         }
 
+        if (!euidaccess(de->d_name, R_OK)) {
+            logmsg(LOGMSG_DEBUG, "%s:%d: ignoring %s because I don't have read access\n", __func__, __LINE__,
+                   de->d_name);
+            continue;
+        }
+
         logmsg(LOGMSG_DEBUG, "%s:%d: using %s\n", __func__, __LINE__,
                de->d_name);
 

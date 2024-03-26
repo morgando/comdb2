@@ -3502,6 +3502,7 @@ static int init(int argc, char **argv)
         // TODO: 1) Select db files 2) flush 3) select log files ?
     if (gbl_import_mode) {
         gbl_exit = 1;
+		gbl_fullrecovery = 1;
 
 
         // GET HANDLE TO SOURCE
@@ -3514,7 +3515,7 @@ static int init(int argc, char **argv)
         }
 
         // FLUSH SOURCE
-        char query[200];
+        char query[2000];
         snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
         rc = cdb2_run_statement(hndl, query);
         if (rc) {
@@ -3527,7 +3528,8 @@ static int init(int argc, char **argv)
 
         // GET DBS + LOGS
 
-        snprintf(query, sizeof(query), "SELECT filename, content FROM comdb2_files WHERE filename LIKE '%s_%%' OR filename LIKE 'log.%%' ORDER BY filename, offset", gbl_import_table);
+        snprintf(query, sizeof(query), "SELECT filename, content, dir FROM comdb2_files WHERE dir!='tmp' ORDER BY filename, offset");
+        printf("query %s\n", query);
         rc = cdb2_run_statement(hndl, query);
 
         if (rc) {
@@ -3546,26 +3548,47 @@ static int init(int argc, char **argv)
 
         printf("basedir %s txndir %s\n", gbl_dbdir, txndir);
 
-        char * copy_dst;
-        char myfname[100];
-        FILE *f = NULL;
+        int f = -1;
         while(cdb2_next_record(hndl) == CDB2_OK) {
             char * nextFname = (char *) cdb2_column_value(hndl, 0);
+            if (strcmp(nextFname, "checkpoint") == 0) {
+                continue;
+            }
+            printf("working with fname %s\n", nextFname);
             int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
             if (newFile) {
                 if (fname != NULL) {
                     free(fname);
                 }
+                if (f) { close(f); }
+
                 fname = strdup(nextFname);
+                printf("fname is %s\n", fname);
 
-                copy_dst = strstr(fname, "log.") != NULL ? txndir : gbl_dbdir;
+                char copy_dst[strlen(gbl_dbdir) + 2 + cdb2_column_size(hndl, 2) + strlen(fname)];
+                snprintf(copy_dst, sizeof(copy_dst), "%s%s%s%s%s", gbl_dbdir, cdb2_column_size(hndl, 2) != 1 ? "/" : "", (char *) cdb2_column_value(hndl, 2), "/", fname);
+                printf("copy dst is %s\n", copy_dst);
 
-                snprintf(myfname, sizeof(myfname), "%s/%s", copy_dst, fname);
-                f = fopen(myfname, "a");
+                f = open(copy_dst, O_WRONLY | O_CREAT | O_APPEND, 0755);
+                if (f  == -1) {
+                    printf("failed to open file %s (errno: %s)\n", copy_dst, strerror(errno));
+                    exit(1);
+                }
             }
-            fwrite((char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1), 1, f); 
+            if (f == -1) {
+                printf("this is unexpected\n");
+                exit(1);
+            }
+            printf("writing chunk to %s\n", nextFname);
+            ssize_t bytes_written = write(f, (char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1));
+            if (bytes_written != cdb2_column_size(hndl, 1)) {
+                printf("failed to write to the file (expected: %d got: %ld)\n",
+                      cdb2_column_size(hndl, 1), bytes_written);
+                exit(1);
+            }
         }
-        if (f) { fclose(f); }
+
+        if (f) { close(f); }
 
         if (fname != NULL) {
             free(fname);

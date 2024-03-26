@@ -1601,7 +1601,7 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
 void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 {
     char command[300]; // TODO Replace with good length
-    char query[200];
+    //char query[200];
 	char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
 	snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
 	printf("gbl %s tmp db dir %s\n", thedb->basedir, tmpDbDir);
@@ -1609,6 +1609,9 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 	char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];
 	snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
     mkdir(tmpDbLogDir, 0700);
+	char tmpDbTmpDir[sizeof(tmpDbDir) + strlen("/tmp") + 1];
+	snprintf(tmpDbTmpDir, sizeof(tmpDbTmpDir), "%s/tmp", tmpDbDir);
+    mkdir(tmpDbTmpDir, 0700);
 
 	char fname[10+sizeof(tmpDbDir)+2];
 	snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
@@ -1622,6 +1625,7 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
     int res = system(command);
     printf("Import started comdb2 with res %d\n", res);
 
+	/*
     snprintf(command,sizeof(command), "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
     printf("command %s\n", command);
     res = system(command);
@@ -1683,6 +1687,7 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
         }
 
     llmeta_load_tables(thedb, NULL);
+	*/
     return;
 }
 

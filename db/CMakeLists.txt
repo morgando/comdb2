@@ -215,6 +215,7 @@ add_dependencies(comdb2 mem proto sqlite db bdb)
 
 target_link_libraries(comdb2 PRIVATE
   ${PLUGIN_LIBRARIES}
+  cdb2import
   schemachange
   bdb
   util

@@ -268,6 +268,7 @@ endif()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMMON_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_FLAGS}")
 
+add_subdirectory(import)
 add_subdirectory(archive)
 add_subdirectory(bdb)
 add_subdirectory(berkdb)

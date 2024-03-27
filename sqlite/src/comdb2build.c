@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <string.h>
 #include <schemachange.h>
+#include "sc_logic.h"
+#include "sc_global.h"
 #include <sc_lua.h>
 #include <comdb2.h>
 #include <bdb_api.h>
@@ -1596,63 +1598,115 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
            nm->z, nm2->n +lnm2->n, nm2->z);
 }
 
+void setupImportDb(char **p_tmpDbDir)
+{
+    char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
+    char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];
+    char tmpDbTmpDir[sizeof(tmpDbDir) + strlen("/tmp") + 1];
+    char fname[sizeof(tmpDbDir)+strlen("/import.lrl")];
+
+    snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
+    snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
+    snprintf(tmpDbTmpDir, sizeof(tmpDbTmpDir), "%s/tmp", tmpDbDir);
+
+    mkdir(tmpDbDir, 0700);
+    mkdir(tmpDbLogDir, 0700);
+    mkdir(tmpDbTmpDir, 0700);
+
+    snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
+    FILE *fp = fopen(fname, "w");
+    fprintf(fp, "name import\ndir %s", tmpDbDir);
+    fclose(fp);
+
+    *p_tmpDbDir = strdup(tmpDbDir);
+}
+
+void cleanupImportDb(char *tmpDbDir)
+{
+    char *command;
+    int size;
+    int rc;
+
+    size = snprintf(NULL, 0, "rm -rf %s", tmpDbDir);
+    command = malloc(size);
+    sprintf(command, "rm -rf %s", tmpDbDir);
+    if ((rc = system(command)), rc !=0 ) {
+        logmsg(LOGMSG_WARN, "Failed to delete temporary db in dir %s. %s gave rc %d\n", tmpDbDir, command, rc);
+    }
+
+    free(command);
+}
+
 /********************* IMPORT ****************************************************/
 
 void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 {
-    char command[300]; // TODO Replace with good length
-    //char query[200];
-	char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
-	snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
-	printf("gbl %s tmp db dir %s\n", thedb->basedir, tmpDbDir);
-    mkdir(tmpDbDir, 0700);
-	char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];
-	snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
-    mkdir(tmpDbLogDir, 0700);
-	char tmpDbTmpDir[sizeof(tmpDbDir) + strlen("/tmp") + 1];
-	snprintf(tmpDbTmpDir, sizeof(tmpDbTmpDir), "%s/tmp", tmpDbDir);
-    mkdir(tmpDbTmpDir, 0700);
+    unlock_schema_lk();
 
-	char fname[10+sizeof(tmpDbDir)+2];
-	snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
-	FILE *fp = fopen(fname, "w");
-	fprintf(fp, "name import\ndir %s", tmpDbDir);
-	fclose(fp);
+    int rc = 0;
+    struct dbtable *db = NULL;
+    char *tmpDbDir = NULL;
+    char *command = NULL; 
+    char query[200];
+    int size;
 
+    int i, numDb, bdberr, dbnums[MAX_NUM_TABLES];
+    char *tblnames[MAX_NUM_TABLES];
+    char * tname = nm->a[0].pExpr->u.zToken;
 
-    snprintf(command,sizeof(command), "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
-    printf("command %s\n", command);
-    int res = system(command);
-    printf("Import started comdb2 with res %d\n", res);
+    numDb = 1; // TODO
 
-	/*
-    snprintf(command,sizeof(command), "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
-    printf("command %s\n", command);
-    res = system(command);
-    printf("mv res %d\n", res);
+    // Start temporary database process to import files and run recovery.
 
-	int i, bdberr, dbnums[MAX_NUM_TABLES];
-	char *tblnames[MAX_NUM_TABLES];
-	char * tname = nm->a[0].pExpr->u.zToken;
+    setupImportDb(&tmpDbDir);
 
-	// CREATE TABLES FROM SCHEMAS
+    size = snprintf(NULL, 0, "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+    command = malloc(size+1);
+    sprintf(command, "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
 
-	int numDb = 1;
-	for (i =0; i<numDb; ++i) {
-		tblnames[i] = nm->a[0].pExpr->u.zToken;
-		dbnums[i] = 0;
-	}
+    if ((rc = system(command)), rc != 0) {
+        logmsg(LOGMSG_ERROR, "Import process failed with rc %d.\n", rc);
+        goto err;
+    }
 
-	if (bdb_llmeta_set_tables(NULL, tblnames, dbnums, numDb, &bdberr) || bdberr != BDBERR_NOERROR) {
-		printf("fail\n");
-		return;
-	}
+    free(command);
+    
+    logmsg(LOGMSG_DEBUG, "Import process was successful.\n");
+
+    // Move new files into db directory.
+
+    size = snprintf(NULL, 0, "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
+    command = malloc(size+1);
+    sprintf(command, "mv %s/%s_* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
+
+    if ((rc = system(command)), rc != 0) {
+        logmsg(LOGMSG_ERROR, "Failed to move imported files into db directory. rc %d\n", rc);
+        goto err;
+    }
+
+    free(command);
+
+    logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
+
+    cleanupImportDb(tmpDbDir);
+
+    // CREATE TABLES FROM SCHEMAS
+
+    for (i =0; i<numDb; ++i) {
+        tblnames[i] = nm->a[0].pExpr->u.zToken;
+        dbnums[i] = 0;
+    }
+
+    if (bdb_llmeta_set_tables(NULL, tblnames, dbnums, numDb, &bdberr) || bdberr != BDBERR_NOERROR) {
+        printf("fail\n");
+        return;
+    }
 
         // GET SCHEMAS
         snprintf(query, sizeof(query), "SELECT csc2, version FROM comdb2_schemaversions WHERE tablename='%s' ORDER BY csc2, version DESC",nm->a[0].pExpr->u.zToken);
 
         cdb2_hndl_tp *hndl;
-        int rc = cdb2_open(&hndl, nm2->z, "local", 0);
+        rc = cdb2_open(&hndl, nm2->z, "local", 0);
         if (rc) {
             logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
             exit(1);
@@ -1669,12 +1723,18 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
             char * csc2 = (char *) cdb2_column_value(hndl, 0);
             int version = *((int *) cdb2_column_value(hndl, 1));
             
+            
             thedb->dbs = realloc(thedb->dbs,
                              (thedb->num_dbs + 1) * sizeof(struct dbtable *));
+            put_csc2_file(tname, NULL, version, csc2);
+
             if (new_table_from_schema_buf(thedb, tname, csc2, 0, NULL)) {
                 return;
             }
-            put_csc2_file(tname, NULL, version, csc2);
+
+            struct errstat err = {0};
+            db = create_new_dbtable(thedb, tname, csc2, 0, 0, 0, 0, &err);
+            
             printf("put vers %d csc2 %s into llmeta\n", version, csc2);
         }
 
@@ -1686,8 +1746,27 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
             printf("put vers %d csc2 %s into llmeta\n", version, csc2);
         }
 
-    llmeta_load_tables(thedb, NULL);
-	*/
+    // llmeta_load_tables(thedb, NULL);
+
+    /*if (!(db = get_dbtable_by_name(nm->a[0].pExpr->u.zToken))) {
+        printf("bad\n");
+    }*/
+    wrlock_schema_lk();
+    if (db != NULL) {
+        printf("got db\n");
+       // reload_after_bulkimport(db, NULL);
+    }
+    unlock_schema_lk();
+    printf("done\n");
+
+err:
+    if (command) {
+        free(command);
+    }
+
+    if (tmpDbDir) {
+        free(tmpDbDir);
+    }
     return;
 }
 

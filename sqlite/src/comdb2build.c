@@ -51,6 +51,7 @@ extern int comdb2_save_ddl_context(char *name, void *ctx, comdb2ma mem);
 extern void *comdb2_get_ddl_context(char *name);
 extern int new_table_from_schema_buf(struct dbenv *dbenv, char *tblname,
                               char *csc2, int dbnum, char *tok);
+extern int bulk_import_data_unpack_from_file(bulk_import_data_t *p_data, char *fname);
 /******************* Utility ****************************/
 
 static inline int setError(Parse *pParse, int rc, const char *msg)
@@ -1619,22 +1620,31 @@ void setupImportDb(char **p_tmpDbDir)
     fclose(fp);
 
     *p_tmpDbDir = strdup(tmpDbDir);
+
 }
 
 void cleanupImportDb(char *tmpDbDir)
 {
-    char *command;
+    char *command = NULL;
     int size;
-    int rc;
+    int rc = 0;
 
     size = snprintf(NULL, 0, "rm -rf %s", tmpDbDir);
     command = malloc(size);
+    if (!command) {
+        logmsg(LOGMSG_ERROR, "nomem\n");
+        goto err;
+    }
     sprintf(command, "rm -rf %s", tmpDbDir);
     if ((rc = system(command)), rc !=0 ) {
         logmsg(LOGMSG_WARN, "Failed to delete temporary db in dir %s. %s gave rc %d\n", tmpDbDir, command, rc);
+        goto err;
     }
 
-    free(command);
+err:
+    if (command) {
+        free(command);
+    }
 }
 
 /********************* IMPORT ****************************************************/
@@ -1663,6 +1673,7 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
     size = snprintf(NULL, 0, "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
     command = malloc(size+1);
     sprintf(command, "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+    printf("about to run %s\n", command);
 
     if ((rc = system(command)), rc != 0) {
         logmsg(LOGMSG_ERROR, "Import process failed with rc %d.\n", rc);
@@ -1675,6 +1686,9 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 
     // Move new files into db directory.
 
+    // bulk_import_v2(nm->a[0].pExpr->u.zToken, tmpDbDir);
+
+    /*
     size = snprintf(NULL, 0, "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
     command = malloc(size+1);
     sprintf(command, "mv %s/%s_* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
@@ -1687,8 +1701,17 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
     free(command);
 
     logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
+    */
+
+    logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
+
 
     cleanupImportDb(tmpDbDir);
+
+    bulk_import_data_t data;
+    bulk_import_data_unpack_from_file(&data, "bulk_import_data");
+
+
 
     // CREATE TABLES FROM SCHEMAS
 

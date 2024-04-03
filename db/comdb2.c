@@ -140,6 +140,7 @@ void berk_memp_sync_alarm_ms(int);
 #include <net_appsock.h>
 #include "sc_csc2.h"
 #include "reverse_conn.h"
+#include "importdata.pb-c.h"
 
 #define tokdup strndup
 
@@ -178,6 +179,9 @@ void berkdb_use_malloc_for_regions_with_callbacks(void *mem,
                                                   void *(*alloc)(void *, int),
                                                   void (*free)(void *, void *));
 
+extern void bulk_import_data_print(FILE *p_file,
+                                   const ImportData *p_data);
+extern int bulk_import_data_load(ImportData *p_data);
 extern void set_dbdir(char *dir);
 extern void bb_berkdb_reset_worst_lock_wait_time_us();
 extern int has_low_headroom(const char *path, int headroom, int debug);
@@ -3593,7 +3597,7 @@ static int init(int argc, char **argv)
         if (fname != NULL) {
             free(fname);
         }
-        
+
     }
 
     dbname = gbl_import_mode ? "import" : argv[optind++];
@@ -4248,6 +4252,47 @@ static int init(int argc, char **argv)
 
     clear_csc2_files();
 
+    if (gbl_import_mode)
+    {
+        logmsg(LOGMSG_DEBUG, "Wrote all files. Loading bulk import data\n");
+
+        FILE *f_bulk_import = NULL;
+        f_bulk_import = fopen("bulk_import_data", "w");
+        if (!f_bulk_import) {
+            logmsg(LOGMSG_ERROR, "Failed to open file");
+        }
+
+        ImportData import_data = IMPORT_DATA__INIT;
+        import_data.table_name = strdup(gbl_import_table);
+         import_data.n_index_genids = MAXINDEX;
+         import_data.index_genids = malloc(sizeof(long unsigned int)*import_data.n_index_genids);
+         import_data.n_blob_genids = MAXBLOBS;
+         import_data.blob_genids = malloc(sizeof(long unsigned int)*import_data.n_blob_genids);
+         import_data.n_data_files = MAXDTASTRIPE;
+         import_data.data_files = malloc(sizeof(char *)*import_data.n_data_files);
+         import_data.n_index_files = MAXINDEX;
+         import_data.index_files = malloc(sizeof(char *)*import_data.n_index_files);
+         import_data.n_blob_files = MAXBLOBS;
+         import_data.blob_files = malloc(sizeof(BlobFiles *)*import_data.n_blob_files);
+         for (int i=0; i<MAXBLOBS; ++i) {
+            printf("processing %d\n", i);
+            import_data.blob_files[i] = malloc(sizeof(BlobFiles));
+            BlobFiles *b = import_data.blob_files[i];
+            BlobFiles balloc = BLOB_FILES__INIT;
+            *b = balloc;
+            b->n_files = MAXDTASTRIPE;
+            b->files = malloc(b->n_files);
+         }
+        bulk_import_data_load(&import_data);
+
+        unsigned len = import_data__get_packed_size(&import_data);
+        void * buf = malloc(len);
+        import_data__pack(&import_data, buf);
+        logmsg(LOGMSG_DEBUG, "Writing %d serialized bytes\n", len);
+        fwrite(buf, len, 1, stdout);
+
+        fclose(f_bulk_import);
+    }   
     if (gbl_exit) {
         logmsg(LOGMSG_INFO, "-exiting.\n");
         gbl_perform_full_clean_exit = 0;
@@ -4303,6 +4348,7 @@ static int init(int argc, char **argv)
     csc2_free_all();
 
     init_password_cache();
+
 
     return 0;
 }

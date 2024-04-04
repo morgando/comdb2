@@ -1481,7 +1481,7 @@ backout:
 int bulk_import_v2(ImportData *p_foreign_data)
 {
     unsigned i;
-    int offset;
+    int offset, rc;
     struct dbtable *db;
     char *command = NULL;
     unsigned long long dst_data_genid;
@@ -1490,11 +1490,14 @@ int bulk_import_v2(ImportData *p_foreign_data)
     ImportData local_data = IMPORT_DATA__INIT;
     BulkImportMetaInfo info = {0};
 
+    rc = 0;
+
     // get local data 
     local_data.table_name = strdup(p_foreign_data->table_name);
     if (bulk_import_data_load(&local_data)) {
         logmsg(LOGMSG_ERROR, "%s: failed getting local data\n", __func__);
-        return -1;
+        rc = -1;
+        goto err;
     }
 
     logmsg(LOGMSG_DEBUG, "%s: Loaded local import data\n", __func__);
@@ -1503,7 +1506,8 @@ int bulk_import_v2(ImportData *p_foreign_data)
     if (!(db = get_dbtable_by_name(local_data.table_name))) {
         logmsg(LOGMSG_ERROR, "%s: no such table: %s\n", __func__,
                p_foreign_data->table_name);
-        return -1;
+        rc = -1;
+        goto err;
     }
 
     logmsg(LOGMSG_DEBUG, "%s: Got dbtable\n", __func__);
@@ -1521,7 +1525,8 @@ int bulk_import_v2(ImportData *p_foreign_data)
     if (bulk_import_data_validate(&local_data, p_foreign_data, dst_data_genid,
                                   dst_index_genids, dst_blob_genids)) {
         logmsg(LOGMSG_ERROR, "%s: failed validation\n", __func__);
-        return -1;
+        rc = -1;
+        goto err;
     }
 
     logmsg(LOGMSG_DEBUG, "%s: Validated data\n", __func__);
@@ -1531,15 +1536,23 @@ int bulk_import_v2(ImportData *p_foreign_data)
     command = malloc(offset);
     sprintf(command, "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", p_foreign_data->data_dir, p_foreign_data->table_name, thedb->basedir, p_foreign_data->table_name);
 
+    rc = system(command);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Blessing files failed with rc %d\n", __func__, rc);
+        goto err;
+    }
+
     logmsg(LOGMSG_DEBUG, "%s: Blessed files\n", __func__);
 
     wrlock_schema_lk();
-    int rc = bulkimport_switch_files(db, p_foreign_data, dst_data_genid,
+    rc = bulkimport_switch_files(db, p_foreign_data, dst_data_genid,
                                      dst_index_genids, dst_blob_genids, &info,
                                      &local_data);
     unlock_schema_lk();
 
     logmsg(LOGMSG_DEBUG, "%s: Switched files\n", __func__);
+
+err:
     
     return rc;
 }

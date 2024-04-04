@@ -30,6 +30,7 @@
 #include "db_access.h" /* gbl_check_access_controls */
 #include "comdb2_atomic.h"
 #include <sys/stat.h>
+#include "importdata.pb-c.h"
 
 #define COMDB2_INVALID_AUTOINCREMENT "invalid datatype for autoincrement"
 
@@ -44,6 +45,7 @@ extern int gbl_lightweight_rename;
 
 int gbl_view_feature = 1;
 
+extern int bulk_import_v2(ImportData *p_foreign_data);
 extern int llmeta_load_tables(struct dbenv *dbenv, void *tran);
 extern int sqlite3GetToken(const unsigned char *z, int *tokenType);
 extern int sqlite3ParserFallback(int iToken);
@@ -51,7 +53,7 @@ extern int comdb2_save_ddl_context(char *name, void *ctx, comdb2ma mem);
 extern void *comdb2_get_ddl_context(char *name);
 extern int new_table_from_schema_buf(struct dbenv *dbenv, char *tblname,
                               char *csc2, int dbnum, char *tok);
-extern int bulk_import_data_unpack_from_file(bulk_import_data_t *p_data, char *fname);
+extern int bulk_import_data_unpack_from_file(ImportData **pp_data, char *fname);
 /******************* Utility ****************************/
 
 static inline int setError(Parse *pParse, int rc, const char *msg)
@@ -1654,17 +1656,9 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
     unlock_schema_lk();
 
     int rc = 0;
-    struct dbtable *db = NULL;
     char *tmpDbDir = NULL;
     char *command = NULL; 
-    char query[200];
     int size;
-
-    int i, numDb, bdberr, dbnums[MAX_NUM_TABLES];
-    char *tblnames[MAX_NUM_TABLES];
-    char * tname = nm->a[0].pExpr->u.zToken;
-
-    numDb = 1; // TODO
 
     // Start temporary database process to import files and run recovery.
 
@@ -1683,10 +1677,15 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
     free(command);
     
     logmsg(LOGMSG_DEBUG, "Import process was successful.\n");
+    
+    ImportData *import_data;
+
+    bulk_import_data_unpack_from_file(&import_data, "bulk_import_data");
+
 
     // Move new files into db directory.
 
-    // bulk_import_v2(nm->a[0].pExpr->u.zToken, tmpDbDir);
+    bulk_import_v2(import_data);
 
     /*
     size = snprintf(NULL, 0, "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
@@ -1705,82 +1704,6 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 
     logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
 
-
-    cleanupImportDb(tmpDbDir);
-
-    bulk_import_data_t data;
-    bulk_import_data_unpack_from_file(&data, "bulk_import_data");
-
-
-
-    // CREATE TABLES FROM SCHEMAS
-
-    for (i =0; i<numDb; ++i) {
-        tblnames[i] = nm->a[0].pExpr->u.zToken;
-        dbnums[i] = 0;
-    }
-
-    if (bdb_llmeta_set_tables(NULL, tblnames, dbnums, numDb, &bdberr) || bdberr != BDBERR_NOERROR) {
-        printf("fail\n");
-        return;
-    }
-
-        // GET SCHEMAS
-        snprintf(query, sizeof(query), "SELECT csc2, version FROM comdb2_schemaversions WHERE tablename='%s' ORDER BY csc2, version DESC",nm->a[0].pExpr->u.zToken);
-
-        cdb2_hndl_tp *hndl;
-        rc = cdb2_open(&hndl, nm2->z, "local", 0);
-        if (rc) {
-            logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
-            exit(1);
-        }
-
-        rc = cdb2_run_statement(hndl, query);
-        if (rc) {
-            const char * err = cdb2_errstr(hndl);
-            printf("err %s\n", err);
-            exit(1);
-        }
-
-        if (cdb2_next_record(hndl) == CDB2_OK) {
-            char * csc2 = (char *) cdb2_column_value(hndl, 0);
-            int version = *((int *) cdb2_column_value(hndl, 1));
-            
-            
-            thedb->dbs = realloc(thedb->dbs,
-                             (thedb->num_dbs + 1) * sizeof(struct dbtable *));
-            put_csc2_file(tname, NULL, version, csc2);
-
-            if (new_table_from_schema_buf(thedb, tname, csc2, 0, NULL)) {
-                return;
-            }
-
-            struct errstat err = {0};
-            db = create_new_dbtable(thedb, tname, csc2, 0, 0, 0, 0, &err);
-            
-            printf("put vers %d csc2 %s into llmeta\n", version, csc2);
-        }
-
-
-        while(cdb2_next_record(hndl) == CDB2_OK) {
-            char * csc2 = (char *) cdb2_column_value(hndl, 0);
-            int version = *((int *) cdb2_column_value(hndl, 1));
-            put_csc2_file(nm->a[0].pExpr->u.zToken, NULL, version, csc2);
-            printf("put vers %d csc2 %s into llmeta\n", version, csc2);
-        }
-
-    // llmeta_load_tables(thedb, NULL);
-
-    /*if (!(db = get_dbtable_by_name(nm->a[0].pExpr->u.zToken))) {
-        printf("bad\n");
-    }*/
-    wrlock_schema_lk();
-    if (db != NULL) {
-        printf("got db\n");
-       // reload_after_bulkimport(db, NULL);
-    }
-    unlock_schema_lk();
-    printf("done\n");
 
 err:
     if (command) {

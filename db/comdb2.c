@@ -178,7 +178,6 @@ void myctrace(const char *c) { ctrace("%s", c); }
 void berkdb_use_malloc_for_regions_with_callbacks(void *mem,
                                                   void *(*alloc)(void *, int),
                                                   void (*free)(void *, void *));
-
 extern void bulk_import_data_print(FILE *p_file,
                                    const ImportData *p_data);
 extern int bulk_import_data_load(ImportData *p_data);
@@ -4268,28 +4267,13 @@ static int init(int argc, char **argv)
          import_data.index_genids = malloc(sizeof(long unsigned int)*import_data.n_index_genids);
          import_data.n_blob_genids = MAXBLOBS;
          import_data.blob_genids = malloc(sizeof(long unsigned int)*import_data.n_blob_genids);
-         import_data.n_data_files = MAXDTASTRIPE;
-         import_data.data_files = malloc(sizeof(char *)*import_data.n_data_files);
-         import_data.n_index_files = MAXINDEX;
-         import_data.index_files = malloc(sizeof(char *)*import_data.n_index_files);
-         import_data.n_blob_files = MAXBLOBS;
-         import_data.blob_files = malloc(sizeof(BlobFiles *)*import_data.n_blob_files);
-         for (int i=0; i<MAXBLOBS; ++i) {
-            printf("processing %d\n", i);
-            import_data.blob_files[i] = malloc(sizeof(BlobFiles));
-            BlobFiles *b = import_data.blob_files[i];
-            BlobFiles balloc = BLOB_FILES__INIT;
-            *b = balloc;
-            b->n_files = MAXDTASTRIPE;
-            b->files = malloc(b->n_files);
-         }
         bulk_import_data_load(&import_data);
 
         unsigned len = import_data__get_packed_size(&import_data);
         void * buf = malloc(len);
         import_data__pack(&import_data, buf);
         logmsg(LOGMSG_DEBUG, "Writing %d serialized bytes\n", len);
-        fwrite(buf, len, 1, stdout);
+        fwrite(buf, len, 1, f_bulk_import);
 
         fclose(f_bulk_import);
     }   

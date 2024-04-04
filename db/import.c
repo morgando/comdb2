@@ -52,7 +52,7 @@ static const char *bulk_import_delims = " \n\r\t";
 #define SBUF_DEFAULT_TIMEOUT 10;
 
 /* Tunables */
-int gbl_enable_bulk_import;
+int gbl_enable_bulk_import = 1;
 int gbl_enable_bulk_import_different_tables;
 int gbl_bulk_import_client_read_timeout = SBUF_DEFAULT_TIMEOUT;
 int gbl_bulk_import_client_write_timeout = SBUF_DEFAULT_TIMEOUT;
@@ -118,9 +118,9 @@ static int bulk_import_data_unpack_from_sbuf(bulk_import_data_t *p_data, SBUF2 *
 
 }
 
-int bulk_import_data_unpack_from_file(bulk_import_data_t *p_data, char *fname)
+int bulk_import_data_unpack_from_file(ImportData **pp_data, char *fname)
 {
-    char *line = NULL;
+    void *line = NULL;
     FILE *fp = NULL;
     long fsize;
     int rc = 0;
@@ -136,7 +136,7 @@ int bulk_import_data_unpack_from_file(bulk_import_data_t *p_data, char *fname)
     fsize = ftell(fp);
     fseek(fp, 0, SEEK_SET);  /* same as rewind(f); */
 
-    line = malloc(fsize + 1);
+    line = malloc(fsize);
     if (!line) {
         logmsg(LOGMSG_ERROR, "Could not allocate line of size %ld\n", fsize+1);
         rc = ENOMEM;
@@ -149,14 +149,16 @@ int bulk_import_data_unpack_from_file(bulk_import_data_t *p_data, char *fname)
         goto err;
     }
 
-    line[fsize] = 0;
-    
-    ImportData data = IMPORT_DATA__INIT;
-    (void)(data);
+    *pp_data = import_data__unpack(NULL, fsize, line);
+    if (*pp_data == NULL) {
+        logmsg(LOGMSG_ERROR, "Error unpacking incoming message\n");
+        rc = 1;
+        goto err;
+    }
 
     // rc = bulk_import_data_unpack(&data, line);
     printf("Got this data from file %s\n", fname);
-    bulk_import_data_print(stdout, &data);
+    // bulk_import_data_print(stdout, &data);
 
 err:
     if (fp) {
@@ -416,28 +418,9 @@ static int bulk_import_data_unpack(bulk_import_data_t *p_data, char *line)
  *
  * @param p_data    pointer to place that stores bulk import data,
  */
-static void clear_bulk_import_data(bulk_import_data_t *p_data)
+static void clear_bulk_import_data(ImportData *p_data)
 {
-    int i, j;
-    int stripes = p_data->dtastripe;
-
-    for (j = 0; j < stripes; j++)
-        if (p_data->data_files[j])
-            free(p_data->data_files[j]);
-
-    for (j = 0; j < p_data->num_index_genids; j++)
-        if (p_data->index_files[j])
-            free(p_data->index_files[j]);
-
-    if (!p_data->blobstripe)
-        stripes = 1;
-    for (i = 0; i < p_data->num_blob_genids; i++) {
-        for (j = 0; j < stripes; j++)
-            if (p_data->blob_files[i][j])
-                free(p_data->blob_files[i][j]);
-    }
-
-    bzero(p_data, sizeof(*p_data));
+    //TODO
 }
 
 
@@ -552,11 +535,8 @@ int bulk_import_data_load(ImportData *p_data)
     p_data->dtastripe = gbl_dtastripe;
     p_data->blobstripe = gbl_blobstripe;
 
-    p_data->n_data_files = p_data->datastripe;
-    p_data->data_files = malloc(sizeof(char *)*import_data.n_data_files);$
-
-    p_data->n_blob_files = p_data->blobstripe;
-    p_data->blob_files = malloc(sizeof(BlobFiles *)*import_data.n_blob_files);
+    // p_data->n_index_files = p_data->n_index_genids;
+    // p_data->index_files = malloc(sizeof(char *)*p_data->n_index_files);
     // todo
 
 
@@ -572,6 +552,9 @@ int bulk_import_data_load(ImportData *p_data)
     }
 
     if (gbl_enable_bulk_import_different_tables) {
+        p_data->n_data_files = p_data->dtastripe;
+        p_data->data_files = malloc(sizeof(char *)*p_data->n_data_files);
+
         for (i = 0; i < p_data->dtastripe; i++) {
             len = bdb_form_file_name(db->handle, 1, 0, i, p_data->data_genid,
                                      tempname, sizeof(tempname));
@@ -611,6 +594,18 @@ int bulk_import_data_load(ImportData *p_data)
                        __func__, i);
             }
             p_data->index_files[i] = strdup(tempname);
+        }
+    }
+
+    if (p_data->num_blob_genids > 0) {
+        p_data->n_blob_files = p_data->dtastripe;
+        p_data->blob_files = malloc(sizeof(BlobFiles *)*p_data->n_blob_files);
+        for (int i=0; i<p_data->n_blob_files; ++i) {
+            p_data->blob_files[i] = malloc(sizeof(BlobFiles));
+
+            BlobFiles *b = p_data->blob_files[i];
+            b->n_files = p_data->dtastripe;
+            b->files = malloc(sizeof(char *)*b->n_files);
         }
     }
 
@@ -671,8 +666,8 @@ int bulk_import_data_load(ImportData *p_data)
  * @return 0 on success, !0 otherwise
  */
 static int
-bulk_import_data_validate(const bulk_import_data_t *p_local_data,
-                          const bulk_import_data_t *p_foreign_data,
+bulk_import_data_validate(const ImportData *p_local_data,
+                          const ImportData *p_foreign_data,
                           unsigned long long dst_data_genid,
                           const unsigned long long *p_dst_index_genids,
                           const unsigned long long *p_dst_blob_genids)
@@ -695,8 +690,7 @@ bulk_import_data_validate(const bulk_import_data_t *p_local_data,
     /* if we don't have the filenames, we enforce same tablename rule */
     if (!p_foreign_data->filenames_provided) {
         /* compare table name */
-        if (strncmp(p_local_data->table_name, p_foreign_data->table_name,
-                    sizeof(p_local_data->table_name))) {
+        if (strcmp(p_local_data->table_name, p_foreign_data->table_name)) {
             logmsg(LOGMSG_ERROR, "%s: table names differ: %s %s\n", __func__,
                    p_local_data->table_name, p_foreign_data->table_name);
             fprintf(
@@ -748,13 +742,13 @@ bulk_import_data_validate(const bulk_import_data_t *p_local_data,
     /* Bulk import (version 0) from a source which has ODH can't be done
      * reliably because they might have been instant schema changed or have
      * in place updates. The older databases don't provide that information. */
-    if (p_foreign_data->bulk_import_version == 0 && p_foreign_data->odh) {
+    /*if (p_foreign_data->bulk_import_version == 0 && p_foreign_data->odh) {
         fprintf(
             stderr,
             "%s: Source database is running an older, incompatible version\n",
             __func__);
         return -1;
-    }
+    }*/
 
     /* compare csc2's crc32s */
     if (p_local_data->csc2_crc32 != p_foreign_data->csc2_crc32) {
@@ -1254,12 +1248,12 @@ done:
 }
 
 static int bulkimport_switch_files(struct dbtable *db,
-                                   const bulk_import_data_t *p_foreign_data,
+                                   const ImportData *p_foreign_data,
                                    unsigned long long dst_data_genid,
                                    unsigned long long *dst_index_genids,
                                    unsigned long long *dst_blob_genids,
                                    BulkImportMetaInfo *info,
-                                   bulk_import_data_t *local_data)
+                                   ImportData *local_data)
 {
     int i, outrc, bdberr;
     int retries = 0;
@@ -1334,7 +1328,7 @@ retry_bulk_update:
                    "%s: failed updating version for %s's index: %d "
                    "files new version: %llx\n",
                    __func__, p_foreign_data->table_name, i,
-                   p_foreign_data->index_genids[i]);
+                   (long long unsigned int) p_foreign_data->index_genids[i]);
             goto retry_bulk_update;
         }
     }
@@ -1349,7 +1343,7 @@ retry_bulk_update:
                    "%s: failed updating version for %s's blob: %d "
                    "files new version: %llx\n",
                    __func__, p_foreign_data->table_name, i,
-                   p_foreign_data->blob_genids[i]);
+                   (long long unsigned int) p_foreign_data->blob_genids[i]);
             goto retry_bulk_update;
         }
     }
@@ -1483,8 +1477,8 @@ backout:
 
     return outrc;
 }
-/*
-int bulk_import_v2(const char *tablename, const char *tmpDbDir)
+
+int bulk_import_v2(ImportData *p_foreign_data)
 {
     unsigned i;
     int offset;
@@ -1493,15 +1487,17 @@ int bulk_import_v2(const char *tablename, const char *tmpDbDir)
     unsigned long long dst_data_genid;
     unsigned long long dst_index_genids[MAXINDEX];
     unsigned long long dst_blob_genids[MAXBLOBS];
-    bulk_import_data_t local_data = {0};
+    ImportData local_data = IMPORT_DATA__INIT;
     BulkImportMetaInfo info = {0};
 
     // get local data 
-    strncpy0(local_data.table_name, tablename, sizeof(local_data.table_name));
+    local_data.table_name = strdup(p_foreign_data->table_name);
     if (bulk_import_data_load(&local_data)) {
         logmsg(LOGMSG_ERROR, "%s: failed getting local data\n", __func__);
         return -1;
     }
+
+    logmsg(LOGMSG_DEBUG, "%s: Loaded local import data\n", __func__);
 
     // find the table we're importing 
     if (!(db = get_dbtable_by_name(local_data.table_name))) {
@@ -1510,6 +1506,8 @@ int bulk_import_v2(const char *tablename, const char *tmpDbDir)
         return -1;
     }
 
+    logmsg(LOGMSG_DEBUG, "%s: Got dbtable\n", __func__);
+
     // generate final destination genids 
     dst_data_genid = bdb_get_cmp_context(db->handle);
     for (i = 0; i < p_foreign_data->num_index_genids; ++i)
@@ -1517,6 +1515,7 @@ int bulk_import_v2(const char *tablename, const char *tmpDbDir)
     for (i = 0; i < p_foreign_data->num_blob_genids; ++i)
         dst_blob_genids[i] = bdb_get_cmp_context(db->handle);
 
+    logmsg(LOGMSG_DEBUG, "%s: Got genids\n", __func__);
     
     // make sure all the data checks out and we can do the import
     if (bulk_import_data_validate(&local_data, p_foreign_data, dst_data_genid,
@@ -1525,20 +1524,26 @@ int bulk_import_v2(const char *tablename, const char *tmpDbDir)
         return -1;
     }
 
+    logmsg(LOGMSG_DEBUG, "%s: Validated data\n", __func__);
+
     offset = snprintf(NULL, 0,
-                      "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", tmpDbDir, fname, thedb->basedir, fname);
+                      "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", p_foreign_data->data_dir, p_foreign_data->table_name, thedb->basedir, p_foreign_data->table_name);
     command = malloc(offset);
-    sprintf(command, "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", tmpDbDir, fname, thedb->basedir, fname);
+    sprintf(command, "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", p_foreign_data->data_dir, p_foreign_data->table_name, thedb->basedir, p_foreign_data->table_name);
+
+    logmsg(LOGMSG_DEBUG, "%s: Blessed files\n", __func__);
 
     wrlock_schema_lk();
     int rc = bulkimport_switch_files(db, p_foreign_data, dst_data_genid,
                                      dst_index_genids, dst_blob_genids, &info,
                                      &local_data);
     unlock_schema_lk();
+
+    logmsg(LOGMSG_DEBUG, "%s: Switched files\n", __func__);
     
-   
+    return rc;
 }
-*/
+
 
 static int src_db_bulkimport_ver(SBUF2 *sb, int *version)
 {

@@ -45,6 +45,8 @@
 #include "sc_callbacks.h"
 #include "importdata.pb-c.h"
 
+extern tran_type *curtran_gettran(void);
+
 /* Constants */
 // static const char bulk_import_done_text[] = "DONE\n";
 // static const char bulk_import_done_ack_text[] = "DONEACK\n";
@@ -551,7 +553,7 @@ int bulk_import_data_load(ImportData *p_data)
         return -1;
     }
 
-    if (gbl_enable_bulk_import_different_tables) {
+    // if (gbl_enable_bulk_import_different_tables) {
         p_data->n_data_files = p_data->dtastripe;
         p_data->data_files = malloc(sizeof(char *)*p_data->n_data_files);
 
@@ -565,6 +567,22 @@ int bulk_import_data_load(ImportData *p_data)
             }
             p_data->data_files[i] = strdup(tempname);
         }
+    // }
+    //
+
+    // create t
+    tran_type *t = curtran_gettran();
+    int version = get_csc2_version_tran(p_data->table_name, t);
+        if (version == -1) {
+            logmsg(LOGMSG_ERROR, "%s: Could not find csc2 version for table %s\n", __func__, p_data->table_name);
+            return 1;
+        }
+
+    p_data->n_csc2 = version;
+    p_data->csc2 = malloc(sizeof(char *)*p_data->n_csc2);
+
+    for (int vers=1; vers<=version; vers++) {
+        get_csc2_file_tran(p_data->table_name, vers, &p_data->csc2[vers-1], &len, t);
     }
 
     /* get num indicies/blobs */
@@ -1354,21 +1372,22 @@ retry_bulk_update:
         goto retry_bulk_update;
     }
 
-    if (p_foreign_data->bulk_import_version == 1) {
+    // if (p_foreign_data->bulk_import_version == 1) {
         bdb_reset_csc2_version(tran, db->tablename, db->schema_version, 1);
-        put_db_odh(db, tran, info->odh);
+        /* put_db_odh(db, tran, info->odh);
         put_db_compress(db, tran, info->compr);
         put_db_compress_blobs(db, tran, info->compr_blob);
         put_db_inplace_updates(db, tran, info->ipu);
         put_db_instant_schema_change(db, tran, info->isc);
-        put_db_datacopy_odh(db, tran, info->dc_odh);
-        for (i = 1; i <= info->version; ++i) {
-            put_csc2_file(db->tablename, tran, i, info->csc2[i]);
+        put_db_datacopy_odh(db, tran, info->dc_odh);*/
+        for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
+            printf("csc2 %s\n", p_foreign_data->csc2[i]);
+            put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i]);
         }
-        bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
+        /*bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
         bdb_set_pagesize_index(db->handle, tran, info->index_pgsz, &bdberr);
-        bdb_set_pagesize_blob(db->handle, tran, info->blob_pgsz, &bdberr);
-    }
+        bdb_set_pagesize_blob(db->handle, tran, info->blob_pgsz, &bdberr);*/
+    // }
 
     /* commit new versions */
     if (trans_commit_adaptive(&iq, tran, gbl_myhostname)) {
@@ -1377,7 +1396,7 @@ retry_bulk_update:
         goto retry_bulk_update;
     }
 
-    if (p_foreign_data->bulk_import_version == 1) {
+    // if (p_foreign_data->bulk_import_version == 1) {
         if (reload_after_bulkimport(db, NULL)) {
             /* There is no good way to rollback here. The new schema's were
              * committed but we couldn't reload them (parse error?). Lets just
@@ -1403,7 +1422,7 @@ retry_bulk_update:
                    __func__, p_foreign_data->table_name, bdberr);
         }
         return 0;
-    }
+    // }
 
     /* everyone should be running bulk_import_version == 1 now --
      * TODO: remove version 0 code as releasing table lock here before
@@ -1412,7 +1431,7 @@ retry_bulk_update:
     bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
     lock_table_tran = NULL;
 
-    int rc = bdb_llog_scdone(thedb->bdb_env, fastinit, db->tablename,
+    rc = bdb_llog_scdone(thedb->bdb_env, fastinit, db->tablename,
                              strlen(db->tablename) + 1, 1, &bdberr);
     if (rc || bdberr != BDBERR_NOERROR) {
         logmsg(LOGMSG_ERROR,
@@ -1531,10 +1550,12 @@ int bulk_import_v2(ImportData *p_foreign_data)
 
     logmsg(LOGMSG_DEBUG, "%s: Validated data\n", __func__);
 
+    char * file = p_foreign_data->data_files[i];
+
     offset = snprintf(NULL, 0,
-                      "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", p_foreign_data->data_dir, p_foreign_data->table_name, thedb->basedir, p_foreign_data->table_name);
+                      "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s2", p_foreign_data->data_dir, file, thedb->basedir, file);
     command = malloc(offset);
-    sprintf(command, "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s", p_foreign_data->data_dir, p_foreign_data->table_name, thedb->basedir, p_foreign_data->table_name);
+    sprintf(command, "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s2", p_foreign_data->data_dir, file, thedb->basedir, file);
 
     rc = system(command);
     if (rc) {

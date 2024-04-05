@@ -1664,9 +1664,9 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 
     setupImportDb(&tmpDbDir);
 
-    size = snprintf(NULL, 0, "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+    size = snprintf(NULL, 0, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
     command = malloc(size+1);
-    sprintf(command, "~/comdb2/build/db/comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
+    sprintf(command, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
     printf("about to run %s\n", command);
 
     if ((rc = system(command)), rc != 0) {

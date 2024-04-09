@@ -51,6 +51,7 @@ extern tran_type *curtran_gettran(void);
 // static const char bulk_import_done_text[] = "DONE\n";
 // static const char bulk_import_done_ack_text[] = "DONEACK\n";
 #define SBUF_DEFAULT_TIMEOUT 10;
+#define FILENAMELEN 100
 
 /* Tunables */
 int gbl_enable_bulk_import = 1;
@@ -321,6 +322,7 @@ int bulk_import_data_load(ImportData *p_data)
 
     for (int vers=1; vers<=version; vers++) {
         get_csc2_file_tran(p_data->table_name, vers, &p_data->csc2[vers-1], &len, t);
+        printf("loading csc2 at %d:\n %s\n", vers, p_data->csc2[vers-1]);
     }
 
     /* get num indicies/blobs */
@@ -607,6 +609,10 @@ static BULKIMPORT_META_KEY str_to_key(const char *str)
  *                          table's attributes
  * @param p_foreign_data    pointer to struct containing all the foreign db's
  *                          table's attributes
+    int bdberr;
+    int num_files = p_foreign_data->num_index_genids + (p_foreign_data->blobstripe ? p_foreign_data->num_blob_genids*local_data.dtastripe : p_foreign_data->num_blob_genids) + local_data.dtastripe;
+    char src_files[num_files][FILENAMELEN];
+    char dst_files[num_files][FILENAMELEN];
  * @param outbuf            pointer to the output string where cmnd line is
  *created
  * @param buflen            length of the output string buffer
@@ -615,35 +621,21 @@ static BULKIMPORT_META_KEY str_to_key(const char *str)
  * @return 0 on success !0 otherwise
  */
 static int bulk_import_copy_cmd_add_tmpdir_filenames(
-    const bulk_import_data_t *p_data, const bulk_import_data_t *p_foreign_data,
+    const ImportData *p_data, const ImportData *p_foreign_data,
     const unsigned long long dst_data_genid,
     const unsigned long long *p_dst_index_genids,
-    const unsigned long long *p_dst_blob_genids, char *outbuf, size_t buflen,
+    const unsigned long long *p_dst_blob_genids, char *src_files[FILENAMELEN], char *dst_files[FILENAMELEN],
     int *bdberr)
 {
     struct dbtable *db = NULL;
     int dtanum;
     int ixnum;
-    int len;
-    int offset = 0;
+    int fileix=0;
 
     /* find the table we're importing TO */
     if (!(db = get_dbtable_by_name(p_data->table_name))) {
         logmsg(LOGMSG_ERROR, "%s: no such table: %s\n", __func__,
                p_data->table_name);
-        return -1;
-    }
-
-    /* add -dsttmpdir */
-    len = snprintf(outbuf + offset, buflen - offset, " -dsttmpdir %s",
-                   bdb_get_tmpdir(thedb->bdb_env));
-    offset += len;
-    if (len < 0 || offset >= buflen) {
-        logmsg(LOGMSG_ERROR,
-               "%s: adding -dsttmpdir arg failed or string was too "
-               "long for buffer this string len: %d total string len: %d\n",
-               __func__, len, offset);
-        *bdberr = BDBERR_BUFSMALL;
         return -1;
     }
 
@@ -670,120 +662,44 @@ static int bulk_import_copy_cmd_add_tmpdir_filenames(
 
         /* for each stripe add a -file param */
         for (strnum = 0; strnum < num_stripes; ++strnum) {
-            /* add -file */
-            len = snprintf(outbuf + offset, buflen - offset, " -file ");
-            offset += len;
-            if (len < 0 || offset >= buflen) {
-                logmsg(LOGMSG_ERROR,
-                       "%s: adding data -file arg failed or string was"
-                       " too long for buffer this string len: %d total string "
-                       "len: %d\n",
-                       __func__, len, offset);
-                *bdberr = BDBERR_BUFSMALL;
-                return -1;
-            }
-
             /* add src filename */
             if (p_foreign_data->filenames_provided) {
                 if (dtanum == 0) {
-                    len = snprintf(outbuf + offset, buflen - offset, "%s ",
-                                   p_foreign_data->data_files[strnum]);
+                    strcpy(src_files[fileix], p_foreign_data->data_files[strnum]);
                 } else {
-                    len = snprintf(
-                        outbuf + offset, buflen - offset, "%s ",
-                        p_foreign_data->blob_files[dtanum - 1][strnum]);
+                    strcpy(src_files[fileix], p_foreign_data->blob_files[dtanum - 1]->files[strnum]);
                 }
             } else {
-                len = bdb_form_file_name(db->handle, 1 /*is_data_file*/, dtanum,
+                bdb_form_file_name(db->handle, 1 /*is_data_file*/, dtanum,
                                          strnum, src_version_num,
-                                         outbuf + offset, buflen - offset);
+                                         src_files[fileix], FILENAMELEN);
             }
-            offset += len + 1 /*include the space we're about to add*/;
-            if (len < 0 || offset >= buflen) {
-                logmsg(LOGMSG_ERROR,
-                       "%s: adding src data filename failed or string "
-                       "was too long for buffer this string len: %d total "
-                       "string len: %d\n",
-                       __func__, len, offset);
-                *bdberr = BDBERR_BUFSMALL;
-                return -1;
-            }
-
-            /* add a space. this removes the NUL, it will be re added by the
-             * form_file_name_ex() below */
-            outbuf[offset - 1] = ' ';
 
             /* add dst filename */
-            len = bdb_form_file_name(db->handle, 1 /*is_data_file*/, dtanum,
-                                     strnum, dst_version_num, outbuf + offset,
-                                     buflen - offset);
-            offset += len;
-            if (len < 0 || offset >= buflen) {
-                logmsg(LOGMSG_ERROR,
-                       "%s: adding dst data filename failed or string "
-                       "was too long for buffer this string len: %d total "
-                       "string len: %d\n",
-                       __func__, len, offset);
-                *bdberr = BDBERR_BUFSMALL;
-                return -1;
-            }
+            bdb_form_file_name(db->handle, 1 /*is_data_file*/, dtanum,
+                                     strnum, dst_version_num, dst_files[fileix],
+                                     FILENAMELEN);
+            fileix++;
         }
     }
 
     /* for each index add a -file param */
     for (ixnum = 0; ixnum < p_foreign_data->num_index_genids; ixnum++) {
-        /* add -file */
-        len = snprintf(outbuf + offset, buflen - offset, " -file ");
-        offset += len;
-        if (len < 0 || offset >= buflen) {
-            logmsg(LOGMSG_ERROR,
-                   "%s: adding index -file arg failed or string was "
-                   "too long for buffer this string len: %d total string len: "
-                   "%d\n",
-                   __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-        }
-
         /* add src filename */
         if (p_foreign_data->filenames_provided) {
-            len = snprintf(outbuf + offset, buflen - offset, "%s",
-                           p_foreign_data->index_files[ixnum]);
+            strcpy(src_files[fileix], p_foreign_data->index_files[ixnum]);
         } else {
-            len = bdb_form_file_name(db->handle, 0 /*is_data_file*/, ixnum,
-                                     0 /*strnum*/,
-                                     p_foreign_data->index_genids[ixnum],
-                                     outbuf + offset, buflen - offset);
+            bdb_form_file_name(db->handle, 0 /*is_data_file*/, ixnum,
+                                 0 /*strnum*/, p_foreign_data->index_genids[ixnum],
+                                 src_files[ixnum], FILENAMELEN);
         }
-        offset += len + 1 /*include the space we're about to add*/;
-        if (len < 0 || offset >= buflen) {
-            logmsg(LOGMSG_ERROR,
-                   "%s: adding src index filename failed or string "
-                   "was too long for buffer this string len: %d total string "
-                   "len: %d\n",
-                   __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-        }
-
-        /* add a space. this removes the NUL, it will be re added by the
-         * form_file_name_ex() below */
-        outbuf[offset - 1] = ' ';
 
         /* add dst filename */
-        len = bdb_form_file_name(db->handle, 0 /*is_data_file*/, ixnum,
+        bdb_form_file_name(db->handle, 0 /*is_data_file*/, ixnum,
                                  0 /*strnum*/, p_dst_index_genids[ixnum],
-                                 outbuf + offset, buflen - offset);
-        offset += len;
-        if (len < 0 || offset >= buflen) {
-            logmsg(LOGMSG_ERROR,
-                   "%s: adding dst index filename failed or string "
-                   "was too long for buffer this string len: %d total string "
-                   "len: %d\n",
-                   __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-        }
+                                 dst_files[fileix], FILENAMELEN);
+
+        fileix++;
     }
 
     *bdberr = BDBERR_NOERROR;
@@ -907,8 +823,8 @@ retry_bulk_update:
         put_db_instant_schema_change(db, tran, info->isc);
         put_db_datacopy_odh(db, tran, info->dc_odh);*/
         for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
-            printf("csc2 %s\n", p_foreign_data->csc2[i]);
-            put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i]);
+            printf("csc2 version %d is:\n %s\n", i, p_foreign_data->csc2[i-1]);
+            put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i-1]);
         }
         /*bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
         bdb_set_pagesize_index(db->handle, tran, info->index_pgsz, &bdberr);
@@ -935,8 +851,8 @@ retry_bulk_update:
         llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
         sc_del_unused_files(db);
         clear_bulk_import_data(local_data);
-        for (i = 1; i <= info->version; ++i) {
-            free(info->csc2[i]);
+        for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
+            // free(p_foreign_data->csc2[i-1]);
         }
         int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
                                  strlen(db->tablename) + 1, 1, &bdberr);
@@ -954,22 +870,6 @@ retry_bulk_update:
      * TODO: remove version 0 code as releasing table lock here before
      * reloading the handle is WRONG!
      */
-    bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
-    lock_table_tran = NULL;
-
-    rc = bdb_llog_scdone(thedb->bdb_env, fastinit, db->tablename,
-                             strlen(db->tablename) + 1, 1, &bdberr);
-    if (rc || bdberr != BDBERR_NOERROR) {
-        logmsg(LOGMSG_ERROR,
-               "%s: failed to send logical log scdone for table: %s "
-               "bdberr: %d\n",
-               __func__, p_foreign_data->table_name, bdberr);
-
-        outrc = -1;
-        goto backout;
-    }
-
-    outrc = 0;
 
 backout:
     llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
@@ -1023,17 +923,209 @@ backout:
     return outrc;
 }
 
+static int bulk_import_generate_filenames(
+        const ImportData *p_data,
+        const ImportData *p_foreign_data,
+        const unsigned long long dst_data_genid,
+        const unsigned long long *p_dst_index_genids,
+        const unsigned long long *p_dst_blob_genids,
+        char *outbuf, size_t buflen, char **src_files, char **dst_files, int *bdberr)
+{
+
+   struct dbtable *db = NULL;
+   int dtanum;
+   int ixnum;
+   int len;
+   int offset = 0;
+
+   /* find the table we're importing TO */
+   if(!(db = get_dbtable_by_name(p_data->table_name)))
+   {
+      fprintf(stderr, "%s: no such table: %s\n", __func__,
+            p_data->table_name);
+      return -1;
+   }
+
+   /* add -dsttmpdir */
+   len = snprintf(outbuf + offset, buflen - offset, " -dsttmpdir %s", bdb_get_tmpdir(thedb->bdb_env));
+   offset += len;
+   if(len < 0 || offset >= buflen)
+   {
+      fprintf(stderr, "%s: adding -dsttmpdir arg failed or string was too "
+            "long for buffer this string len: %d total string len: %d\n",
+            __func__, len, offset);
+      *bdberr = BDBERR_BUFSMALL;
+      return -1;
+   }
+
+   /* add data files */
+   for( dtanum = 0; dtanum < p_foreign_data->num_blob_genids+1; dtanum++ )
+   {
+      int strnum;
+      int num_stripes = 0;
+      unsigned long long src_version_num;
+      unsigned long long dst_version_num;
+
+
+      if (dtanum == 0)
+      {
+         num_stripes = p_data->dtastripe;
+         src_version_num = p_foreign_data->data_genid;
+         dst_version_num = dst_data_genid;
+      }
+      else
+      {
+         if (p_data->blobstripe)
+         {
+            num_stripes = p_data->dtastripe;
+         }
+         else
+         {
+            num_stripes = 1;
+         }
+         src_version_num = p_foreign_data->blob_genids[dtanum-1];
+         dst_version_num = p_dst_blob_genids[dtanum-1];
+      }
+
+      /* for each stripe add a -file param */
+      for( strnum = 0; strnum < num_stripes; ++strnum )
+      {
+         /* add -file */
+         len = snprintf(outbuf + offset, buflen - offset, " -file ");
+         offset += len;
+         if(len < 0 || offset >= buflen)
+         {
+            fprintf(stderr, "%s: adding data -file arg failed or string was"
+                  " too long for buffer this string len: %d total string "
+                  "len: %d\n", __func__, len, offset);
+            *bdberr = BDBERR_BUFSMALL;
+            return -1;
+         }
+
+         /* add src filename */
+         if (p_foreign_data->filenames_provided)
+         {
+            if (dtanum == 0)
+            {
+               len = snprintf( outbuf + offset, buflen - offset, "%s ", 
+                     p_foreign_data->data_files[strnum]);
+            } 
+            else
+            {
+               len = snprintf( outbuf + offset, buflen - offset, "%s ", 
+                     p_foreign_data->blob_files[dtanum-1]->files[strnum]);
+            } 
+         }
+         else 
+         {
+            len = bdb_form_file_name( db->handle, 1 /*is_data_file*/, dtanum,
+                  strnum, src_version_num,
+                  outbuf + offset, buflen - offset);
+         }
+         offset += len + 1 /*include the space we're about to add*/;
+         if(len < 0 || offset >= buflen)
+         {
+            fprintf(stderr, "%s: adding src data filename failed or string "
+                  "was too long for buffer this string len: %d total "
+                  "string len: %d\n", __func__, len, offset);
+            *bdberr = BDBERR_BUFSMALL;
+            return -1;
+         }
+
+         /* add a space. this removes the NUL, it will be re added by the
+          * form_file_name_ex() below */
+         outbuf[offset - 1] = ' ';   
+
+         /* add dst filename */
+         len = bdb_form_file_name( db->handle, 1 /*is_data_file*/, dtanum,
+               strnum, dst_version_num,
+               outbuf + offset, buflen - offset );
+         offset += len;
+         if(len < 0 || offset >= buflen)
+         {
+            fprintf(stderr, "%s: adding dst data filename failed or string "
+                  "was too long for buffer this string len: %d total "
+                  "string len: %d\n", __func__, len, offset);
+            *bdberr = BDBERR_BUFSMALL;
+                return -1;
+            }
+        }
+    }
+
+    /* for each index add a -file param */
+    for( ixnum = 0; ixnum < p_foreign_data->num_index_genids; ixnum++ )
+    {
+        /* add -file */
+        len = snprintf(outbuf + offset, buflen - offset, " -file ");
+        offset += len;
+        if(len < 0 || offset >= buflen)
+        {
+            fprintf(stderr, "%s: adding index -file arg failed or string was "
+                    "too long for buffer this string len: %d total string len: "
+                    "%d\n", __func__, len, offset);
+            *bdberr = BDBERR_BUFSMALL;
+            return -1;
+        }
+
+        /* add src filename */
+        if (p_foreign_data->filenames_provided)
+        {
+           len = snprintf( outbuf + offset, buflen - offset, "%s",
+                 p_foreign_data->index_files[ixnum]);
+        }
+        else
+        {
+           len = bdb_form_file_name( db->handle, 0 /*is_data_file*/, ixnum,
+                 0 /*strnum*/, p_foreign_data->index_genids[ixnum], 
+                 outbuf + offset, buflen - offset );
+        }
+        offset += len + 1 /*include the space we're about to add*/;
+        if(len < 0 || offset >= buflen)
+        {
+            fprintf(stderr, "%s: adding src index filename failed or string "
+                    "was too long for buffer this string len: %d total string "
+                    "len: %d\n", __func__, len, offset);
+            *bdberr = BDBERR_BUFSMALL;
+            return -1;
+        }
+
+        /* add a space. this removes the NUL, it will be re added by the
+         * form_file_name_ex() below */
+        outbuf[offset - 1] = ' ';   
+
+        /* add dst filename */
+        len = bdb_form_file_name( db->handle, 0 /*is_data_file*/, ixnum,
+                0 /*strnum*/,
+                p_dst_index_genids[ixnum], outbuf + offset, buflen - offset );
+        offset += len;
+        if(len < 0 || offset >= buflen)
+        {
+            fprintf(stderr, "%s: adding dst index filename failed or string "
+                    "was too long for buffer this string len: %d total string "
+                    "len: %d\n", __func__, len, offset);
+            *bdberr = BDBERR_BUFSMALL;
+            return -1;
+        }
+    }
+
+    *bdberr = BDBERR_NOERROR;
+    return 0;
+
+
+}
+                                          
+
 int bulk_import_v2(ImportData *p_foreign_data)
 {
     unsigned i;
     int offset, rc;
     struct dbtable *db;
-    char *command = NULL;
     unsigned long long dst_data_genid;
     unsigned long long dst_index_genids[MAXINDEX];
     unsigned long long dst_blob_genids[MAXBLOBS];
     ImportData local_data = IMPORT_DATA__INIT;
     BulkImportMetaInfo info = {0};
+    int bdberr;
 
     rc = 0;
 
@@ -1042,7 +1134,17 @@ int bulk_import_v2(ImportData *p_foreign_data)
     if (bulk_import_data_load(&local_data)) {
         logmsg(LOGMSG_ERROR, "%s: failed getting local data\n", __func__);
         rc = -1;
-        goto err;
+        return rc;
+    }
+
+    int num_files = p_foreign_data->num_index_genids + (p_foreign_data->blobstripe ? p_foreign_data->num_blob_genids*local_data.dtastripe : p_foreign_data->num_blob_genids) + local_data.dtastripe;
+    printf("num files %d\n", num_files);
+    // TODO: Free
+    char * src_files[num_files];
+    char * dst_files[num_files];
+    for (int i=0; i<num_files; ++i) {
+        src_files[i] = (char *) malloc(FILENAMELEN);
+        dst_files[i] = (char *) malloc(FILENAMELEN);
     }
 
     logmsg(LOGMSG_DEBUG, "%s: Loaded local import data\n", __func__);
@@ -1076,17 +1178,29 @@ int bulk_import_v2(ImportData *p_foreign_data)
 
     logmsg(LOGMSG_DEBUG, "%s: Validated data\n", __func__);
 
-    char * file = p_foreign_data->data_files[i];
+    bulk_import_copy_cmd_add_tmpdir_filenames(
+            &local_data, p_foreign_data, dst_data_genid, dst_index_genids,
+            dst_blob_genids, (char **) src_files, (char **) dst_files, &bdberr
+    );
 
-    offset = snprintf(NULL, 0,
-                      "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s2", p_foreign_data->data_dir, file, thedb->basedir, file);
-    command = malloc(offset);
-    sprintf(command, "/bb/bin/comdb2_bulk_import_reset.tsk %s/%s %s/%s2", p_foreign_data->data_dir, file, thedb->basedir, file);
+    for (int fileix=0; fileix<num_files; ++fileix) {
+        char *src_file = src_files[fileix];
+        char *dst_file = dst_files[fileix];
 
-    rc = system(command);
-    if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Blessing files failed with rc %d\n", __func__, rc);
-        goto err;
+        offset = snprintf(NULL, 0, "%s/%s", p_foreign_data->data_dir, src_file);
+        char * src_path = malloc(offset);
+        sprintf(src_path, "%s/%s", p_foreign_data->data_dir, src_file);
+
+        offset = snprintf(NULL, 0, "%s/%s", thedb->basedir, dst_file);
+        char * dst_path = malloc(offset);
+        sprintf(dst_path, "%s/%s", thedb->basedir, dst_file);
+
+        rc = bdb_bless_btree(src_path, dst_path);
+
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s: Blessing files failed with rc %d\n", __func__, rc);
+            goto err;
+        }
     }
 
     logmsg(LOGMSG_DEBUG, "%s: Blessed files\n", __func__);

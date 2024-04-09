@@ -1674,33 +1674,13 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
         goto err;
     }
 
-    free(command);
-    
     logmsg(LOGMSG_DEBUG, "Import process was successful.\n");
     
     ImportData *import_data;
 
     bulk_import_data_unpack_from_file(&import_data, "bulk_import_data");
 
-
-    // Move new files into db directory.
-
     bulk_import_v2(import_data);
-
-    /*
-    size = snprintf(NULL, 0, "mv %s/%s* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
-    command = malloc(size+1);
-    sprintf(command, "mv %s/%s_* %s", tmpDbDir, nm->a[0].pExpr->u.zToken, thedb->basedir); // TODO is nm2->z a cstr?
-
-    if ((rc = system(command)), rc != 0) {
-        logmsg(LOGMSG_ERROR, "Failed to move imported files into db directory. rc %d\n", rc);
-        goto err;
-    }
-
-    free(command);
-
-    logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
-    */
 
     logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
 

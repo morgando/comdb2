@@ -7159,6 +7159,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         return 0;
     } break;
     case OSQL_BPFUNC: {
+        logmsg(LOGMSG_DEBUG, "Processing bpfunc on master\n");
         uint8_t *p_buf_end = (uint8_t *)msg + sizeof(osql_bpfunc_t) + msglen;
         osql_bpfunc_t *rpl = NULL;
 

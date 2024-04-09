@@ -1601,98 +1601,35 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
            nm->z, nm2->n +lnm2->n, nm2->z);
 }
 
-void setupImportDb(char **p_tmpDbDir)
-{
-    char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
-    char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];
-    char tmpDbTmpDir[sizeof(tmpDbDir) + strlen("/tmp") + 1];
-    char fname[sizeof(tmpDbDir)+strlen("/import.lrl")];
-
-    snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
-    snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
-    snprintf(tmpDbTmpDir, sizeof(tmpDbTmpDir), "%s/tmp", tmpDbDir);
-
-    mkdir(tmpDbDir, 0700);
-    mkdir(tmpDbLogDir, 0700);
-    mkdir(tmpDbTmpDir, 0700);
-
-    snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
-    FILE *fp = fopen(fname, "w");
-    fprintf(fp, "name import\ndir %s", tmpDbDir);
-    fclose(fp);
-
-    *p_tmpDbDir = strdup(tmpDbDir);
-
-}
-
-void cleanupImportDb(char *tmpDbDir)
-{
-    char *command = NULL;
-    int size;
-    int rc = 0;
-
-    size = snprintf(NULL, 0, "rm -rf %s", tmpDbDir);
-    command = malloc(size);
-    if (!command) {
-        logmsg(LOGMSG_ERROR, "nomem\n");
-        goto err;
-    }
-    sprintf(command, "rm -rf %s", tmpDbDir);
-    if ((rc = system(command)), rc !=0 ) {
-        logmsg(LOGMSG_WARN, "Failed to delete temporary db in dir %s. %s gave rc %d\n", tmpDbDir, command, rc);
-        goto err;
-    }
-
-err:
-    if (command) {
-        free(command);
-    }
-}
-
 /********************* IMPORT ****************************************************/
 
 void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 {
-    unlock_schema_lk();
+    logmsg(LOGMSG_DEBUG, "Import initiated\n");
 
-    int rc = 0;
-    char *tmpDbDir = NULL;
-    char *command = NULL; 
-    int size;
+    Vdbe *v  = sqlite3GetVdbe(pParse);
+    BpfuncArg *arg = (BpfuncArg*) malloc(sizeof(BpfuncArg));
+    if (!arg) goto err;
+    bpfunc_arg__init(arg);
 
-    // Start temporary database process to import files and run recovery.
+    BpfuncBulkImport *aimport = (BpfuncBulkImport*) malloc(sizeof(BpfuncBulkImport));
+    if (!aimport) goto err;
+    bpfunc_bulk_import__init(aimport);
 
-    setupImportDb(&tmpDbDir);
+    aimport->srcdb = strdup(nm2->z);
+    aimport->tablename = strdup(nm->a[0].pExpr->u.zToken);
 
-    size = snprintf(NULL, 0, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
-    command = malloc(size+1);
-    sprintf(command, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, nm->a[0].pExpr->u.zToken, nm2->z); // TODO is nm2->z a cstr?
-    printf("about to run %s\n", command);
+    arg->bimp = aimport;
+    arg->type = BPFUNC_BULK_IMPORT;
 
-    if ((rc = system(command)), rc != 0) {
-        logmsg(LOGMSG_ERROR, "Import process failed with rc %d.\n", rc);
-        goto err;
-    }
+    comdb2prepareNoRows(v, pParse, 0, arg, &comdb2SendBpfunc, 
+                        (vdbeFuncArgFree) &free_bpfunc_arg);
 
-    logmsg(LOGMSG_DEBUG, "Import process was successful.\n");
-    
-    ImportData *import_data;
+    logmsg(LOGMSG_DEBUG, "Import finished\n");
 
-    bulk_import_data_unpack_from_file(&import_data, "bulk_import_data");
-
-    bulk_import_v2(import_data);
-
-    logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
-
-
+    return;
 err:
-    if (command) {
-        free(command);
-    }
-
-    if (tmpDbDir) {
-        free(tmpDbDir);
-    }
+    logmsg(LOGMSG_ERROR, "%s: Bulk import failed\n", __func__);
     return;
 }
 

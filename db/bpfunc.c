@@ -10,11 +10,16 @@
 #include <logmsg.h>
 #include "logical_cron.h"
 #include "db_access.h" /* gbl_check_access_controls */
+#include "importdata.pb-c.h"
+#include <sys/stat.h>
 
 /* Automatically create 'default' user when authentication is enabled. */
 int gbl_create_default_user;
 
 /*                           FUNCTION DECLARATIONS */
+
+extern int bulk_import_v2(ImportData *p_foreign_data);
+extern int bulk_import_data_unpack_from_file(ImportData **pp_data, char *fname);
 
 static int prepare_create_timepart(bpfunc_t *tp);
 static int prepare_drop_timepart(bpfunc_t *tp);
@@ -32,6 +37,7 @@ static int exec_rowlocks_enable(void *tran, bpfunc_t *func,
 static int exec_genid48_enable(void *tran, bpfunc_t *func, struct errstat *err);
 static int exec_set_skipscan(void *tran, bpfunc_t *func, struct errstat *err);
 static int exec_delete_from_sc_history(void *tran, bpfunc_t *func, struct errstat *err);
+static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err);
 /********************      UTILITIES     ***********************/
 
 static int empty(void *tran, bpfunc_t *func, struct errstat *err)
@@ -116,6 +122,9 @@ static int prepare_methods(bpfunc_t *func, bpfunc_info *info)
 
     case BPFUNC_DELETE_FROM_SC_HISTORY:
         func->exec = exec_delete_from_sc_history;
+        break;
+	case BPFUNC_BULK_IMPORT:
+        func->exec = exec_bulk_import;
         break;
 
 
@@ -615,5 +624,99 @@ static int exec_delete_from_sc_history(void *tran, bpfunc_t *func,
     int rc = bdb_del_schema_change_history(tran, tblseed->tablename, tblseed->seed);
     if (rc)
         errstat_set_rcstrf(err, rc, "%s failed delete", __func__);
+    return rc;
+}
+
+void cleanupImportDb(char *tmpDbDir)
+{
+    char *command = NULL;
+    int size;
+    int rc = 0;
+
+    size = snprintf(NULL, 0, "rm -rf %s", tmpDbDir);
+    command = malloc(size);
+    if (!command) {
+        logmsg(LOGMSG_ERROR, "nomem\n");
+        goto err;
+    }
+    sprintf(command, "rm -rf %s", tmpDbDir);
+    if ((rc = system(command)), rc !=0 ) {
+        logmsg(LOGMSG_WARN, "Failed to delete temporary db in dir %s. %s gave rc %d\n", tmpDbDir, command, rc);
+        goto err;
+    }
+
+err:
+    if (command) {
+        free(command);
+    }
+}
+
+void setupImportDb(char **p_tmpDbDir)
+{
+    char tmpDbDir[strlen(thedb->basedir) + strlen("/tmp/import") + 1];
+    char tmpDbLogDir[sizeof(tmpDbDir) + strlen("/logs") + 1];
+    char tmpDbTmpDir[sizeof(tmpDbDir) + strlen("/tmp") + 1];
+    char fname[sizeof(tmpDbDir)+strlen("/import.lrl")];
+
+    snprintf(tmpDbDir, sizeof(tmpDbDir), "%s/tmp/import", thedb->basedir);
+    snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir);
+    snprintf(tmpDbTmpDir, sizeof(tmpDbTmpDir), "%s/tmp", tmpDbDir);
+
+    mkdir(tmpDbDir, 0700);
+    mkdir(tmpDbLogDir, 0700);
+    mkdir(tmpDbTmpDir, 0700);
+
+    snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
+    FILE *fp = fopen(fname, "w");
+    fprintf(fp, "name import\ndir %s", tmpDbDir);
+    fclose(fp);
+
+    *p_tmpDbDir = strdup(tmpDbDir);
+
+}
+
+static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err)
+{
+	int rc = 0;
+    char *tmpDbDir = NULL;
+    char *command = NULL; 
+    int size;
+    char *srcdb = func->arg->bimp->srcdb;
+    char *tablename = func->arg->bimp->tablename;
+
+	logmsg(LOGMSG_DEBUG, "%s: Running bulk import\n", __func__);
+
+    // Start temporary database process to import files and run recovery.
+
+    setupImportDb(&tmpDbDir);
+
+    size = snprintf(NULL, 0, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, tablename, srcdb); // TODO is nm2->z a cstr?
+    command = malloc(size+1);
+    sprintf(command, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, tablename, srcdb); // TODO is nm2->z a cstr?
+    printf("about to run %s\n", command);
+
+    if ((rc = system(command)), rc != 0) {
+        logmsg(LOGMSG_ERROR, "Import process failed with rc %d.\n", rc);
+        goto err;
+    }
+
+    logmsg(LOGMSG_DEBUG, "Import process was successful.\n");
+    
+    ImportData *import_data;
+
+    bulk_import_data_unpack_from_file(&import_data, "bulk_import_data");
+
+    bulk_import_v2(import_data);
+
+    logmsg(LOGMSG_DEBUG, "Successfully moved imported files into db directory.\n");
+
+err:
+    if (command) {
+        free(command);
+    }
+
+    if (tmpDbDir) {
+        free(tmpDbDir);
+    }
     return rc;
 }

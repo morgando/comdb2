@@ -28,7 +28,6 @@ __thread int have_writelock = 0;
 
 int have_schema_lock(void)
 {
-    printf("have readlock %d have writelock %d\n", have_readlock, have_writelock);
     return (have_readlock || have_writelock);
 }
 

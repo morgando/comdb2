@@ -2395,7 +2395,6 @@ cmd ::= BULKIMPORT nm(A) DOT nm(B) nm(C) DOT nm(D). {
     comdb2bulkimport(pParse, &A, &B, &C, &D);
 }
 
-
 ////////////////////////////// CREATE PARTITION ///////////////////////////////
 
 cmd ::= dryrun createkw RANGE PARTITION ON nm(A) WHERE columnname(B) IN LP exprlist(C) RP. {

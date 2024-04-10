@@ -21,6 +21,5 @@ message ImportData {
     repeated string data_files=16;
     repeated string index_files=17;
     repeated BlobFiles blob_files=18;
-    int32 bulk_import_version=19;
-    repeated string csc2=20;
+    repeated string csc2=19;
 }

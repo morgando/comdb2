@@ -669,7 +669,6 @@ static int form_file_name(bdb_state_type *bdb_state, DB_TXN *tid,
     rc =  form_file_name_ex(bdb_state, is_data_file, file_num,
                              1 /*add_prefix*/, isstriped, stripenum,
                              version_num, outbuf, buflen);
-	printf("version %llu fname %s\n", version_num, outbuf);
 	return rc;
 }
 

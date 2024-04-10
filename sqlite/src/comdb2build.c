@@ -1605,8 +1605,6 @@ void comdb2bulkimport(Parse* pParse, Token* nm,Token* lnm, Token* nm2, Token* ln
 
 void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 {
-    logmsg(LOGMSG_DEBUG, "Import initiated\n");
-
     Vdbe *v  = sqlite3GetVdbe(pParse);
     BpfuncArg *arg = (BpfuncArg*) malloc(sizeof(BpfuncArg));
     if (!arg) goto err;
@@ -1624,8 +1622,6 @@ void comdb2Import(Parse* pParse, ExprList *nm, Token *nm2)
 
     comdb2prepareNoRows(v, pParse, 0, arg, &comdb2SendBpfunc, 
                         (vdbeFuncArgFree) &free_bpfunc_arg);
-
-    logmsg(LOGMSG_DEBUG, "Import finished\n");
 
     return;
 err:

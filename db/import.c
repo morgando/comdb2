@@ -48,16 +48,11 @@
 extern tran_type *curtran_gettran(void);
 
 /* Constants */
-// static const char bulk_import_done_text[] = "DONE\n";
-// static const char bulk_import_done_ack_text[] = "DONEACK\n";
-#define SBUF_DEFAULT_TIMEOUT 10;
 #define FILENAMELEN 100
 
 /* Tunables */
 int gbl_enable_bulk_import = 1;
 int gbl_enable_bulk_import_different_tables;
-int gbl_bulk_import_client_read_timeout = SBUF_DEFAULT_TIMEOUT;
-int gbl_bulk_import_client_write_timeout = SBUF_DEFAULT_TIMEOUT;
 
 #define BULKIMPORT_META_TABLE                                                  \
     X(BULKIMPORT_ODH, "odh")                                                   \
@@ -71,20 +66,6 @@ int gbl_bulk_import_client_write_timeout = SBUF_DEFAULT_TIMEOUT;
     X(BULKIMPORT_BLOB_PGSZ, "blob_pgsz")                                       \
     X(BULKIMPORT_END, "end")                                                   \
     X(BULKIMPORT_UNKNOWN, "")
-
-#define X(a, b) a,
-typedef enum { BULKIMPORT_META_TABLE } BULKIMPORT_META_KEY;
-#undef X
-
-#define X(a, b) b,
-char *bulkimport_meta_key_str[] = {BULKIMPORT_META_TABLE};
-#undef X
-
-struct bulk_import_thd_request {
-    SBUF2 *sb;
-    int *keepsocket;
-    int rc;
-};
 
 typedef struct {
     const char *src_name;
@@ -101,9 +82,6 @@ typedef struct {
     int index_pgsz;
     int blob_pgsz;
 } BulkImportMetaInfo;
-
-void bulk_import_data_print(FILE *p_file,
-                                   const ImportData *p_data);
 
 /**
  * Clear the strdups in this structures
@@ -430,8 +408,6 @@ bulk_import_data_validate(const ImportData *p_local_data,
                           const unsigned long long *p_dst_index_genids,
                           const unsigned long long *p_dst_blob_genids)
 {
-    unsigned i;
-
     /* lots of sanity checks so that hoefully we never swap in incompatible data
      * files */
 
@@ -491,146 +467,53 @@ bulk_import_data_validate(const ImportData *p_local_data,
         return -1;
     }
 
-    /* version 1 of bulk import does not need to perform any more checks */
-    if (p_foreign_data->bulk_import_version == 1) {
-        printf("SKIPPING SCHEMA CHECKS\n");
-        return 0;
-    }
-
-    /* Bulk import (version 0) from a source which has ODH can't be done
-     * reliably because they might have been instant schema changed or have
-     * in place updates. The older databases don't provide that information. */
-    /*if (p_foreign_data->bulk_import_version == 0 && p_foreign_data->odh) {
-        fprintf(
-            stderr,
-            "%s: Source database is running an older, incompatible version\n",
-            __func__);
-        return -1;
-    }*/
-
-    /* compare csc2's crc32s */
-    if (p_local_data->csc2_crc32 != p_foreign_data->csc2_crc32) {
-        logmsg(LOGMSG_ERROR, "%s: %s csc2's crc32 differs: %x %x\n", __func__,
-               p_local_data->table_name, p_local_data->csc2_crc32,
-               p_foreign_data->csc2_crc32);
-        return -1;
-    }
-
-    /* compare data genids */
-    if (p_local_data->data_genid == dst_data_genid) {
-        logmsg(LOGMSG_ERROR,
-               "%s: %s's main data files already have version: %llx\n",
-               __func__, p_local_data->table_name, dst_data_genid);
-        return -1;
-    }
-
-    /* compare number of indicies and blobs */
-    if (p_local_data->num_index_genids != p_foreign_data->num_index_genids ||
-        p_local_data->num_blob_genids != p_foreign_data->num_blob_genids) {
-        logmsg(LOGMSG_ERROR,
-               "%s: number of indicies or blobs differ for table: %s "
-               "indicies: %zu %zu blobs: %zu %zu\n",
-               __func__, p_local_data->table_name,
-               p_local_data->num_index_genids, p_foreign_data->num_index_genids,
-               p_local_data->num_blob_genids, p_foreign_data->num_blob_genids);
-        return -1;
-    }
-
-    /* for each index, compare versions */
-    for (i = 0; i < p_local_data->num_index_genids; ++i) {
-        if (p_local_data->index_genids[i] == p_dst_index_genids[i]) {
-            logmsg(LOGMSG_ERROR,
-                   "%s: %s's index: %d files already have version: "
-                   "%llx\n",
-                   __func__, p_local_data->table_name, i,
-                   p_dst_index_genids[i]);
-            return -1;
-        }
-    }
-
-    /* for each blob, compare versions */
-    for (i = 0; i < p_local_data->num_blob_genids; ++i) {
-        if (p_local_data->blob_genids[i] == p_dst_blob_genids[i]) {
-            logmsg(LOGMSG_ERROR,
-                   "%s: %s's blob: %d files already have version: "
-                   "%llx\n",
-                   __func__, p_local_data->table_name, i, p_dst_blob_genids[i]);
-            return -1;
-        }
-    }
-
-    /* compare odh options */
-    if (p_local_data->odh != p_foreign_data->odh ||
-        p_local_data->compress != p_foreign_data->compress ||
-        p_local_data->compress_blobs != p_foreign_data->compress_blobs) {
-        logmsg(LOGMSG_ERROR,
-               "%s: odh flags differ for table: %s odh: %d %d "
-               "compress: %d %d compress blobs: %d %d\n",
-               __func__, p_local_data->table_name, p_local_data->odh,
-               p_foreign_data->odh, p_local_data->compress,
-               p_foreign_data->compress, p_local_data->compress_blobs,
-               p_foreign_data->compress_blobs);
-        return -1;
-    }
-
     /* success */
     return 0;
 }
 
-static char *get_strval(char *buf, size_t max)
-{
-    char *ret = NULL;
-    char *bmax = buf + max;
-    while (*(++buf) != ':' && *buf && buf < bmax)
-        ;
-    *buf = '\0';
-    ret = ++buf;
-    while (*(++buf) != '\n' && *buf && buf < bmax)
-        ;
-    *buf = '\0';
-    return ret;
-}
-
-static BULKIMPORT_META_KEY str_to_key(const char *str)
-{
-    int i;
-    for (i = 0; i <= BULKIMPORT_END; ++i) {
-        if (strcmp(str, bulkimport_meta_key_str[i]) == 0) {
-            return i;
-        }
-    }
-    return BULKIMPORT_UNKNOWN;
-}
-
 /**
- * Fills in the filenames in the command line
- * and file ids.
- * @param p__data           pointer to struct containing all the local db's
- *                          table's attributes
- * @param p_foreign_data    pointer to struct containing all the foreign db's
- *                          table's attributes
-    int bdberr;
-    int num_files = p_foreign_data->num_index_genids + (p_foreign_data->blobstripe ? p_foreign_data->num_blob_genids*local_data.dtastripe : p_foreign_data->num_blob_genids) + local_data.dtastripe;
-    char src_files[num_files][FILENAMELEN];
-    char dst_files[num_files][FILENAMELEN];
- * @param outbuf            pointer to the output string where cmnd line is
- *created
- * @param buflen            length of the output string buffer
- * @param bdberr            bdb error, if any
+ * Gives the filenames associated with the target table on the foregin db
+ * and the new filenames where the table will live on the local db.
+ * 
+ * @param p_data               pointer to struct containing all the local db's
+ *                              table's attributes
+ * @param p_foreign_data        pointer to struct containing all the foreign db's
+ *                              table's attributes
+ * @param dst_data_genid        data genid on local db.
+ * @param p_dst_index_genids    pointer to index genids on local db.
+ * @param p_dst_blob_genids     pointer to blob genids on local db.
+ * @param p_src_files           pointer to a list of foreign files to be populated.
+ * @param p_dst_files           pointer to a list of local files to be populated.
+ * @param num_files             pointer to number of files populated in each list.
+ * @param bdberr                bdb error, if any
  *
  * @return 0 on success !0 otherwise
  */
-static int bulk_import_copy_cmd_add_tmpdir_filenames(
+static int bulk_import_generate_filenames(
     const ImportData *p_data, const ImportData *p_foreign_data,
     const unsigned long long dst_data_genid,
     const unsigned long long *p_dst_index_genids,
-    const unsigned long long *p_dst_blob_genids, char *src_files[FILENAMELEN], char *dst_files[FILENAMELEN],
+    const unsigned long long *p_dst_blob_genids,
+    char ***p_src_files,
+    char ***p_dst_files,
+    int *p_num_files,
     int *bdberr)
 {
     struct dbtable *db = NULL;
     int dtanum;
     int ixnum;
     int fileix=0;
+
+    *p_num_files = p_foreign_data->num_index_genids + (p_foreign_data->blobstripe ? p_foreign_data->num_blob_genids*p_data->dtastripe : p_foreign_data->num_blob_genids) + p_data->dtastripe;
+    *p_src_files = malloc(sizeof(char *)*(*p_num_files));
+    *p_dst_files = malloc(sizeof(char *)*(*p_num_files));
+    for (int i=0; i<(*p_num_files); ++i) {
+        (*p_src_files)[i] = (char *) malloc(FILENAMELEN);
+        (*p_dst_files)[i] = (char *) malloc(FILENAMELEN);
+    }
+
+    char **src_files = *p_src_files;
+    char **dst_files = *p_dst_files;
 
     /* find the table we're importing TO */
     if (!(db = get_dbtable_by_name(p_data->table_name))) {
@@ -705,7 +588,6 @@ static int bulk_import_copy_cmd_add_tmpdir_filenames(
     *bdberr = BDBERR_NOERROR;
     return 0;
 }
-
 
 static int bulkimport_switch_files(struct dbtable *db,
                                    const ImportData *p_foreign_data,
@@ -814,22 +696,20 @@ retry_bulk_update:
         goto retry_bulk_update;
     }
 
-    // if (p_foreign_data->bulk_import_version == 1) {
-        bdb_reset_csc2_version(tran, db->tablename, db->schema_version, 1);
-        /* put_db_odh(db, tran, info->odh);
-        put_db_compress(db, tran, info->compr);
-        put_db_compress_blobs(db, tran, info->compr_blob);
-        put_db_inplace_updates(db, tran, info->ipu);
-        put_db_instant_schema_change(db, tran, info->isc);
-        put_db_datacopy_odh(db, tran, info->dc_odh);*/
-        for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
-            printf("csc2 version %d is:\n %s\n", i, p_foreign_data->csc2[i-1]);
-            put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i-1]);
-        }
-        /*bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
-        bdb_set_pagesize_index(db->handle, tran, info->index_pgsz, &bdberr);
-        bdb_set_pagesize_blob(db->handle, tran, info->blob_pgsz, &bdberr);*/
-    // }
+	bdb_reset_csc2_version(tran, db->tablename, db->schema_version, 1);
+	put_db_odh(db, tran, p_foreign_data->odh);
+	put_db_compress(db, tran, p_foreign_data->compress);
+	put_db_compress_blobs(db, tran, p_foreign_data->compress_blobs);
+	// put_db_inplace_updates(db, tran, info->ipu);
+	// put_db_instant_schema_change(db, tran, info->isc);
+	// put_db_datacopy_odh(db, tran, info->dc_odh);*/
+	for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
+		printf("csc2 version %d is:\n %s\n", i, p_foreign_data->csc2[i-1]);
+		put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i-1]);
+	}
+	// bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
+	// bdb_set_pagesize_index(db->handle, tran, info->index_pgsz, &bdberr);
+	// bdb_set_pagesize_blob(db->handle, tran, info->blob_pgsz, &bdberr);
 
     /* commit new versions */
     if (trans_commit_adaptive(&iq, tran, gbl_myhostname)) {
@@ -838,38 +718,31 @@ retry_bulk_update:
         goto retry_bulk_update;
     }
 
-    // if (p_foreign_data->bulk_import_version == 1) {
-        if (reload_after_bulkimport(db, NULL)) {
-            /* There is no good way to rollback here. The new schema's were
-             * committed but we couldn't reload them (parse error?). Lets just
-             * abort here and hope we can do this after bounce */
-            logmsg(LOGMSG_ERROR, "%s: failed reopening table: %s\n", __func__,
-                   local_data->table_name);
-            clean_exit();
-        }
-        bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
-        llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
-        sc_del_unused_files(db);
-        clear_bulk_import_data(local_data);
-        for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
-            // free(p_foreign_data->csc2[i-1]);
-        }
-        int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
-                                 strlen(db->tablename) + 1, 1, &bdberr);
-        if (rc || bdberr != BDBERR_NOERROR) {
-            /* TODO: there is no way out as llmeta was committed already */
-            logmsg(LOGMSG_ERROR,
-                   "%s: failed to send logical log scdone for table: %s "
-                   "bdberr: %d\n",
-                   __func__, p_foreign_data->table_name, bdberr);
-        }
-        return 0;
-    // }
-
-    /* everyone should be running bulk_import_version == 1 now --
-     * TODO: remove version 0 code as releasing table lock here before
-     * reloading the handle is WRONG!
-     */
+	if (reload_after_bulkimport(db, NULL)) {
+		/* There is no good way to rollback here. The new schema's were
+		 * committed but we couldn't reload them (parse error?). Lets just
+		 * abort here and hope we can do this after bounce */
+		logmsg(LOGMSG_ERROR, "%s: failed reopening table: %s\n", __func__,
+			   local_data->table_name);
+		clean_exit();
+	}
+	bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
+	llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
+	sc_del_unused_files(db);
+	clear_bulk_import_data(local_data);
+	for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
+		// free(p_foreign_data->csc2[i-1]);
+	}
+	int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
+							 strlen(db->tablename) + 1, 1, &bdberr);
+	if (rc || bdberr != BDBERR_NOERROR) {
+		/* TODO: there is no way out as llmeta was committed already */
+		logmsg(LOGMSG_ERROR,
+			   "%s: failed to send logical log scdone for table: %s "
+			   "bdberr: %d\n",
+			   __func__, p_foreign_data->table_name, bdberr);
+	}
+	return 0;
 
 backout:
     llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
@@ -923,211 +796,21 @@ backout:
     return outrc;
 }
 
-static int bulk_import_generate_filenames(
-        const ImportData *p_data,
-        const ImportData *p_foreign_data,
-        const unsigned long long dst_data_genid,
-        const unsigned long long *p_dst_index_genids,
-        const unsigned long long *p_dst_blob_genids,
-        char *outbuf, size_t buflen, char **src_files, char **dst_files, int *bdberr)
-{
-
-   struct dbtable *db = NULL;
-   int dtanum;
-   int ixnum;
-   int len;
-   int offset = 0;
-
-   /* find the table we're importing TO */
-   if(!(db = get_dbtable_by_name(p_data->table_name)))
-   {
-      fprintf(stderr, "%s: no such table: %s\n", __func__,
-            p_data->table_name);
-      return -1;
-   }
-
-   /* add -dsttmpdir */
-   len = snprintf(outbuf + offset, buflen - offset, " -dsttmpdir %s", bdb_get_tmpdir(thedb->bdb_env));
-   offset += len;
-   if(len < 0 || offset >= buflen)
-   {
-      fprintf(stderr, "%s: adding -dsttmpdir arg failed or string was too "
-            "long for buffer this string len: %d total string len: %d\n",
-            __func__, len, offset);
-      *bdberr = BDBERR_BUFSMALL;
-      return -1;
-   }
-
-   /* add data files */
-   for( dtanum = 0; dtanum < p_foreign_data->num_blob_genids+1; dtanum++ )
-   {
-      int strnum;
-      int num_stripes = 0;
-      unsigned long long src_version_num;
-      unsigned long long dst_version_num;
-
-
-      if (dtanum == 0)
-      {
-         num_stripes = p_data->dtastripe;
-         src_version_num = p_foreign_data->data_genid;
-         dst_version_num = dst_data_genid;
-      }
-      else
-      {
-         if (p_data->blobstripe)
-         {
-            num_stripes = p_data->dtastripe;
-         }
-         else
-         {
-            num_stripes = 1;
-         }
-         src_version_num = p_foreign_data->blob_genids[dtanum-1];
-         dst_version_num = p_dst_blob_genids[dtanum-1];
-      }
-
-      /* for each stripe add a -file param */
-      for( strnum = 0; strnum < num_stripes; ++strnum )
-      {
-         /* add -file */
-         len = snprintf(outbuf + offset, buflen - offset, " -file ");
-         offset += len;
-         if(len < 0 || offset >= buflen)
-         {
-            fprintf(stderr, "%s: adding data -file arg failed or string was"
-                  " too long for buffer this string len: %d total string "
-                  "len: %d\n", __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-         }
-
-         /* add src filename */
-         if (p_foreign_data->filenames_provided)
-         {
-            if (dtanum == 0)
-            {
-               len = snprintf( outbuf + offset, buflen - offset, "%s ", 
-                     p_foreign_data->data_files[strnum]);
-            } 
-            else
-            {
-               len = snprintf( outbuf + offset, buflen - offset, "%s ", 
-                     p_foreign_data->blob_files[dtanum-1]->files[strnum]);
-            } 
-         }
-         else 
-         {
-            len = bdb_form_file_name( db->handle, 1 /*is_data_file*/, dtanum,
-                  strnum, src_version_num,
-                  outbuf + offset, buflen - offset);
-         }
-         offset += len + 1 /*include the space we're about to add*/;
-         if(len < 0 || offset >= buflen)
-         {
-            fprintf(stderr, "%s: adding src data filename failed or string "
-                  "was too long for buffer this string len: %d total "
-                  "string len: %d\n", __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-         }
-
-         /* add a space. this removes the NUL, it will be re added by the
-          * form_file_name_ex() below */
-         outbuf[offset - 1] = ' ';   
-
-         /* add dst filename */
-         len = bdb_form_file_name( db->handle, 1 /*is_data_file*/, dtanum,
-               strnum, dst_version_num,
-               outbuf + offset, buflen - offset );
-         offset += len;
-         if(len < 0 || offset >= buflen)
-         {
-            fprintf(stderr, "%s: adding dst data filename failed or string "
-                  "was too long for buffer this string len: %d total "
-                  "string len: %d\n", __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-                return -1;
-            }
-        }
-    }
-
-    /* for each index add a -file param */
-    for( ixnum = 0; ixnum < p_foreign_data->num_index_genids; ixnum++ )
-    {
-        /* add -file */
-        len = snprintf(outbuf + offset, buflen - offset, " -file ");
-        offset += len;
-        if(len < 0 || offset >= buflen)
-        {
-            fprintf(stderr, "%s: adding index -file arg failed or string was "
-                    "too long for buffer this string len: %d total string len: "
-                    "%d\n", __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-        }
-
-        /* add src filename */
-        if (p_foreign_data->filenames_provided)
-        {
-           len = snprintf( outbuf + offset, buflen - offset, "%s",
-                 p_foreign_data->index_files[ixnum]);
-        }
-        else
-        {
-           len = bdb_form_file_name( db->handle, 0 /*is_data_file*/, ixnum,
-                 0 /*strnum*/, p_foreign_data->index_genids[ixnum], 
-                 outbuf + offset, buflen - offset );
-        }
-        offset += len + 1 /*include the space we're about to add*/;
-        if(len < 0 || offset >= buflen)
-        {
-            fprintf(stderr, "%s: adding src index filename failed or string "
-                    "was too long for buffer this string len: %d total string "
-                    "len: %d\n", __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-        }
-
-        /* add a space. this removes the NUL, it will be re added by the
-         * form_file_name_ex() below */
-        outbuf[offset - 1] = ' ';   
-
-        /* add dst filename */
-        len = bdb_form_file_name( db->handle, 0 /*is_data_file*/, ixnum,
-                0 /*strnum*/,
-                p_dst_index_genids[ixnum], outbuf + offset, buflen - offset );
-        offset += len;
-        if(len < 0 || offset >= buflen)
-        {
-            fprintf(stderr, "%s: adding dst index filename failed or string "
-                    "was too long for buffer this string len: %d total string "
-                    "len: %d\n", __func__, len, offset);
-            *bdberr = BDBERR_BUFSMALL;
-            return -1;
-        }
-    }
-
-    *bdberr = BDBERR_NOERROR;
-    return 0;
-
-
-}
-                                          
 
 int bulk_import_v2(ImportData *p_foreign_data)
 {
     unsigned i;
-    int offset, rc;
+    int offset, num_files, bdberr, rc;
     struct dbtable *db;
     unsigned long long dst_data_genid;
     unsigned long long dst_index_genids[MAXINDEX];
     unsigned long long dst_blob_genids[MAXBLOBS];
     ImportData local_data = IMPORT_DATA__INIT;
     BulkImportMetaInfo info = {0};
-    int bdberr;
+    char ** src_files = NULL;
+    char ** dst_files = NULL;
 
-    rc = 0;
+    rc = num_files = 0;
 
     // get local data 
     local_data.table_name = strdup(p_foreign_data->table_name);
@@ -1135,16 +818,6 @@ int bulk_import_v2(ImportData *p_foreign_data)
         logmsg(LOGMSG_ERROR, "%s: failed getting local data\n", __func__);
         rc = -1;
         return rc;
-    }
-
-    int num_files = p_foreign_data->num_index_genids + (p_foreign_data->blobstripe ? p_foreign_data->num_blob_genids*local_data.dtastripe : p_foreign_data->num_blob_genids) + local_data.dtastripe;
-    printf("num files %d\n", num_files);
-    // TODO: Free
-    char * src_files[num_files];
-    char * dst_files[num_files];
-    for (int i=0; i<num_files; ++i) {
-        src_files[i] = (char *) malloc(FILENAMELEN);
-        dst_files[i] = (char *) malloc(FILENAMELEN);
     }
 
     logmsg(LOGMSG_DEBUG, "%s: Loaded local import data\n", __func__);
@@ -1178,9 +851,9 @@ int bulk_import_v2(ImportData *p_foreign_data)
 
     logmsg(LOGMSG_DEBUG, "%s: Validated data\n", __func__);
 
-    bulk_import_copy_cmd_add_tmpdir_filenames(
+    bulk_import_generate_filenames(
             &local_data, p_foreign_data, dst_data_genid, dst_index_genids,
-            dst_blob_genids, (char **) src_files, (char **) dst_files, &bdberr
+            dst_blob_genids, &src_files, &dst_files, &num_files, &bdberr
     );
 
     for (int fileix=0; fileix<num_files; ++fileix) {
@@ -1194,6 +867,8 @@ int bulk_import_v2(ImportData *p_foreign_data)
         offset = snprintf(NULL, 0, "%s/%s", thedb->basedir, dst_file);
         char * dst_path = malloc(offset);
         sprintf(dst_path, "%s/%s", thedb->basedir, dst_file);
+
+        logmsg(LOGMSG_DEBUG, "Blessing src %s then copying to %s\n", src_path, dst_path); 
 
         rc = bdb_bless_btree(src_path, dst_path);
 
@@ -1214,55 +889,17 @@ int bulk_import_v2(ImportData *p_foreign_data)
     logmsg(LOGMSG_DEBUG, "%s: Switched files\n", __func__);
 
 err:
+    if (num_files != 0) {
+        for (int fileix=0; fileix<num_files; ++fileix) {
+            free(src_files[fileix]);
+            free(dst_files[fileix]);
+        }
+        free(src_files);
+        free(dst_files);
+    }
     
     return rc;
 }
-
-
-static int src_db_bulkimport_ver(SBUF2 *sb, int *version)
-{
-    char buf[64];
-    if (sbuf2printf(sb, "bulkimportforeign_ver\n") < 0 || sbuf2flush(sb) < 0) {
-        logmsg(LOGMSG_ERROR,
-               "%s: failed to send bulkimportforeignver command\n", __func__);
-        sbuf2close(sb);
-        return 1;
-    }
-
-    if (sbuf2gets(buf, sizeof(buf), sb) < 0) {
-        sb_errf(sb, "%s: I/O error reading options\n", __func__);
-        sbuf2close(sb);
-        return 1;
-    }
-
-    if (strcmp(buf, appsock_unknown) == 0) {
-        /* source database doesn't know about this appsock cmd
-         * so fall back to pick's version */
-        *version = 0;
-        return 0;
-    }
-
-    if (strcmp(buf, appsock_unknown_old) == 0) {
-        /* source database doesn't know about this appsock cmd
-         * so fall back to pick's version */
-        *version = 0;
-        return 0;
-    }
-
-    int v = atoi(buf);
-    if (v >= 1) { /* I only support upto version 1 */
-        v = 1;
-    } else {
-        sb_errf(sb, "%s: unknown bulkimport version: %s\n", __func__, buf);
-        sbuf2close(sb);
-        return 1;
-    }
-
-    *version = v;
-    return 0;
-}
-
-
 
 static int enable_bulk_import_different_tables_update(void *context, void *value)
 {
@@ -1276,41 +913,3 @@ static int enable_bulk_import_different_tables_update(void *context, void *value
     return 0;
 }
 
-static int bulk_import_timeout_sanitize(void *context, void *value)
-{
-    comdb2_tunable *tunable = (comdb2_tunable *)context;
-    int val = *(int *)value;
-    if (val<=0) {
-        // sbuf timeout values can't be 0. that disables the timeouts
-        *(int *)tunable->var = SBUF_DEFAULT_TIMEOUT; // set it to the default value;
-    } else {
-        *(int *)tunable->var = val;
-    }
-    return 0;
-}
-
-/*
-  Note: Static plugins are installed before the lrl files are
-  parsed, so it should be safe to enable bulk import here.
-*/
-static int bulk_import_init(void *unused)
-{
-    REGISTER_TUNABLE("enable_bulk_import", "Enable bulk import (Default: 0)",
-                     TUNABLE_BOOLEAN, &gbl_enable_bulk_import, NOARG, NULL,
-                     NULL, NULL, NULL);
-    REGISTER_TUNABLE("enable_bulk_import_different_tables",
-                     "Enable bulk "
-                     "import across tables with different names (Default: 0)",
-                     TUNABLE_BOOLEAN, &gbl_enable_bulk_import_different_tables,
-                     NOARG, NULL, NULL,
-                     enable_bulk_import_different_tables_update, NULL);
-    REGISTER_TUNABLE("bulk_import_client_read_timeout", "sbuf timeout for reading from foreign DB (Default: 10s)",
-                      TUNABLE_INTEGER, &gbl_bulk_import_client_read_timeout,
-                      NOARG, NULL, NULL,
-                      bulk_import_timeout_sanitize, NULL);
-    REGISTER_TUNABLE("bulk_import_client_write_timeout", "sbuf timeout for writing to foreign DB (Default: 10s)",
-                      TUNABLE_INTEGER, &gbl_bulk_import_client_write_timeout,
-                      NOARG, NULL, NULL,
-                      bulk_import_timeout_sanitize, NULL);
-    return 0;
-}

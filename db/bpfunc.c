@@ -12,6 +12,7 @@
 #include "db_access.h" /* gbl_check_access_controls */
 #include "importdata.pb-c.h"
 #include <sys/stat.h>
+#include <unistd.h>
 
 /* Automatically create 'default' user when authentication is enabled. */
 int gbl_create_default_user;
@@ -683,16 +684,30 @@ static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err)
     int size;
     char *srcdb = func->arg->bimp->srcdb;
     char *tablename = func->arg->bimp->tablename;
-
-	logmsg(LOGMSG_DEBUG, "%s: Running bulk import\n", __func__);
+    char *exe = NULL;
+    pid_t pid = getpid();
 
     // Start temporary database process to import files and run recovery.
 
     setupImportDb(&tmpDbDir);
 
-    size = snprintf(NULL, 0, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, tablename, srcdb); // TODO is nm2->z a cstr?
+#if defined(_LINUX_SOURCE)
+    size = snprintf(NULL, 0, "/proc/%ld/exe", pid);
+    exe = malloc(size+1);
+    sprintf(exe, "/proc/%ld/exe", pid);
+#elif defined(_AIX)
+    size = snprintf(NULL, 0, "/proc/%ld/object/a.out", pid);
+    exe = malloc(size+1);
+    sprintf(exe, "/proc/%ld/object/a.out", pid);
+#elif defined(_SUN_SOURCE)
+    size = snprintf(NULL, 0, "/proc/%ld/execname", pid);
+    exe = malloc(size+1);
+    sprintf(exe, "/proc/%ld/execname", pid);
+#endif
+
+    size = snprintf(NULL, 0, "%s --import --dir %s --tables %s --src %s", exe, tmpDbDir, tablename, srcdb); // TODO is nm2->z a cstr?
     command = malloc(size+1);
-    sprintf(command, "./comdb2 --import --dir %s --tables %s --src %s", tmpDbDir, tablename, srcdb); // TODO is nm2->z a cstr?
+    sprintf(command, "%s --import --dir %s --tables %s --src %s", exe, tmpDbDir, tablename, srcdb); // TODO is nm2->z a cstr?
     printf("about to run %s\n", command);
 
     if ((rc = system(command)), rc != 0) {
@@ -713,6 +728,10 @@ static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err)
 err:
     if (command) {
         free(command);
+    }
+
+    if (exe) {
+        free(exe);
     }
 
     if (tmpDbDir) {

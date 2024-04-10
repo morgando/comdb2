@@ -2333,6 +2333,7 @@ scctrl ::= SCHEMACHANGE scaction(A) nm(T) dbnm(X). {
 //////////////////////////////////// IMPORT //////////////////////////////////// 
 
 cmd ::= IMPORT nexprlist(A) FROM nm(B). { 
+    comdb2WriteTransaction(pParse);
     comdb2Import(pParse, A, &B);
 }
 
@@ -2391,7 +2392,6 @@ cmd ::= dryrun TRUNCATE table_opt nm(T) dbnm(Y). {
 }
 
 cmd ::= BULKIMPORT nm(A) DOT nm(B) nm(C) DOT nm(D). {
-    comdb2WriteTransaction(pParse);
     comdb2bulkimport(pParse, &A, &B, &C, &D);
 }
 

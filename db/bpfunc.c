@@ -735,7 +735,10 @@ err:
     }
 
     if (tmpDbDir) {
+        cleanupImportDb(tmpDbDir);
         free(tmpDbDir);
     }
+
+   
     return rc;
 }

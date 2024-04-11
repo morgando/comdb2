@@ -270,7 +270,7 @@ int bulk_import_data_load(ImportData *p_data)
         return -1;
     }
 
-    // if (gbl_enable_bulk_import_different_tables) {
+    if (gbl_enable_bulk_import_different_tables) {
         p_data->n_data_files = p_data->dtastripe;
         p_data->data_files = malloc(sizeof(char *)*p_data->n_data_files);
 
@@ -284,7 +284,7 @@ int bulk_import_data_load(ImportData *p_data)
             }
             p_data->data_files[i] = strdup(tempname);
         }
-    // }
+    }
     //
 
     // create t
@@ -320,7 +320,7 @@ int bulk_import_data_load(ImportData *p_data)
             return -1;
         }
 
-        // if (gbl_enable_bulk_import_different_tables) {
+        if (gbl_enable_bulk_import_different_tables) {
             len =
                 bdb_form_file_name(db->handle, 0, 0, i, p_data->index_genids[i],
                                    tempname, sizeof(tempname));
@@ -330,7 +330,7 @@ int bulk_import_data_load(ImportData *p_data)
                        __func__, i);
             }
             p_data->index_files[i] = strdup(tempname);
-        // }
+        }
     }
 
     if (p_data->num_blob_genids > 0) {
@@ -359,7 +359,7 @@ int bulk_import_data_load(ImportData *p_data)
             return -1;
         }
 
-        // if (gbl_enable_bulk_import_different_tables) {
+        if (gbl_enable_bulk_import_different_tables) {
             if (p_data->blobstripe) {
                 for (j = 0; j < p_data->dtastripe; j++) {
                     len = bdb_form_file_name(db->handle, 1, i + 1, j,
@@ -385,7 +385,7 @@ int bulk_import_data_load(ImportData *p_data)
                 }
                 p_data->blob_files[i]->files[0] = strdup(tempname);
             }
-        // }
+        }
     }
 
     /* success */
@@ -897,7 +897,7 @@ err:
         free(src_files);
         free(dst_files);
     }
-    
+
     return rc;
 }
 

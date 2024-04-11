@@ -696,20 +696,20 @@ retry_bulk_update:
         goto retry_bulk_update;
     }
 
-	bdb_reset_csc2_version(tran, db->tablename, db->schema_version, 1);
-	put_db_odh(db, tran, p_foreign_data->odh);
-	put_db_compress(db, tran, p_foreign_data->compress);
-	put_db_compress_blobs(db, tran, p_foreign_data->compress_blobs);
-	// put_db_inplace_updates(db, tran, info->ipu);
-	// put_db_instant_schema_change(db, tran, info->isc);
-	// put_db_datacopy_odh(db, tran, info->dc_odh);*/
-	for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
-		printf("csc2 version %d is:\n %s\n", i, p_foreign_data->csc2[i-1]);
-		put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i-1]);
-	}
-	// bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
-	// bdb_set_pagesize_index(db->handle, tran, info->index_pgsz, &bdberr);
-	// bdb_set_pagesize_blob(db->handle, tran, info->blob_pgsz, &bdberr);
+    bdb_reset_csc2_version(tran, db->tablename, db->schema_version, 1);
+    put_db_odh(db, tran, p_foreign_data->odh);
+    put_db_compress(db, tran, p_foreign_data->compress);
+    put_db_compress_blobs(db, tran, p_foreign_data->compress_blobs);
+    // put_db_inplace_updates(db, tran, info->ipu);
+    // put_db_instant_schema_change(db, tran, info->isc);
+    // put_db_datacopy_odh(db, tran, info->dc_odh);*/
+    for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
+        printf("csc2 version %d is:\n %s\n", i, p_foreign_data->csc2[i-1]);
+        put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i-1]);
+    }
+    // bdb_set_pagesize_data(db->handle, tran, info->data_pgsz, &bdberr);
+    // bdb_set_pagesize_index(db->handle, tran, info->index_pgsz, &bdberr);
+    // bdb_set_pagesize_blob(db->handle, tran, info->blob_pgsz, &bdberr);
 
     /* commit new versions */
     if (trans_commit_adaptive(&iq, tran, gbl_myhostname)) {
@@ -718,31 +718,31 @@ retry_bulk_update:
         goto retry_bulk_update;
     }
 
-	if (reload_after_bulkimport(db, NULL)) {
-		/* There is no good way to rollback here. The new schema's were
-		 * committed but we couldn't reload them (parse error?). Lets just
-		 * abort here and hope we can do this after bounce */
-		logmsg(LOGMSG_ERROR, "%s: failed reopening table: %s\n", __func__,
-			   local_data->table_name);
-		clean_exit();
-	}
-	bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
-	llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
-	sc_del_unused_files(db);
-	clear_bulk_import_data(local_data);
-	for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
-		// free(p_foreign_data->csc2[i-1]);
-	}
-	int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
-							 strlen(db->tablename) + 1, 1, &bdberr);
-	if (rc || bdberr != BDBERR_NOERROR) {
-		/* TODO: there is no way out as llmeta was committed already */
-		logmsg(LOGMSG_ERROR,
-			   "%s: failed to send logical log scdone for table: %s "
-			   "bdberr: %d\n",
-			   __func__, p_foreign_data->table_name, bdberr);
-	}
-	return 0;
+    if (reload_after_bulkimport(db, NULL)) {
+        /* There is no good way to rollback here. The new schema's were
+         * committed but we couldn't reload them (parse error?). Lets just
+         * abort here and hope we can do this after bounce */
+        logmsg(LOGMSG_ERROR, "%s: failed reopening table: %s\n", __func__,
+               local_data->table_name);
+        clean_exit();
+    }
+    bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
+    llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
+    sc_del_unused_files(db);
+    clear_bulk_import_data(local_data);
+    for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
+        // free(p_foreign_data->csc2[i-1]);
+    }
+    int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
+                             strlen(db->tablename) + 1, 1, &bdberr);
+    if (rc || bdberr != BDBERR_NOERROR) {
+        /* TODO: there is no way out as llmeta was committed already */
+        logmsg(LOGMSG_ERROR,
+               "%s: failed to send logical log scdone for table: %s "
+               "bdberr: %d\n",
+               __func__, p_foreign_data->table_name, bdberr);
+    }
+    return 0;
 
 backout:
     llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);

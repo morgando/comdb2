@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+bash -n "$0" | exit 1
+
+vars="TESTCASE DBNAME DBDIR TESTSROOTDIR TESTDIR CDB2_OPTIONS CDB2_CONFIG SECONDARY_DBNAME SECONDARY_DBDIR SECONDARY_CDB2_CONFIG SECONDARY_CDB2_OPTIONS"
+for required in $vars; do
+    q=${!required}
+    echo "$required=$q" 
+    if [[ -z "$q" ]]; then
+        echo "$required not set" >&2
+        exit 1
+    fi
+done
+
+# Setup source table
+
+exp=1
+cdb2sql $DBNAME local "create table t(i int)"
+cdb2sql $DBNAME local "insert into t values($exp)"
+
+# Import table with the same schema
+
+cdb2sql $SECONDARY_DBNAME local "create table t(i int)"
+cdb2sql $SECONDARY_DBNAME local "import t from $DBNAME"
+out=$(cdb2sql -tabs $SECONDARY_DBNAME local "select * from t")
+
+if (( out != exp ));
+then
+	echo "Failed to import a table with the same schema."
+	exit 1
+fi
+
+# Import table with a different schema
+
+cdb2sql $SECONDARY_DBNAME local "drop table t"
+cdb2sql $SECONDARY_DBNAME local "create table t(i int, j int)"
+cdb2sql $SECONDARY_DBNAME local "import t from $DBNAME"
+out=$(cdb2sql -tabs $SECONDARY_DBNAME local "select * from t")
+
+if (( out != exp ));
+then
+	echo "Failed to import a table with a different schema"
+	exit 1
+fi
+
+# Import noblob table over blob table
+
+cdb2sql $SECONDARY_DBNAME local "drop table t"
+cdb2sql $SECONDARY_DBNAME local "create table t(b blob)"
+cdb2sql $SECONDARY_DBNAME local "import t from $DBNAME"
+out=$(cdb2sql -tabs $SECONDARY_DBNAME local "select * from t")
+
+if (( out != exp ));
+then
+	echo "Failed to import a table with a different schema"
+	exit 1
+fi

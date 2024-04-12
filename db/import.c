@@ -54,19 +54,6 @@ extern tran_type *curtran_gettran(void);
 int gbl_enable_bulk_import = 1;
 int gbl_enable_bulk_import_different_tables;
 
-#define BULKIMPORT_META_TABLE                                                  \
-    X(BULKIMPORT_ODH, "odh")                                                   \
-    X(BULKIMPORT_IPU, "ipu")                                                   \
-    X(BULKIMPORT_ISC, "isc")                                                   \
-    X(BULKIMPORT_DC_ODH, "dc_odh")                                             \
-    X(BULKIMPORT_COMPR, "compr")                                               \
-    X(BULKIMPORT_COMPR_BLOB, "compr_blob")                                     \
-    X(BULKIMPORT_DATA_PGSZ, "data_pgsz")                                       \
-    X(BULKIMPORT_INDX_PGSZ, "indx_pgsz")                                       \
-    X(BULKIMPORT_BLOB_PGSZ, "blob_pgsz")                                       \
-    X(BULKIMPORT_END, "end")                                                   \
-    X(BULKIMPORT_UNKNOWN, "")
-
 typedef struct {
     const char *src_name;
     const char *dest_name;
@@ -242,7 +229,7 @@ int bulk_import_data_load(ImportData *p_data)
     struct dbtable *db;
     char *p_csc2_text = NULL;
     char tempname[64 /*hah*/];
-    int len;
+    int len, pgsz;
 
     /* clear data that may not get initialized*/
     p_data->compress = 0;
@@ -254,6 +241,8 @@ int bulk_import_data_load(ImportData *p_data)
                p_data->table_name);
         return -1;
     }
+
+    p_data->filenames_provided = gbl_enable_bulk_import_different_tables;
 
     /* get the data dir */
     if (strlen(thedb->basedir) >= 10000 /*placeholder */) {
@@ -290,7 +279,6 @@ int bulk_import_data_load(ImportData *p_data)
     /* get stripe options */
     p_data->dtastripe = gbl_dtastripe;
     p_data->blobstripe = gbl_blobstripe;
-    p_data->filenames_provided = gbl_enable_bulk_import_different_tables;
 
     // p_data->n_index_files = p_data->n_index_genids;
     // p_data->index_files = malloc(sizeof(char *)*p_data->n_index_files);
@@ -306,6 +294,49 @@ int bulk_import_data_load(ImportData *p_data)
                "files\n",
                __func__, p_data->table_name);
         return -1;
+    }
+
+    /* get page sizes from meta table */
+    /*
+     * Don't know if this is necessary.
+     if (bdb_get_pagesize_data(db->handle, NULL, &pgsz, &bdberr) == 0 &&
+        bdberr == 0) {
+        p_data->data_pgsz = pgsz;
+    } else {
+        logmsg(LOGMSG_ERROR, "%s: Failed to fetch data pagesize for table %s with bdberr %d\n",
+                __func__, p_data->table_name, bdberr);
+        return -1;
+    }
+    if (bdb_get_pagesize_index(db->handle, NULL, &pgsz, &bdberr) == 0 &&
+        bdberr == 0) {
+        p_data->index_pgsz = pgsz;
+    } else {
+        logmsg(LOGMSG_ERROR, "%s: Failed to fetch index pagesize for table %s with bdberr %d\n",
+                __func__, p_data->table_name, bdberr);
+        return -1;
+    }
+    if (bdb_get_pagesize_blob(db->handle, NULL, &pgsz, &bdberr) == 0 &&
+        bdberr == 0) {
+        p_data->blob_pgsz = pgsz;
+    } else {
+        logmsg(LOGMSG_ERROR, "%s: Failed to fetch blob pagesize for table %s with bdberr %d\n",
+                __func__, p_data->table_name, bdberr);
+        return -1;
+    }*/
+
+    /* get ipu/isc options from meta table */
+
+    if (get_db_inplace_updates(db, &p_data->ipu)) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to get inplace update option for table %s\n",
+               __func__, p_data->table_name);
+    }
+    if (get_db_instant_schema_change(db, &p_data->isc)) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to get instant schema change option for table %s\n",
+               __func__, p_data->table_name);
+    }
+    if (get_db_datacopy_odh(db, &p_data->dc_odh)) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to get datacopy odh option for table %s\n",
+               __func__, p_data->table_name);
     }
 
     if (gbl_enable_bulk_import_different_tables) {
@@ -742,9 +773,9 @@ retry_bulk_update:
     put_db_odh(db, tran, p_foreign_data->odh);
     put_db_compress(db, tran, p_foreign_data->compress);
     put_db_compress_blobs(db, tran, p_foreign_data->compress_blobs);
-    // put_db_inplace_updates(db, tran, info->ipu);
-    // put_db_instant_schema_change(db, tran, info->isc);
-    // put_db_datacopy_odh(db, tran, info->dc_odh);*/
+    put_db_inplace_updates(db, tran, info->ipu);
+    put_db_instant_schema_change(db, tran, info->isc);
+    put_db_datacopy_odh(db, tran, info->dc_odh);
     for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
         printf("csc2 version %d is:\n %s\n", i, p_foreign_data->csc2[i-1]);
         put_csc2_file(db->tablename, tran, i, p_foreign_data->csc2[i-1]);

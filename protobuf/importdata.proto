@@ -22,4 +22,10 @@ message ImportData {
     repeated string index_files=17;
     repeated BlobFiles blob_files=18;
     repeated string csc2=19;
+    int32 data_pgsz=20;
+    int32 index_pgsz=21;
+    int32 blob_pgsz=22;
+    int32 ipu=23;
+    int32 isc=24;
+    int32 dc_odh=25;
 }

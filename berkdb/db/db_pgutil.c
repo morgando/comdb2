@@ -117,13 +117,13 @@ getchksumsz(DB *dbp, PAGE *p)
 	case P_HASHMETA:
 	case P_BTREEMETA:
 	case P_QAMMETA:
-		return 512;
+		return DBMETASIZE;
 	default:
 		return dbp->pgsize;
 	}
 }
 
-void compute_chksum(DB *dbp, PAGE *p)
+void set_chksum(DB *dbp, PAGE *p)
 {
 	if (!F_ISSET(dbp, DB_AM_CHKSUM)) {
 		return;
@@ -167,31 +167,4 @@ int verify_chksum(DB *dbp, PAGE *p)
 		return -1;
 	}
 	return 0;
-}
-
-void
-check_chksum(DB *dbp, PAGE *p)
-{
-	if (!F_ISSET(dbp, DB_AM_CHKSUM))
-		return;
-	uint32_t calc, chksum, *chksump = getchksump(dbp, p);
-
-	if (chksump == NULL) {
-		logmsg(LOGMSG_USER, "PGTYPE: %s - skipping chksum\n", type2str(TYPE(p)));
-#include <logmsg.h>
-		return;
-	}
-	int size = getchksumsz(dbp, p);
-
-	if (F_ISSET(dbp, DB_AM_SWAP))
-		chksum = flibc_intflip(*chksump);
-	else
-		chksum = *chksump;
-	*chksump = 0;
-	calc = IS_CRC32C(p) ? crc32c((uint8_t *) p, size)
-	    : __ham_func4(dbp, p, size);
-	if (chksum != calc)
-		printf("pg:%u failed chksum expected:%u got:%u\n",
-		    PGNO(p), chksum, calc);
-	*chksump = chksum;
 }

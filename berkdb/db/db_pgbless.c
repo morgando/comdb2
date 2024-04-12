@@ -32,7 +32,7 @@
 #define	SERIAL_INIT	0
 static uint32_t fid_serial = SERIAL_INIT;
 
-extern void compute_chksum(DB *dbp, PAGE *p);
+extern void set_chksum(DB *dbp, PAGE *p);
 extern void swap_meta(DBMETA *m);
 extern int verify_chksum(DB *dbp, PAGE *p);
 
@@ -142,7 +142,7 @@ static int copy_meta(DB *dbp, int in, int out)
 	}
 	set_new_fileid(dbp->fname, 1, (DBMETA *)p);
 	LSN_NOT_LOGGED(LSN(p));
-	compute_chksum(dbp, p);
+	set_chksum(dbp, p);
 	n = write(out, p, dbp->pgsize);
 	if (n != dbp->pgsize) {
 		fprintf(stderr, "%s bad write n:%ld\n", __func__, n);
@@ -170,7 +170,7 @@ static int copy_btree(DB *dbp, int in, int out)
 			return -2;
 		}
 		LSN_NOT_LOGGED(LSN(p));
-		compute_chksum(dbp, p);
+		set_chksum(dbp, p);
 		n = write(out, p, dbp->pgsize);
 		if (n != dbp->pgsize) {
 			fprintf(stderr, "%s bad write n:%ld\n", __func__, n);

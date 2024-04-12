@@ -21,11 +21,6 @@
 #include "dbinc_auto/hash_ext.h"
 #include "dbinc_auto/mp_ext.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-
 #include <crc32c.h>
 #include <logmsg.h>
 

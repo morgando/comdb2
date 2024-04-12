@@ -29,6 +29,9 @@
 #include <crc32c.h>
 #include <logmsg.h>
 
+extern void swap_meta(DBMETA *m);
+extern const char *type2str(int type);
+
 void inspect_page(DB *, PAGE *);
 
 void prefix_tocpu(DB *dbp, PAGE *page);

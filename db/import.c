@@ -83,15 +83,6 @@ typedef struct {
     int blob_pgsz;
 } BulkImportMetaInfo;
 
-/**
- * Clear the strdups in this structures
- *
- * @param p_data    pointer to place that stores bulk import data,
- */
-static void clear_bulk_import_data(ImportData *p_data)
-{
-    //TODO
-}
 
 int bulk_import_data_unpack_from_file(ImportData **pp_data, char *fname)
 {
@@ -189,6 +180,52 @@ void bulk_import_data_print(FILE *p_file,
         }
     }
     fprintf(p_file, "\n");
+}
+
+/**
+ * Clear the strdups in this structures
+ *
+ * @param p_data    pointer to place that stores bulk import data,
+ */
+static void clear_bulk_import_data(ImportData *p_data)
+{
+    if (p_data->index_genids) {
+        free(p_data->index_genids);
+    }
+    if (p_data->blob_genids) {
+        free(p_data->blob_genids);
+    }
+    if (p_data->table_name) {
+        free(p_data->table_name);
+    }
+    if (p_data->data_dir) {
+        free(p_data->data_dir);
+    }
+    for (int i=0; i<p_data->n_data_files; ++i) {
+        free(p_data->data_files[i]);
+    }
+    if (p_data->data_files) {
+        free(p_data->data_files);
+    }
+    for (int i=0; i<p_data->n_index_files; ++i) {
+        free(p_data->index_files[i]);
+    }
+    if (p_data->index_files) {
+        free(p_data->index_files);
+    }
+    for (int i=0; i<p_data->n_blob_files; ++i) {
+        BlobFiles *b = p_data->blob_files[i];
+        for (int j=0; j<b->n_files; j++) {
+            free(b->files[j]);
+        }
+        if (b->files) {
+            free(b->files);
+        }
+        free(b);
+    }
+    if (p_data->blob_files) {
+        free(p_data->blob_files);
+    }
 }
 
 /**
@@ -338,7 +375,7 @@ int bulk_import_data_load(ImportData *p_data)
         }
     }
 
-    if (p_data->num_blob_genids > 0) {
+    if (gbl_enable_bulk_import_different_tables && p_data->num_blob_genids > 0) {
         p_data->n_blob_files = p_data->dtastripe;
         p_data->blob_files = malloc(sizeof(BlobFiles *)*p_data->n_blob_files);
         for (int i=0; i<p_data->n_blob_files; ++i) {
@@ -735,9 +772,6 @@ retry_bulk_update:
     llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
     sc_del_unused_files(db);
     clear_bulk_import_data(local_data);
-    for (i = 1; i <= p_foreign_data->n_csc2; ++i) {
-        // free(p_foreign_data->csc2[i-1]);
-    }
     int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
                              strlen(db->tablename) + 1, 1, &bdberr);
     if (rc || bdberr != BDBERR_NOERROR) {

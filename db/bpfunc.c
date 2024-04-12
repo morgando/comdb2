@@ -686,6 +686,7 @@ static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err)
     char *tablename = func->arg->bimp->tablename;
     char *exe = NULL;
     pid_t pid = getpid();
+    ImportData *import_data = NULL;
 
     // Start temporary database process to import files and run recovery.
 
@@ -717,7 +718,6 @@ static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err)
 
     logmsg(LOGMSG_DEBUG, "Import process was successful.\n");
     
-    ImportData *import_data;
 
     bulk_import_data_unpack_from_file(&import_data, "bulk_import_data");
 
@@ -739,6 +739,9 @@ err:
         free(tmpDbDir);
     }
 
+    if (import_data) {
+        import_data__free_unpacked(import_data, NULL);
+    }
    
     return rc;
 }

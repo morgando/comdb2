@@ -178,6 +178,8 @@ void myctrace(const char *c) { ctrace("%s", c); }
 void berkdb_use_malloc_for_regions_with_callbacks(void *mem,
                                                   void *(*alloc)(void *, int),
                                                   void (*free)(void *, void *));
+extern int bulk_import_tmpdb_copy_and_recover();
+extern int bulk_import_data_pack_to_file(ImportData *p_data, char *fname); 
 extern void bulk_import_data_print(FILE *p_file,
                                    const ImportData *p_data);
 extern int bulk_import_data_load(ImportData *p_data);
@@ -3501,102 +3503,15 @@ static int init(int argc, char **argv)
         exit(1);
     }
 
-    // TODO: Import here
-        // TODO: 1) Select db files 2) flush 3) select log files ?
     if (gbl_import_mode) {
         gbl_exit = 1;
-		gbl_fullrecovery = 1;
+        gbl_fullrecovery = 1;
 
-
-        // GET HANDLE TO SOURCE
-
-        cdb2_hndl_tp *hndl;
-        int rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
-        if (rc) {
-            logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
+        logmsg(LOGMSG_DEBUG, "[IMPORT] Copying files from source db.\n");
+        if (bulk_import_tmpdb_copy_and_recover()) {
+            logmsg(LOGMSG_ERROR, "Import failed\n");
             exit(1);
         }
-
-        // FLUSH SOURCE
-        char query[2000];
-        snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
-        rc = cdb2_run_statement(hndl, query);
-        if (rc) {
-            const char * err = cdb2_errstr(hndl);
-            printf("err %s\n", err);
-            exit(1);
-        }
-        while(cdb2_next_record(hndl) == CDB2_OK) {}
-
-
-        // GET DBS + LOGS
-
-        snprintf(query, sizeof(query), "SELECT filename, content, dir FROM comdb2_files WHERE dir!='tmp' ORDER BY filename, offset");
-        printf("query %s\n", query);
-        rc = cdb2_run_statement(hndl, query);
-
-        if (rc) {
-            const char * err = cdb2_errstr(hndl);
-            printf("err %s\n", err);
-            exit(1);
-        }
-
-        char * fname = NULL;
-        char txndir[2*strlen(gbl_dbdir) + strlen("/.txn")];
-
-        if (gbl_nonames)
-            snprintf(txndir, sizeof(txndir), "%s/logs", gbl_dbdir);
-        else
-            snprintf(txndir, sizeof(txndir), "%s/%s.txn", gbl_dbdir, gbl_dbname);
-
-        printf("basedir %s txndir %s\n", gbl_dbdir, txndir);
-
-        int f = -1;
-        while(cdb2_next_record(hndl) == CDB2_OK) {
-            char * nextFname = (char *) cdb2_column_value(hndl, 0);
-            if (strcmp(nextFname, "checkpoint") == 0) {
-                continue;
-            }
-            printf("working with fname %s\n", nextFname);
-            int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
-            if (newFile) {
-                if (fname != NULL) {
-                    free(fname);
-                }
-                if (f) { close(f); }
-
-                fname = strdup(nextFname);
-                printf("fname is %s\n", fname);
-
-                char copy_dst[strlen(gbl_dbdir) + 2 + cdb2_column_size(hndl, 2) + strlen(fname)];
-                snprintf(copy_dst, sizeof(copy_dst), "%s%s%s%s%s", gbl_dbdir, cdb2_column_size(hndl, 2) != 1 ? "/" : "", (char *) cdb2_column_value(hndl, 2), "/", fname);
-                printf("copy dst is %s\n", copy_dst);
-
-                f = open(copy_dst, O_WRONLY | O_CREAT | O_APPEND, 0755);
-                if (f  == -1) {
-                    printf("failed to open file %s (errno: %s)\n", copy_dst, strerror(errno));
-                    exit(1);
-                }
-            }
-            if (f == -1) {
-                printf("this is unexpected\n");
-                exit(1);
-            }
-            printf("writing chunk to %s\n", nextFname);
-            ssize_t bytes_written = write(f, (char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1));
-            if (bytes_written != cdb2_column_size(hndl, 1)) {
-                printf("failed to write to the file (expected: %d got: %ld)\n",
-                      cdb2_column_size(hndl, 1), bytes_written);
-                exit(1);
-            }
-        }
-
-        if (f) { close(f); }
-
-        if (fname != NULL) {
-            free(fname);
-        }
-
     }
 
     dbname = gbl_import_mode ? "import" : argv[optind++];
@@ -4255,27 +4170,16 @@ static int init(int argc, char **argv)
     {
         logmsg(LOGMSG_DEBUG, "Wrote all files. Loading bulk import data\n");
 
-        FILE *f_bulk_import = NULL;
-        f_bulk_import = fopen("bulk_import_data", "w");
-        if (!f_bulk_import) {
-            logmsg(LOGMSG_ERROR, "Failed to open file");
-        }
-
         ImportData import_data = IMPORT_DATA__INIT;
         import_data.table_name = strdup(gbl_import_table);
-         import_data.n_index_genids = MAXINDEX;
-         import_data.index_genids = malloc(sizeof(long unsigned int)*import_data.n_index_genids);
-         import_data.n_blob_genids = MAXBLOBS;
-         import_data.blob_genids = malloc(sizeof(long unsigned int)*import_data.n_blob_genids);
         bulk_import_data_load(&import_data);
 
-        unsigned len = import_data__get_packed_size(&import_data);
-        void * buf = malloc(len);
-        import_data__pack(&import_data, buf);
-        logmsg(LOGMSG_DEBUG, "Writing %d serialized bytes\n", len);
-        fwrite(buf, len, 1, f_bulk_import);
-
-        fclose(f_bulk_import);
+        logmsg(LOGMSG_DEBUG, "Loaded import data\n");
+        // TODO: Get fname from function
+        if (bulk_import_data_pack_to_file(&import_data, "bulk_import_data") != 0) {
+            logmsg(LOGMSG_ERROR, "Import failed\n");
+            exit(1);
+        }
     }   
     if (gbl_exit) {
         logmsg(LOGMSG_INFO, "-exiting.\n");

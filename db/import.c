@@ -32,6 +32,11 @@
 
 #include <netdb.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "bdb_api.h"
 #include "bdb_schemachange.h"
@@ -45,7 +50,11 @@
 #include "sc_callbacks.h"
 #include "importdata.pb-c.h"
 
+extern char * gbl_import_src; // TODO pass as arg
+extern char * gbl_dbname;
+extern char * gbl_dbdir;
 extern tran_type *curtran_gettran(void);
+int bulk_import_data_load(ImportData *p_data);
 
 /* Constants */
 #define FILENAMELEN 100
@@ -53,6 +62,8 @@ extern tran_type *curtran_gettran(void);
 /* Tunables */
 int gbl_enable_bulk_import = 1;
 int gbl_enable_bulk_import_different_tables;
+
+extern char *gbl_import_table;
 
 typedef struct {
     const char *src_name;
@@ -69,6 +80,62 @@ typedef struct {
     int index_pgsz;
     int blob_pgsz;
 } BulkImportMetaInfo;
+
+int bulk_import_data_pack_to_file(ImportData *p_data, char *fname)
+{
+    int rc, bytes_written;
+    FILE *f_bulk_import;
+    (void)fname;
+    // void *buf;
+    ImportData import_data = IMPORT_DATA__INIT;
+    import_data.table_name = strdup(gbl_import_table);
+    import_data.n_index_genids = MAXINDEX;
+    import_data.index_genids = malloc(sizeof(long unsigned int)*import_data.n_index_genids);
+    import_data.n_blob_genids = MAXBLOBS;
+    import_data.blob_genids = malloc(sizeof(long unsigned int)*import_data.n_blob_genids);
+    bulk_import_data_load(&import_data);
+   
+    rc = bytes_written = 0;
+    f_bulk_import = NULL;
+
+    printf("about to open file %s\n", fname);
+    f_bulk_import = fopen("bulk_import_data", "w");
+    if (f_bulk_import == NULL) {
+        logmsg(LOGMSG_ERROR, "Failed to open file");
+        rc = 1;
+        goto err;
+    }
+
+    printf("about to get packed size\n");
+    unsigned len = import_data__get_packed_size(&import_data);
+    void *buf = malloc(len);
+    if (buf == NULL) {
+        rc = ENOMEM;
+        goto err;
+    }
+
+    printf("about to pack \n");
+    if (import_data__pack(&import_data, buf) != len) {
+        logmsg(LOGMSG_ERROR, "%s: Did not pack full protobuf buffer.\n", __func__);
+        rc = 1;
+        goto err;
+    }
+
+    printf("about to write %d serialized bytes\n", len);
+    if (fwrite(buf, len, 1, f_bulk_import) != len) {
+        logmsg(LOGMSG_ERROR, "%s: Did not write full protobuf buffer to file\n");
+        rc = 1;
+        goto err;
+    }
+    printf("about to done\n");
+
+err:
+    if (f_bulk_import != NULL) {
+        fclose(f_bulk_import);
+    }
+
+    return rc;
+}
 
 
 int bulk_import_data_unpack_from_file(ImportData **pp_data, char *fname)
@@ -802,7 +869,6 @@ retry_bulk_update:
     bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
     llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
     sc_del_unused_files(db);
-    clear_bulk_import_data(local_data);
     int rc = bdb_llog_scdone(thedb->bdb_env, bulkimport, db->tablename,
                              strlen(db->tablename) + 1, 1, &bdberr);
     if (rc || bdberr != BDBERR_NOERROR) {
@@ -866,6 +932,103 @@ backout:
     return outrc;
 }
 
+int bulk_import_tmpdb_copy_and_recover()
+{
+    int rc, f;
+    char *fname, *nextFname;
+    char txndir[2*strlen(gbl_dbdir) + strlen("/.txn")];
+    char query[2000];
+
+    rc = 0;
+    f = -1;
+    fname = nextFname = NULL;
+
+    // GET HANDLE TO SOURCE
+
+    cdb2_hndl_tp *hndl;
+    rc = cdb2_open(&hndl, gbl_import_src, "local", 0);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Could not open a handle to src db in import mode\n", __func__);
+        rc = 1;
+        goto err;
+    }
+
+    logmsg(LOGMSG_DEBUG, "[IMPORT] %s: Got cdb2api handle to source db\n", __func__);
+
+    // FLUSH SOURCE
+
+    snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
+    rc = cdb2_run_statement(hndl, query);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Got an error flushing src db. errstr: %s\n", cdb2_errstr(hndl));
+        rc = 1;
+        goto err;
+    }
+    while(cdb2_next_record(hndl) == CDB2_OK) {}
+
+    logmsg(LOGMSG_DEBUG, "[IMPORT] %s: Flushed source db\n", __func__);
+
+    // GET DBS + LOGS
+
+    snprintf(query, sizeof(query), "SELECT filename, content, dir FROM comdb2_files WHERE dir!='tmp' ORDER BY filename, offset");
+    rc = cdb2_run_statement(hndl, query);
+
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Got an error grabbing files from src db. errstr: %s\n", cdb2_errstr(hndl));
+        rc = 1;
+        goto err;
+    }
+
+
+
+    if (gbl_nonames)
+        snprintf(txndir, sizeof(txndir), "%s/logs", gbl_dbdir);
+    else
+        snprintf(txndir, sizeof(txndir), "%s/%s.txn", gbl_dbdir, gbl_dbname);
+
+    while(cdb2_next_record(hndl) == CDB2_OK) {
+        nextFname = (char *) cdb2_column_value(hndl, 0);
+        if (strcmp(nextFname, "checkpoint") == 0) {
+            continue;
+        }
+        int newFile = fname == NULL || strcmp(fname, nextFname) != 0;
+        if (newFile) {
+            if (fname != NULL) {
+                free(fname);
+            }
+            if (f != -1) { close(f); }
+
+            fname = strdup(nextFname);
+
+            char copy_dst[strlen(gbl_dbdir) + 2 + cdb2_column_size(hndl, 2) + strlen(fname)];
+            snprintf(copy_dst, sizeof(copy_dst), "%s%s%s%s%s", gbl_dbdir, cdb2_column_size(hndl, 2) != 1 ? "/" : "", (char *) cdb2_column_value(hndl, 2), "/", fname);
+
+            f = open(copy_dst, O_WRONLY | O_CREAT | O_APPEND, 0755);
+            if (f  == -1) {
+                logmsg(LOGMSG_ERROR, "failed to open file %s (errno: %s)\n", copy_dst, strerror(errno));
+                rc = 1;
+                goto err;
+            }
+        }
+        logmsg(LOGMSG_DEBUG, "[IMPORT] %s: Writing chunk to file %s\n", __func__, fname);
+        ssize_t bytes_written = write(f, (char *) cdb2_column_value(hndl, 1), cdb2_column_size(hndl, 1));
+        if (bytes_written != cdb2_column_size(hndl, 1)) {
+            logmsg(LOGMSG_ERROR, "failed to write to the file (expected: %d got: %ld)\n",
+                  cdb2_column_size(hndl, 1), bytes_written);
+            rc = 1;
+            goto err;
+        }
+    }
+
+
+
+err:
+    if (f != -1) { close(f); }
+
+    if (fname != NULL) { free(fname); }
+
+    return rc;
+}
 
 int bulk_import_v2(ImportData *p_foreign_data)
 {
@@ -967,6 +1130,8 @@ err:
         free(src_files);
         free(dst_files);
     }
+
+    clear_bulk_import_data(&local_data);
 
     return rc;
 }

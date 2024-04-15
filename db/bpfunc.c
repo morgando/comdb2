@@ -124,7 +124,7 @@ static int prepare_methods(bpfunc_t *func, bpfunc_info *info)
     case BPFUNC_DELETE_FROM_SC_HISTORY:
         func->exec = exec_delete_from_sc_history;
         break;
-	case BPFUNC_BULK_IMPORT:
+    case BPFUNC_BULK_IMPORT:
         func->exec = exec_bulk_import;
         break;
 
@@ -678,7 +678,7 @@ void setupImportDb(char **p_tmpDbDir)
 
 static int exec_bulk_import(void *tran, bpfunc_t *func, struct errstat *err)
 {
-	int rc = 0;
+    int rc = 0;
     char *tmpDbDir = NULL;
     char *command = NULL; 
     int size;

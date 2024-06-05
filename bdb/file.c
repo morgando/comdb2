@@ -114,6 +114,7 @@ extern int gbl_keycompr;
 extern int gbl_early;
 extern int gbl_exit;
 extern int gbl_fullrecovery;
+extern int gbl_import_mode;
 extern char *gbl_myhostname;
 extern struct interned_string *gbl_myhostname_interned;
 extern size_t gbl_blobmem_cap;
@@ -2978,7 +2979,9 @@ if (!is_real_netinfo(bdb_state->repinfo->netinfo))
         exit(1);
     }
 
-    start_udp_reader(bdb_state);
+    if (!gbl_import_mode) {
+        start_udp_reader(bdb_state);
+    }
 
     if (startasmaster) {
         logmsg(LOGMSG_INFO,

@@ -1353,6 +1353,7 @@ int process_defered_table(struct ireq *iq, void *trans, int *blkpos, int *ixout,
                           "table '%s' index %d",
                           get_keynm_from_db_idx(ditk->usedb, ditk->ixnum),
                           ditk->usedb->tablename, ditk->ixnum);
+                logmsg(LOGMSG_ERROR, "%s:%d: Duplicate key error\n", __func__, __LINE__);
 
                 //*blkpos = curop->blkpos;
 

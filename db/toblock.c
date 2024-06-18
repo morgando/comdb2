@@ -4797,6 +4797,7 @@ static int toblock_main_int(struct javasp_trans_state *javasp_trans_handle,
                                                "table '%s' index %d",
                       get_keynm_from_db_idx(iq->usedb, ixout),
                       iq->usedb->tablename, ixout);
+                logmsg(LOGMSG_ERROR, "%s:%d: Duplicate key error\n", __func__, __LINE__);
             } else {
                 check_serializability = 1;
             }

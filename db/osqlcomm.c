@@ -6743,6 +6743,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                           get_keynm_from_db_idx(iq->usedb, err->ixnum),
                           iq->usedb->tablename, err->ixnum);
                     err->errcode = ERR_UNCOMMITABLE_TXN;
+                    logmsg(LOGMSG_ERROR, "%s:%d: Duplicate key error\n", __func__, __LINE__);
                     return rc;
                 }
 
@@ -6776,6 +6777,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                                                        "table '%s' index %d",
                               get_keynm_from_db_idx(iq->usedb, err->ixnum),
                               iq->usedb->tablename, err->ixnum);
+                    logmsg(LOGMSG_ERROR, "%s:%d: Duplicate key error\n", __func__, __LINE__);
                 }
             } else if (rc != RC_INTERNAL_RETRY) {
                 errstat_cat_strf(&iq->errstat, " unable to add record rc = %d",

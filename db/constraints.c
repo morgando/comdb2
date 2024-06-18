@@ -1386,6 +1386,7 @@ int delayed_key_adds(struct ireq *iq, void *trans, int *blkpos, int *ixout,
                     *errout = OP_FAILED_VERIFY;
                     rc = ERR_VERIFY;
                 } else {
+                    logmsg(LOGMSG_ERROR, "%s:%d: Duplicate key error\n", __func__, __LINE__);
                     reqerrstr(iq, COMDB2_CSTRT_RC_DUP,
                               "add key constraint duplicate key '%s' on table "
                               "'%s' index %d",

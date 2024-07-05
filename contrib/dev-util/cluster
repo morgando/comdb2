@@ -4,6 +4,7 @@ export PATH=$PATH:/opt/bb/bin
 
 dir=$HOME/.local/share/comdb2-util
 config=$dir/config.sqlite
+core_pattern=/tmp/core-%e.%p.%h.%t
 
 function get {
     if [[ ! -f ${config} ]]; then
@@ -316,6 +317,7 @@ function run {
 		name=$(container-name $i)
 		cluster_cmd='echo export CLUSTER=\"'"${names[@]}"'\" >> ${HOME}/.bash_profile'
         docker exec --user $(id -u) -it ${name} /bin/bash -c "${cluster_cmd}"
+        docker exec -u 0 ${name} sysctl -w kernel.core_pattern=$core_pattern
 	done
 
     if [[ $(get auto-db) = 1 ]]; then

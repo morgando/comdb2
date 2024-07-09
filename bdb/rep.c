@@ -67,6 +67,7 @@ int gbl_long_log_truncation_warn_thresh_sec = INT_MAX;
 int gbl_long_log_truncation_abort_thresh_sec = INT_MAX;
 int gbl_debug_drop_nth_rep_message = 0;
 extern int gbl_debug_stat4dump_loop;
+extern int gbl_use_modsnap_for_snapshot;
 
 extern struct thdpool *gbl_udppfault_thdpool;
 extern int gbl_commit_delay_trace;
@@ -4082,7 +4083,7 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control, D
               permlsn.file, permlsn.offset);
          */
 
-        if (!gbl_early) {
+        if (gbl_use_modsnap_for_snapshot || !gbl_early) {
             rc = do_ack(bdb_state, permlsn, generation);
         }
 

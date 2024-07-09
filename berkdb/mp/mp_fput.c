@@ -25,8 +25,12 @@ static const char revid[] = "$Id: mp_fput.c,v 11.48 2003/09/30 17:12:00 sue Exp 
 #include "comdb2_atomic.h"
 
 extern int gbl_enable_cache_internal_nodes;
+extern __thread int gbl_thread_mode;
 
 static void __memp_reset_lru __P((DB_ENV *, REGINFO *));
+
+extern int memp_bhrdunlock(BH *bhp);
+extern int memp_bhwrunlock(BH *bhp);
 
 /*
  * __memp_fput_pp --
@@ -81,11 +85,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	if (flags) {
 		if ((ret = __db_fchk(dbenv, "memp_fput", flags,
 		    DB_MPOOL_CLEAN | DB_MPOOL_DIRTY |DB_MPOOL_DISCARD |
-		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT)) != 0)
+		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT | DB_MPOOL_SNAPPUT)) != 0) {
 			 return (ret);
+		}
 		if ((ret = __db_fcchk(dbenv, "memp_fput",
-		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0)
+		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0) {
 			 return (ret);
+		}
 
 		if (LF_ISSET(DB_MPOOL_DIRTY) && F_ISSET(dbmfp, MP_READONLY)) {
 			__db_err(dbenv,
@@ -192,6 +198,18 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 * thread waiting to flush the buffer to disk, we're done.  Ignore the
 	 * discard flags (for now) and leave the buffer's priority alone.
 	 */
+
+
+	if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+		if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+			if (gbl_thread_mode == 0) {
+				memp_bhrdunlock(bhp);
+			} else {
+				memp_bhwrunlock(bhp);
+			}
+		}
+	}
+
 	if (--bhp->ref > 1 || (bhp->ref == 1 && !F_ISSET(bhp, BH_LOCKED))) {
 #ifdef REF_SYNC_TEST
 		if (F_ISSET(bhp, BH_LOCKED) && bhp->ref_sync) {

@@ -49,15 +49,23 @@ static const char revid[] = "$Id: mp_fget.c,v 11.81 2003/09/25 02:15:16 sue Exp 
 struct bdb_state_tag;
 typedef struct bdb_state_tag bdb_state_type;
 
+extern pthread_mutex_t gbl_modsnap_stats_mutex;
 extern int gbl_prefault_udp;
 extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
+extern __thread int gbl_thread_mode;
+
 
 extern int db_is_exiting(void);
 void udp_prefault_all(bdb_state_type * bdb_state, unsigned int fileid,
     unsigned int pgno);
 int send_pg_compact_req(bdb_state_type *bdb_state, int32_t fileid,
 	uint32_t size, void *data);
+
+extern int memp_bhrdlock(BH *bhp);
+extern int memp_bhwrlock(BH *bhp);
+extern int memp_bhrdunlock(BH *bhp);
+extern int memp_bhwrunlock(BH *bhp);
 
 /*
  * __memp_fget_pp --
@@ -212,6 +220,8 @@ __memp_falloc_len(mfp, offset, len)
 	}
 }
 
+long gbl_modsnap_buffer_wait_time;
+int gbl_modsnap_buffer_waits;
 u_int64_t gbl_memp_pgreads = 0;
 
 /*
@@ -235,7 +245,7 @@ __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
 	MPOOL *c_mp, *mp;
 	MPOOLFILE *mfp;
 	u_int32_t n_cache, st_hsearch, alloc_flags;
-	int b_incr, extending, first, ret, is_recovery_page;
+	int b_incr, extending, first, ret, is_recovery_page, rc;
 	db_pgno_t falloc_off, falloc_len;
 
 	uint64_t start_time_us = 0;
@@ -352,6 +362,29 @@ retry:	st_hsearch = 0;
 		++bhp->ref;
 		b_incr = 1;
 
+		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			
+			if ((bhp->writer_refs > 0) && (pthread_self() == bhp->writer_id)) {
+				bhp->writer_refs++;
+			} else {
+				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+				if (gbl_thread_mode == 0) {
+					rc = memp_bhrdlock(bhp);
+				} else {
+					rc = memp_bhwrlock(bhp);
+				}
+				if (rc != 0) {
+					abort();
+				}
+				MUTEX_LOCK(dbenv, &hp->hash_mutex);
+
+				if (gbl_thread_mode == 1) {
+					bhp->writer_id = pthread_self();
+					bhp->writer_refs = 1;
+				}
+			}
+		}
+
 		/*
 		 * BH_LOCKED --
 		 * I/O is in progress or sync is waiting on the buffer to write
@@ -368,6 +401,15 @@ retry:	st_hsearch = 0;
 			 */
 			if (!first && bhp->ref_sync != 0) {
 				--bhp->ref;
+				if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+					if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+						if (gbl_thread_mode == 0) {
+							memp_bhrdunlock(bhp);
+						} else {
+							memp_bhwrunlock(bhp);
+						}
+					}
+				}
 				b_incr = 0;
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 				__os_yield(dbenv, 1);
@@ -626,6 +668,15 @@ alloc:		/*
 		 * another one.
 		 */
 		if (flags == DB_MPOOL_NEW) {
+			if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+				if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+					if (gbl_thread_mode == 0) {
+						memp_bhrdunlock(bhp);
+					} else {
+						memp_bhwrunlock(bhp);
+					}
+				}
+			}
 			--bhp->ref;
 			b_incr = 0;
 			goto alloc;
@@ -653,10 +704,33 @@ alloc:		/*
 		b_incr = 1;
 
 		memset(bhp, 0, sizeof(BH));
+		bhp->is_copy = 0;
 		bhp->ref = 1;
 		bhp->priority = UINT32_T_MAX;
 		bhp->pgno = *pgnoaddr;
 		bhp->mpf = mfp;
+
+		bhp->turnstile_mutexp = (pthread_mutex_t *) malloc(sizeof(pthread_mutex_t));
+		bhp->readers_mutexp = (pthread_mutex_t *) malloc(sizeof(pthread_mutex_t));
+		bhp->empty_semp = (sem_t *) malloc(sizeof(sem_t));
+
+		pthread_mutex_init(bhp->turnstile_mutexp, NULL);
+		pthread_mutex_init(bhp->readers_mutexp, NULL);
+		sem_init(bhp->empty_semp, 0, 1);
+
+		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			if (gbl_thread_mode == 0) {
+				rc = memp_bhrdlock(bhp);
+			} else {
+				rc = memp_bhwrlock(bhp);
+				bhp->writer_id = pthread_self();
+				bhp->writer_refs = 1;
+			}
+			if (rc != 0) {
+				abort();
+			}
+		}
+
 		SH_TAILQ_INSERT_TAIL(&hp->hash_bucket, bhp, hq);
 
 		hp->hash_priority =
@@ -852,9 +926,18 @@ err:	/*
 	 * also still holding the hash bucket mutex.
 	 */
 	if (b_incr) {
-		if (bhp->ref == 1)
+		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
+			if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
+				if (gbl_thread_mode == 0) {
+					memp_bhrdunlock(bhp);
+				} else {
+					memp_bhwrunlock(bhp);
+				}
+			}
+		}
+		if (bhp->ref == 1) {
 			(void)__memp_bhfree(dbmp, hp, bhp, 1);
-		else {
+		} else {
 			--bhp->ref;
 			MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 		}

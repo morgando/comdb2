@@ -59,13 +59,13 @@ typedef struct __db_lsn {
 
 typedef struct __db {
         uint32_t pgsize;               /* Database logical page size. */
-    char *fname;
-    int flags;
+	char *fname;
+	int flags;
 #define DB_PFX_COMP           0x0000001
 #define DB_SFX_COMP           0x0000002
 #define DB_RLE_COMP           0x0000004
-    uint8_t compression_flags;
-    int offset_bias;
+	uint8_t compression_flags;
+	int offset_bias;
 } DB;
 
 /* Set, clear and test flags. */

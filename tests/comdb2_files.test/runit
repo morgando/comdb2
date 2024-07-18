@@ -3,6 +3,32 @@ bash -n "$0" | exit 1
 
 source ${TESTSROOTDIR}/tools/runit_common.sh
 
+FILENAMELEN=32
+
+function kill_pids() {
+	pids=$1
+
+	for pid in $pids;
+	do
+		kill -9 $pid
+	done
+}
+
+function create_remove_file_loop() {
+	local dbdir=$1
+
+	while true;
+	do
+		local rand_fname=$(cat /dev/urandom | tr -cd 'a-f0-9' | head -c $FILENAMELEN)
+
+		touch $dbdir/$rand_fname
+		sleep .1
+
+		rm $dbdir/$rand_fname
+		sleep .1
+	done
+}
+
 function test_comdb2_files_restricted_file() {
 	(
 		# Given
@@ -74,6 +100,29 @@ function test_comdb2_files_broken_symlink() {
 		else
 			return 1
 		fi
+	)
+}
+
+function test_comdb2_files_delete_race() {
+	(
+		# Given
+		local dbname=$1 dbdir=$2 n_parallel_threads=10 pids=()
+		for i in $(seq $n_parallel_threads);
+		do
+			create_remove_file_loop $dbdir &
+			pids[${i}]=$!
+		done
+		pid_str="${pids[@]}"
+		trap "kill_pids \"$pid_str\"" EXIT
+
+		sleep .1
+
+		# When
+		cdb2sql $dbname local 'select count(*) from comdb2_files' > /dev/null
+
+		# Then
+		query_rc=$?
+		return $query_rc
 	)
 }
 

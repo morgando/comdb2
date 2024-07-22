@@ -49,7 +49,6 @@ extern int gbl_rep_node_pri;
 extern int gbl_bad_lrl_fatal;
 extern int gbl_disable_new_snapshot;
 extern int gbl_server_admin_mode;
-extern int gbl_modsnap_asof;
 extern int gbl_use_modsnap_for_snapshot;
 
 int gbl_disable_access_controls;
@@ -1248,7 +1247,6 @@ static int read_lrl_option(struct dbenv *dbenv, char *line,
         gbl_selectv_rangechk = 1;
     } else if (tokcmp(tok, ltok, "use_modsnap_for_snapshot") == 0) {
         gbl_snapisol = 1;
-        gbl_modsnap_asof = 1;
         gbl_use_modsnap_for_snapshot = 1;
 
         // Turn off new snapisol tunables. modsnap asof and newsi asof don't work together.

@@ -119,7 +119,7 @@ extern size_t gbl_blobmem_cap;
 extern int gbl_backup_logfiles;
 extern int gbl_commit_lsn_map;
 struct timeval last_timer_pstack;
-extern int gbl_modsnap_asof;
+extern int gbl_use_modsnap_for_snapshot;
 
 #define FILENAMELEN 100
 
@@ -3899,7 +3899,7 @@ low_headroom:
                 }
                 break;
             }
-            if (gbl_modsnap_asof) {
+            if (gbl_use_modsnap_for_snapshot) {
                 /* check if we still can maintain snapshot that begin as of
                  * min_keep_logs_age seconds ago */
                 if (!bdb_checkpoint_list_ok_to_delete_log(

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+insert_in_loop() {
+	while true;
+	do
+		$CDB2SQL_EXE --tabs $CDB2_OPTIONS $DBNAME default "insert into t1 select * from generate_series(1, 1000)" &> /dev/null
+		$CDB2SQL_EXE --tabs $CDB2_OPTIONS $DBNAME default "update t1 set a=a+1 limit 100" &> /dev/null
+		sleep .1
+	done
+}
+
+# Returns zero if all counts in the output are equal; nonzero otherwise
+verify_consistent_count_in_output() {
+	local rc=0
+	local results=$1
+	local distinct_counts=$(echo "$results" | sed -nr 's/count.*=([0-9]+)/\1/p' | uniq)
+	local num_distinct_counts=$(echo "$distinct_counts" | wc -l)
+
+	if (( num_distinct_counts != 1 ));
+	then
+		echo "Got different counts:"
+		echo "$distinct_counts"
+		rc=1
+	fi
+
+	return $rc
+}
+
+run_count_query() {
+		$CDB2SQL_EXE $CDB2_OPTIONS $DBNAME default - <<EOF
+set timezone UTC
+set transaction snapshot
+begin transaction as of datetime $pit
+select count(*) from t1
+select sleep(1)
+select count(*) from t1
+commit
+EOF
+}
+
+# If the first argument is non-0 then this test verifies that a consistent count is observed within and between transactions.
+# If the first argument is 0 then this test verifies that a consistent count is observed within a single transaction.
+test_snapshot_as_of_txn_sees_consistent_count() {
+	(
+		# given
+		local verify_between_transactions=$1
+		local pit=$(date -u +%FT%T.%N -d "+30 seconds")
+		$CDB2SQL_EXE $CDB2_OPTIONS $DBNAME default "create table t1(a int)" 
+
+		insert_in_loop &
+		local pid=$!
+		sleep 1
+
+		trap "kill -9 $pid; $CDB2SQL_EXE $CDB2_OPTIONS $DBNAME default \"drop table t1\"" EXIT
+
+		# when
+		local results=$(run_count_query)
+
+		if (( verify_between_transactions != 0 ));
+		then
+			sleep 1
+			results=$results$(run_count_query)
+		fi
+
+		# then
+		rc=$?
+		if (( rc == 0 ));
+		then
+			verify_consistent_count_in_output "$results"
+			rc=$?
+		fi
+		return $rc
+	)
+}
+
+main() {
+	local rc=0
+	local verify_between_transactions
+
+	for verify_between_transactions in 0 1;
+	do
+		echo "Running 'as of future' test with verification between transactions = $verify_between_transactions"
+		if ! test_snapshot_as_of_txn_sees_consistent_count $verify_between_transactions
+		then
+			echo "Failed"
+			rc=1
+		else
+			echo "Passed"
+		fi
+	done
+
+	return $rc
+}
+
+main
+exit $?

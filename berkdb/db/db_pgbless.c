@@ -123,34 +123,39 @@ int set_new_fileid(const char *fname, int unique_okay, DBMETA *page)
 	return (0);
 }
 
-static int copy_meta(DB *dbp, int in, int out)
+static int copy_meta(DB *dbp, int in)
 {
 	uint8_t pagebuf[dbp->pgsize];
 	memset(pagebuf, 0, dbp->pgsize);
 	PAGE *p = (PAGE *)pagebuf;
-	ssize_t n = read(in, p, dbp->pgsize);
+
+	ssize_t n = pread(in, p, dbp->pgsize, 0);
 	if (n != dbp->pgsize) {
 		fprintf(stderr, "%s bad read n:%ld\n", __func__, n);
-		return -1;
+		return 1;
 	}
+
 	if (verify_chksum(dbp, p) != 0) {
 		fprintf(stderr, "%s failed checksum\n", __func__);
-		return -2;
+		return 1;
 	}
+
 	set_new_fileid(dbp->fname, 1, (DBMETA *)p);
 	LSN_NOT_LOGGED(LSN(p));
 	set_chksum(dbp, p);
-	n = write(out, p, dbp->pgsize);
+
+	n = pwrite(in, p, dbp->pgsize, 0);
 	if (n != dbp->pgsize) {
 		fprintf(stderr, "%s bad write n:%ld\n", __func__, n);
-		return -3;
+		return 1;
 	}
+
 	return 0;
 }
 
-static int copy_btree(DB *dbp, int in, int out)
+static int copy_btree(DB *dbp, int in)
 {
-	int rc = copy_meta(dbp, in, out);
+	int rc = copy_meta(dbp, in);
 	if (rc != 0) {
 		return -1;
 	}
@@ -158,8 +163,9 @@ static int copy_btree(DB *dbp, int in, int out)
 	memset(pagebuf, 0, dbp->pgsize);
 	PAGE *p = (PAGE *)pagebuf;
 	size_t count = 0;
+	off_t offset = dbp->pgsize; // Advance for meta read
 	ssize_t n;
-	while ((n = read(in, p, dbp->pgsize)) == dbp->pgsize) {
+	while ((n = pread(in, p, dbp->pgsize, offset)) == dbp->pgsize) {
 		++count;
 		if (verify_chksum(dbp, p) != 0) {
 			fprintf(stderr, "%s failed checksum page:%lu\n",
@@ -168,11 +174,14 @@ static int copy_btree(DB *dbp, int in, int out)
 		}
 		LSN_NOT_LOGGED(LSN(p));
 		set_chksum(dbp, p);
-		n = write(out, p, dbp->pgsize);
+
+		n = pwrite(in, p, dbp->pgsize, offset);
 		if (n != dbp->pgsize) {
 			fprintf(stderr, "%s bad write n:%ld\n", __func__, n);
 			return -2;
 		}
+
+		offset += dbp->pgsize;
 	}
 	if (n != 0) {
 		perror("read");
@@ -230,29 +239,40 @@ again:
 
 int bless_btree(char * input_filename, char * output_filename)
 {
-	int in = open(input_filename, O_RDONLY);
+	int in = open(input_filename, O_RDWR);
 	if (in == -1) {
 		perror(input_filename);
 		return 1;
 	}
+
+	// Need to 'touch' the file because we will use its stat info
+	int out = open(output_filename, O_CREAT | O_EXCL, 0666);
+	int rc = out != -1 ? close(out) : 1;
+	if (rc) {
+		perror(output_filename);
+		return 1;
+	}
+
 	DB dbp = {0};
-	int rc = bless_meta(&dbp, in, input_filename);
+	rc = bless_meta(&dbp, in, input_filename);
 	if (rc != 0) {
 		fprintf(stderr, "bless_meta failed rc:%d\n", rc);
 		return 1;
 	}
-	int out = open(output_filename, O_WRONLY | O_CREAT | O_EXCL, 0666);
-	if (out == -1) {
-		perror(output_filename);
-		return 1;
-	}
+
 	dbp.fname = output_filename;
-	rc = copy_btree(&dbp, in, out);
+	rc = copy_btree(&dbp, in);
 	if (rc) {
 		fprintf(stderr, "copy failed rc:%d\n", rc);
 		return 1;
 	}
-	close(out);
 	close(in);
+
+	rc = rename(input_filename, output_filename);
+	if (rc) {
+		fprintf(stderr, "rename failed with errno(%s)\n", strerror(errno));
+		return 1;
+	}
+
 	return 0;
 }

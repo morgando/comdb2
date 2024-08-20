@@ -53,12 +53,36 @@ extern char *comdb2_get_tmp_dir();
 extern tran_type *curtran_gettran(void);
 extern void curtran_puttran(tran_type *tran);
 extern int gbl_import_mode;
+extern char *gbl_import_table;
 extern char *gbl_file_copier;
 extern char gbl_dbname[MAX_DBNAME_LENGTH];
 extern char *gbl_dbdir;
+extern int should_ignore_btree(const char *filename,
+                               int (*should_ignore_table)(const char *),
+                               int should_ignore_queues,
+                               int name_boundary_exists);
 
 /* Constants */
 #define FILENAMELEN 100
+
+int bulk_import_tmpdb_should_ignore_table(const char *table) {
+    const char *required_tables[] =
+        {"comdb2_llmeta", "sqlite_stat1", "sqlite_stat4", "comdb2_metadata", gbl_import_table, "" /* sentinel */};
+    const char *required_table;
+
+    for (int i=0; (required_table = required_tables[i]), required_table[0] != '\0'; ++i) {
+        if (strcmp(required_table, table) == 0) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+int bulk_import_tmpdb_should_ignore_btree(const char *filename)
+{
+    return should_ignore_btree(filename, bulk_import_tmpdb_should_ignore_table, 0, 1);
+}
 
 static void get_import_dbdir(char *import_dbdir, size_t sz_import_dbdir) {
     snprintf(import_dbdir, sz_import_dbdir, "%s/import", comdb2_get_tmp_dir());
@@ -1246,6 +1270,85 @@ static void comdb2_files_tmpdb_get_file_destination(char *copy_dst, ssize_t sz, 
     }
 }
 
+typedef struct str_list_elt {
+    char str[PATH_MAX];
+    LINKC_T(struct str_list_elt) lnk;
+} str_list_elt;
+typedef LISTC_T(str_list_elt) str_list;
+
+char* mystrcat( char* dest, char* src )
+{
+     while (*dest) {
+        dest++;
+     }
+     while ((*dest++ = *src++)) {}
+     return --dest;
+}
+
+static char * generate_select_files_query(cdb2_hndl_tp *hndl, str_list *btree_files_to_fetch) {
+    char *query_prefix = "SELECT filename, content, dir FROM comdb2_files WHERE dir!='tmp' AND dir!='savs' AND (type!='berkdb' OR (type='berkdb' and filename in (";
+    char *query_suffix = "))) order by filename, offset";
+    char *query = malloc(strlen(query_prefix) + strlen(query_suffix) + (listc_size(btree_files_to_fetch)*2));
+    char *p = query;
+    *query = '\0';
+
+    p = mystrcat(p, query_prefix);
+
+    int idx=1;
+    str_list_elt *btree_file_elt;
+    LISTC_FOR_EACH(btree_files_to_fetch, btree_file_elt, lnk) {
+        mystrcat(p, "?");
+        if (btree_file_elt->lnk.next) { mystrcat(p, ","); }
+
+        cdb2_bind_index(hndl, idx++, CDB2_CSTRING, btree_file_elt->str, strlen(btree_file_elt->str));
+    }
+
+    mystrcat(p, query_suffix);
+
+    return query;
+}
+
+static str_list * comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl) {
+    int rc = 0;
+
+    str_list* filename_list_p 
+        = listc_new(offsetof(struct str_list_elt, lnk));
+    if (!filename_list_p) {
+        rc = 1;
+        goto err;
+    }
+
+    while (cdb2_next_record(hndl) == CDB2_OK) {
+        const char * const fname = (char *)cdb2_column_value(hndl, 0);
+        const int fname_len = cdb2_column_size(hndl, 0);
+
+        if (fname_len > PATH_MAX) {
+            rc = 1;
+            goto err;
+        }
+
+        if (!should_ignore_btree(fname, bulk_import_tmpdb_should_ignore_table, 0, 0)) {
+            struct str_list_elt * const elt = calloc(1, sizeof(struct str_list_elt));
+            if (!elt) {
+                rc = 1;
+                goto err;
+            }
+
+            strncpy(elt->str, fname, sizeof(elt->str));
+            listc_atl(filename_list_p, elt);
+        }
+    }
+
+err:
+    if (rc && filename_list_p) {
+        LISTC_CLEAN(filename_list_p, lnk, 1, str_list_elt);
+        free(filename_list_p);
+        filename_list_p = NULL;
+    }
+
+    return filename_list_p;
+}
+
 static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
     char * fname;
     int rc, fd;
@@ -1357,10 +1460,29 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     }
     while (cdb2_next_record(hndl) == CDB2_OK) {}
 
-    snprintf(query, sizeof(query),
-             "SELECT filename, content, dir FROM comdb2_files WHERE dir!='tmp' "
-             "AND dir!='savs' ORDER BY filename, offset");
+    snprintf(query, sizeof(query), "SELECT distinct filename from comdb2_files WHERE type='berkdb'");
     rc = cdb2_run_statement(hndl, query);
+    if (rc) {
+        logmsg(LOGMSG_ERROR,
+               "[IMPORT] %s: Failed to get file names from src db. errstr: %s\n",
+               __func__, cdb2_errstr(hndl));
+        goto err;
+    }
+
+    str_list * const filename_list = comdb2_files_tmpdb_process_filenames(hndl);
+    if (!filename_list) {
+        logmsg(LOGMSG_ERROR,
+               "[IMPORT] %s: Failed to process filenames from src db. rc: %d\n",
+               __func__, rc);
+        goto err;
+    }
+
+    char *select_files_query = generate_select_files_query(hndl, filename_list);
+    rc = cdb2_run_statement(hndl, select_files_query);
+
+    free(select_files_query);
+    LISTC_CLEAN(filename_list, lnk, 1, str_list_elt);
+
     if (rc) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: Got an error grabbing files from src db. errstr: "

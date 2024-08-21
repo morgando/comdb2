@@ -1,0 +1,77 @@
+set -e
+
+
+
+
+
+
+insert_in_loop
+
+for node in nodes;
+if node not master
+	ssh $node "kill -SIGSTOP $pid"
+
+insert_in_loop on master
+
+stop inserts
+
+select utxnids from master
+
+ssh $master_node "kill -SIGSTOP $pid"
+
+for node in nodes;
+if node not master
+	ssh $node "kill -SIGCONT $pid"
+
+wait a bit
+
+ssh $master_node "kill -SIGCONT $pid"
+
+select utxnids from old_master -- make sure relevant utxnids previously selected aren't there
+
+insert_for_n_seconds() {
+	local wait_time=$1 node=$2
+
+	while cdb2sql "${CDB2_OPTIONS}" --host "${node}" "${DBNAME}" "insert into t values(1)"; 
+	do
+		sleep "${wait_time}"
+	done
+
+	return 1
+}
+
+send_signal_to_node() {
+	local signal=$1 node=$2
+
+	ssh "${node}" "kill -"${signal}" "${pid}"" # get pid
+}
+
+send_signal_to_cluster() {
+	local signal=$1
+
+	for node in "${CLUSTER}";
+	do
+		if [[ "${node}" != "${master}" ]];
+		then
+			send_signal_to_node "${signal}" "${node}"
+		fi
+	done
+}
+
+main() {
+	cdb2sql ${CDB2_OPTIONS} $DBNAME default "create table t(i int)"
+
+	local old_master=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb cluster")' | grep MASTER | cut -f1 -d":" | xargs echo`
+	insert_for_n_seconds 1 "${old_master}" > /dev/null
+
+	send_signal_to_cluster SIGSTOP
+
+	insert_for_n_seconds 1 "${old_master}" > /dev/null
+
+	send_signal_to_node SIGSTOP "${old_master}"
+	send_signal_to_cluster SIGCONT
+
+	sleep 5
+
+	send_signal_to_node SIGCONT "${old_master}"
+}

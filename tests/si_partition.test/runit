@@ -1,59 +1,29 @@
 #!/usr/bin/env bash
-
 set -e
 
-
-
-
-
-
-insert_in_loop
-
-for node in nodes;
-if node not master
-	ssh $node "kill -SIGSTOP $pid"
-
-insert_in_loop on master
-
-stop inserts
-
-select utxnids from master
-
-ssh $master_node "kill -SIGSTOP $pid"
-
-for node in nodes;
-if node not master
-	ssh $node "kill -SIGCONT $pid"
-
-wait a bit
-
-ssh $master_node "kill -SIGCONT $pid"
-
-select utxnids from old_master -- make sure relevant utxnids previously selected aren't there
-
 insert_for_n_seconds() {
-	local wait_time=$1 node=$2
+	local -r end=$((SECONDS+$1)) node=$2 
 
-	while cdb2sql "${CDB2_OPTIONS}" --host "${node}" "${DBNAME}" "insert into t values(1)"; 
+	while [[ "${SECONDS}" < "${end}" ]] ; 
 	do
-		sleep "${wait_time}"
+		cdb2sql ${CDB2_OPTIONS} --host "${node}" "${DBNAME}" "insert into t values(1)"
 	done
-
-	return 1
 }
 
 send_signal_to_node() {
-	local signal=$1 node=$2
+	local -r signal=$1 node=$2
+	echo "sending $signal to $node"
 
-	ssh "${node}" "kill -"${signal}" "${pid}"" # get pid
+	# TODO on my machine don't ssh and use .node.pid. on other machines use .pid
+	ssh "${node}" "cat "${TMPDIR}"/"${DBNAME}".pid | xargs kill -"${signal}""
 }
 
-send_signal_to_cluster() {
-	local signal=$1
+send_signal_to_nodes_other_than() {
+	local -r signal=$1 excluded_node=$2
 
-	for node in "${CLUSTER}";
+	for node in ${CLUSTER};
 	do
-		if [[ "${node}" != "${master}" ]];
+		if [[ "${node}" != "${excluded_node}" ]];
 		then
 			send_signal_to_node "${signal}" "${node}"
 		fi
@@ -61,19 +31,45 @@ send_signal_to_cluster() {
 }
 
 main() {
-	cdb2sql ${CDB2_OPTIONS} $DBNAME default "create table t(i int)"
+	if [ -z "${CLUSTER}" ]; then
+		return 0
+	fi
 
-	local old_master=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'exec procedure sys.cmd.send("bdb cluster")' | grep MASTER | cut -f1 -d":" | xargs echo`
+	cdb2sql ${CDB2_OPTIONS} "${DBNAME}" default "create table t(i int)"
+
+	local old_master
+	old_master=$(cdb2sql --tabs ${CDB2_OPTIONS} "${DBNAME}" default "select host from comdb2_cluster where is_master='Y'")
+	readonly old_master
+	echo "old master is ${old_master}"
+
 	insert_for_n_seconds 1 "${old_master}" > /dev/null
 
-	send_signal_to_cluster SIGSTOP
-
+	# Create partition
+	send_signal_to_nodes_other_than "SIGSTOP" "${old_master}"
+	echo "Created partition"
 	insert_for_n_seconds 1 "${old_master}" > /dev/null
+	echo "inserted records"
 
-	send_signal_to_node SIGSTOP "${old_master}"
-	send_signal_to_cluster SIGCONT
+#	local max_utxnid_during_partition
+#	max_utxnid_during_partition=$(cdb2sql ${CDB2_OPTIONS} --host "${old_master}" "${DBNAME}" "select max(utxnid) from comdb2_transaction_logs")
+#	readonly max_utxnid_during_partition
+	echo "got max utxnid"
 
+	# End partition
+	echo "sending master sigstop"
+	send_signal_to_node "SIGSTOP" "${old_master}" 				# Stop old master so that someone else can get elected
+	echo "sending cluster sigcont"
+	send_signal_to_nodes_other_than "SIGCONT" "${old_master}"
 	sleep 5
+	send_signal_to_nodes_other_than "SIGCONT" "${old_master}" 	# Now old master needs to undo transactions committed during the partition
+	sleep 1
 
-	send_signal_to_node SIGCONT "${old_master}"
+	local max_utxnid_after_partition
+	max_utxnid_after_partition=$(cdb2sql ${CDB2_OPTIONS} --host "${old_master}" "${DBNAME}" "select max(utxnid) from comdb2_transaction_logs")
+	readonly max_utxnid_after_partition
+
+	#echo ""${max_utxnid_before_partition}" "${max_utxnid_after_partition}""
+	echo ""${max_utxnid_after_partition}""
 }
+
+main

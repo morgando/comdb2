@@ -471,16 +471,12 @@ static int bulk_import_data_load(ImportData *p_data) {
         goto err;
     }
 
-    p_data->filenames_provided = 1;
-
     /* get the data dir */
-    if (strlen(thedb->basedir) >= 10000 /*placeholder */) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: basedir too large: %s\n", __func__,
-               thedb->basedir);
-        rc = -1;
+    p_data->data_dir = strdup(thedb->basedir);
+    if (!p_data->data_dir) {
+        rc = ENOMEM;
         goto err;
     }
-    p_data->data_dir = strdup(thedb->basedir);
 
     /* get table's schema from the meta table and calculate it's crc32 */
     if (get_csc2_file(p_data->table_name, -1 /*highest csc2_version*/,
@@ -571,6 +567,10 @@ static int bulk_import_data_load(ImportData *p_data) {
 
     p_data->n_data_files = p_data->dtastripe;
     p_data->data_files = malloc(sizeof(char *) * p_data->n_data_files);
+    if (!p_data->data_files) {
+        rc = ENOMEM;
+        goto err;
+    }
 
     for (i = 0; i < p_data->dtastripe; i++) {
         len = bdb_form_file_name(db->handle, 1, 0, i, p_data->data_genid,
@@ -582,6 +582,10 @@ static int bulk_import_data_load(ImportData *p_data) {
                    __func__, i);
         }
         p_data->data_files[i] = strdup(tempname);
+        if (!p_data->data_files[i]) {
+            rc = ENOMEM;
+            goto err;
+        }
     }
 
     t = curtran_gettran();
@@ -596,6 +600,10 @@ static int bulk_import_data_load(ImportData *p_data) {
 
     p_data->n_csc2 = version;
     p_data->csc2 = malloc(sizeof(char *) * p_data->n_csc2);
+    if (!p_data->csc2) {
+        rc = ENOMEM;
+        goto err;
+    }
 
     for (int vers = 1; vers <= version; vers++) {
         get_csc2_file_tran(p_data->table_name, vers, &p_data->csc2[vers - 1],
@@ -660,13 +668,26 @@ static int bulk_import_data_load(ImportData *p_data) {
     if (p_data->num_blob_genids > 0) {
         p_data->n_blob_files = p_data->num_blob_genids;
         p_data->blob_files = malloc(sizeof(BlobFiles *) * p_data->n_blob_files);
+        if (!p_data->blob_files) {
+            rc = ENOMEM;
+            goto err;
+        }
+
         for (int i = 0; i < p_data->n_blob_files; ++i) {
             p_data->blob_files[i] = malloc(sizeof(BlobFiles));
+            if (!p_data->blob_files[i]) {
+                rc = ENOMEM;
+                goto err;
+            }
 
             BlobFiles *b = p_data->blob_files[i];
             *b = (BlobFiles) BLOB_FILES__INIT;
             b->n_files = p_data->blobstripe ? p_data->dtastripe : 1;
             b->files = malloc(sizeof(char *) * b->n_files);
+            if (!b->files) {
+                rc = ENOMEM;
+                goto err;
+            }
         }
     }
 
@@ -731,31 +752,13 @@ err:
  */
 static int
 bulk_import_data_validate(const ImportData *p_local_data,
-                          const ImportData *p_foreign_data,
-                          unsigned long long dst_data_genid,
-                          const unsigned long long *p_dst_index_genids,
-                          const unsigned long long *p_dst_blob_genids) {
-    /* lots of sanity checks so that hoefully we never swap in incompatible data
+                          const ImportData *p_foreign_data) {
+    /* lots of sanity checks so that hopefully we never swap in incompatible data
      * files */
 
     if (thedb->master != gbl_myhostname) {
         logmsg(LOGMSG_ERROR, "[IMPORT] %s: I'm not the master\n", __func__);
         return -1;
-    }
-
-    /* if we don't have the filenames, we enforce same tablename rule */
-    if (!p_foreign_data->filenames_provided) {
-        /* compare table name */
-        if (strcmp(p_local_data->table_name, p_foreign_data->table_name)) {
-            logmsg(LOGMSG_ERROR, "[IMPORT] %s: table names differ: %s %s\n",
-                   __func__, p_local_data->table_name,
-                   p_foreign_data->table_name);
-            fprintf(
-                stderr,
-                "%s: check that both servers support passing files by names\n",
-                __func__);
-            return -1;
-        }
     }
 
     /* do not check data_dir for equality since it doesn't need to be the same
@@ -824,10 +827,25 @@ static int bulk_import_generate_filenames(
                         : p_foreign_data->num_blob_genids) +
                    p_data->dtastripe;
     *p_src_files = malloc(sizeof(char *) * (*p_num_files));
+    if (!(*p_src_files)) {
+        return ENOMEM;
+    }
+
     *p_dst_files = malloc(sizeof(char *) * (*p_num_files));
+    if (!(*p_dst_files)) {
+        return ENOMEM;
+    }
+
     for (int i = 0; i < (*p_num_files); ++i) {
         (*p_src_files)[i] = (char *)malloc(FILENAMELEN);
+        if (!((*p_src_files)[i])) {
+            return ENOMEM;
+        }
+        
         (*p_dst_files)[i] = (char *)malloc(FILENAMELEN);
+        if (!((*p_dst_files)[i])) {
+            return ENOMEM;
+        }
     }
 
     char **src_files = *p_src_files;
@@ -844,12 +862,10 @@ static int bulk_import_generate_filenames(
     for (dtanum = 0; dtanum < p_foreign_data->num_blob_genids + 1; dtanum++) {
         int strnum;
         int num_stripes = 0;
-        unsigned long long src_version_num;
         unsigned long long dst_version_num;
 
         if (dtanum == 0) {
             num_stripes = p_data->dtastripe;
-            src_version_num = p_foreign_data->data_genid;
             dst_version_num = dst_data_genid;
         } else {
             if (p_data->blobstripe) {
@@ -857,26 +873,19 @@ static int bulk_import_generate_filenames(
             } else {
                 num_stripes = 1;
             }
-            src_version_num = p_foreign_data->blob_genids[dtanum - 1];
             dst_version_num = p_dst_blob_genids[dtanum - 1];
         }
 
         /* for each stripe add a -file param */
         for (strnum = 0; strnum < num_stripes; ++strnum) {
             /* add src filename */
-            if (p_foreign_data->filenames_provided) {
-                if (dtanum == 0) {
-                    strcpy(src_files[fileix],
-                           p_foreign_data->data_files[strnum]);
-                } else {
-                    strcpy(
-                        src_files[fileix],
-                        p_foreign_data->blob_files[dtanum - 1]->files[strnum]);
-                }
+            if (dtanum == 0) {
+                strcpy(src_files[fileix],
+                       p_foreign_data->data_files[strnum]);
             } else {
-                bdb_form_file_name(db->handle, 1 /*is_data_file*/, dtanum,
-                                   strnum, src_version_num, src_files[fileix],
-                                   FILENAMELEN);
+                strcpy(
+                    src_files[fileix],
+                    p_foreign_data->blob_files[dtanum - 1]->files[strnum]);
             }
 
             /* add dst filename */
@@ -889,14 +898,7 @@ static int bulk_import_generate_filenames(
     /* for each index add a -file param */
     for (ixnum = 0; ixnum < p_foreign_data->num_index_genids; ixnum++) {
         /* add src filename */
-        if (p_foreign_data->filenames_provided) {
-            strcpy(src_files[fileix], p_foreign_data->index_files[ixnum]);
-        } else {
-            bdb_form_file_name(db->handle, 0 /*is_data_file*/, ixnum,
-                               0 /*strnum*/,
-                               p_foreign_data->index_genids[ixnum],
-                               src_files[ixnum], FILENAMELEN);
-        }
+        strcpy(src_files[fileix], p_foreign_data->index_files[ixnum]);
 
         /* add dst filename */
         bdb_form_file_name(db->handle, 0 /*is_data_file*/, ixnum, 0 /*strnum*/,
@@ -1276,45 +1278,55 @@ typedef struct str_list_elt {
 } str_list_elt;
 typedef LISTC_T(str_list_elt) str_list;
 
-char* mystrcat( char* dest, char* src )
+/*
+ * Concatenate C-Strings `dest` and `src`.
+ * The result is stored in `dest`.
+ * `dest` must be large enough to store the result of the 
+ * concatenation.
+ *
+ * Returns a pointer to the end of the concatenated C-String.
+ * This prevents re-scanning on subsequent calls.
+ */
+char* strcat_and_get_end( char* dest, char* src )
 {
-     while (*dest) {
-        dest++;
-     }
+     while (*dest) { dest++; }
      while ((*dest++ = *src++)) {}
      return --dest;
 }
 
 static char * generate_select_files_query(cdb2_hndl_tp *hndl, str_list *btree_files_to_fetch) {
-    char *query_prefix = "SELECT filename, content, dir FROM comdb2_files WHERE dir!='tmp' AND dir!='savs' AND (type!='berkdb' OR (type='berkdb' and filename in (";
-    char *query_suffix = "))) order by filename, offset";
+    char *query_prefix = "select filename, content, dir from comdb2_files where "
+                         "type!='berkdb' or (type='berkdb' and filename in (";
+    char *query_suffix = ")) order by filename, offset";
     char *query = malloc(strlen(query_prefix) + strlen(query_suffix) + (listc_size(btree_files_to_fetch)*2));
+    if (!query) { return NULL; }
     char *p = query;
     *query = '\0';
 
-    p = mystrcat(p, query_prefix);
+    p = strcat_and_get_end(p, query_prefix);
 
     int idx=1;
     str_list_elt *btree_file_elt;
     LISTC_FOR_EACH(btree_files_to_fetch, btree_file_elt, lnk) {
-        mystrcat(p, "?");
-        if (btree_file_elt->lnk.next) { mystrcat(p, ","); }
+        strcat_and_get_end(p, "?");
+        if (btree_file_elt->lnk.next) { strcat_and_get_end(p, ","); }
 
         cdb2_bind_index(hndl, idx++, CDB2_CSTRING, btree_file_elt->str, strlen(btree_file_elt->str));
     }
 
-    mystrcat(p, query_suffix);
+    strcat_and_get_end(p, query_suffix);
 
     return query;
 }
 
-static str_list * comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl) {
+static int comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl, str_list **filename_list_pp) {
     int rc = 0;
 
-    str_list* filename_list_p 
-        = listc_new(offsetof(struct str_list_elt, lnk));
+    *filename_list_pp
+        = listc_new(offsetof(str_list_elt, lnk));
+    str_list * const filename_list_p = *filename_list_pp;
     if (!filename_list_p) {
-        rc = 1;
+        rc = ENOMEM;
         goto err;
     }
 
@@ -1328,9 +1340,9 @@ static str_list * comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl) {
         }
 
         if (!should_ignore_btree(fname, bulk_import_tmpdb_should_ignore_table, 0, 0)) {
-            struct str_list_elt * const elt = calloc(1, sizeof(struct str_list_elt));
+            str_list_elt * const elt = calloc(1, sizeof(str_list_elt));
             if (!elt) {
-                rc = 1;
+                rc = ENOMEM;
                 goto err;
             }
 
@@ -1343,10 +1355,9 @@ err:
     if (rc && filename_list_p) {
         LISTC_CLEAN(filename_list_p, lnk, 1, str_list_elt);
         free(filename_list_p);
-        filename_list_p = NULL;
     }
 
-    return filename_list_p;
+    return rc;
 }
 
 static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
@@ -1374,7 +1385,7 @@ static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
                 free(fname);
             }
             if (fd != -1) {
-                close(fd);
+                Close(fd);
             }
 
             fname = strdup(next_fname);
@@ -1404,7 +1415,7 @@ static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
 
 err:
     if (fd != -1) {
-        close(fd);
+        Close(fd);
     }
 
     if (fname != NULL) {
@@ -1460,7 +1471,7 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     }
     while (cdb2_next_record(hndl) == CDB2_OK) {}
 
-    snprintf(query, sizeof(query), "SELECT distinct filename from comdb2_files WHERE type='berkdb'");
+    snprintf(query, sizeof(query), "select distinct filename from comdb2_files where type='berkdb'");
     rc = cdb2_run_statement(hndl, query);
     if (rc) {
         logmsg(LOGMSG_ERROR,
@@ -1469,8 +1480,9 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
         goto err;
     }
 
-    str_list * const filename_list = comdb2_files_tmpdb_process_filenames(hndl);
-    if (!filename_list) {
+    str_list *filename_list;
+    rc = comdb2_files_tmpdb_process_filenames(hndl, &filename_list);
+    if (rc) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: Failed to process filenames from src db. rc: %d\n",
                __func__, rc);
@@ -1478,11 +1490,14 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     }
 
     char *select_files_query = generate_select_files_query(hndl, filename_list);
-    rc = cdb2_run_statement(hndl, select_files_query);
+    if (!select_files_query) {
+        rc = ENOMEM;
+        goto err;
+    }
 
+    rc = cdb2_run_statement(hndl, select_files_query);
     free(select_files_query);
     LISTC_CLEAN(filename_list, lnk, 1, str_list_elt);
-
     if (rc) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: Got an error grabbing files from src db. errstr: "

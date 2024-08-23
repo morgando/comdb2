@@ -247,7 +247,7 @@ int bless_btree(char * input_filename, char * output_filename)
 
 	// Need to 'touch' the file because we will use its stat info
 	int out = open(output_filename, O_CREAT | O_EXCL, 0666);
-	int rc = out != -1 ? close(out) : 1;
+	int rc = out != -1 ? Close(out) : 1;
 	if (rc) {
 		perror(output_filename);
 		return 1;
@@ -266,7 +266,7 @@ int bless_btree(char * input_filename, char * output_filename)
 		fprintf(stderr, "copy failed rc:%d\n", rc);
 		return 1;
 	}
-	close(in);
+	Close(in);
 
 	rc = rename(input_filename, output_filename);
 	if (rc) {

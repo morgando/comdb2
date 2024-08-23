@@ -100,7 +100,11 @@ function test_mutual_simultaneous_import() {
 		done
 
 		# Then
-		(( rc == 0 )) && verify_eq $src_tbl $dst_tbl
+			# We can't assert equality of the tables:
+			# If the imports from src and dst are perfectly synchronized then the 
+			# tables will not be the same.
+			# Just make sure that the imports succeeded.
+		(( rc == 0 )) 
 	)
 }
 

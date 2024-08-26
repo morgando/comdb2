@@ -4,7 +4,7 @@ set -e
 insert_for_n_seconds() {
 	local -r end=$((SECONDS+$1)) node=$2 
 
-	while [[ "${SECONDS}" < "${end}" ]] ; 
+	while (( SECONDS < end )) ; 
 	do
 		cdb2sql ${CDB2_OPTIONS} --host "${node}" "${DBNAME}" "insert into t values(1)"
 	done
@@ -14,8 +14,12 @@ send_signal_to_node() {
 	local -r signal=$1 node=$2
 	echo "sending $signal to $node"
 
-	# TODO on my machine don't ssh and use .node.pid. on other machines use .pid
-	ssh "${node}" "cat "${TMPDIR}"/"${DBNAME}".pid | xargs kill -"${signal}""
+	if [[ "${node}" == "$(hostname)" ]];
+	then
+		cat "${TMPDIR}"/"${DBNAME}"."${node}".pid | xargs kill -"${signal}"
+	else
+		ssh "${node}" "cat "${TMPDIR}"/"${DBNAME}".pid | xargs kill -"${signal}""
+	fi
 }
 
 send_signal_to_nodes_other_than() {
@@ -42,18 +46,20 @@ main() {
 	readonly old_master
 	echo "old master is ${old_master}"
 
-	insert_for_n_seconds 1 "${old_master}" > /dev/null
+	local old_replicant
+	old_replicant=$(cdb2sql --tabs ${CDB2_OPTIONS} "${DBNAME}" default "select host from comdb2_cluster where is_master='N' limit 1")
+	readonly old_replicant
+	echo "old replicant is ${old_replicant}"
+
+	insert_for_n_seconds 10 "${old_master}" > /dev/null &
+	pid=$!
 
 	# Create partition
 	send_signal_to_nodes_other_than "SIGSTOP" "${old_master}"
 	echo "Created partition"
-	insert_for_n_seconds 1 "${old_master}" > /dev/null
-	echo "inserted records"
 
-#	local max_utxnid_during_partition
-#	max_utxnid_during_partition=$(cdb2sql ${CDB2_OPTIONS} --host "${old_master}" "${DBNAME}" "select max(utxnid) from comdb2_transaction_logs")
-#	readonly max_utxnid_during_partition
-	echo "got max utxnid"
+	sleep 1
+	kill -9 $pid
 
 	# End partition
 	echo "sending master sigstop"
@@ -61,15 +67,19 @@ main() {
 	echo "sending cluster sigcont"
 	send_signal_to_nodes_other_than "SIGCONT" "${old_master}"
 	sleep 5
-	send_signal_to_nodes_other_than "SIGCONT" "${old_master}" 	# Now old master needs to undo transactions committed during the partition
+
+	send_signal_to_node "SIGCONT" "${old_master}" 				# Now old master needs to undo transactions committed during the partition
 	sleep 1
+
+	local max_utxnid_before_partition
+	max_utxnid_before_partition=$(cdb2sql ${CDB2_OPTIONS} --host "${old_replicant}" "${DBNAME}" "select max(utxnid) from comdb2_transaction_logs")
+	readonly max_utxnid_before_partition
 
 	local max_utxnid_after_partition
 	max_utxnid_after_partition=$(cdb2sql ${CDB2_OPTIONS} --host "${old_master}" "${DBNAME}" "select max(utxnid) from comdb2_transaction_logs")
 	readonly max_utxnid_after_partition
 
-	#echo ""${max_utxnid_before_partition}" "${max_utxnid_after_partition}""
-	echo ""${max_utxnid_after_partition}""
+	echo ""${max_utxnid_before_partition}" "${max_utxnid_after_partition}""
 }
 
 main

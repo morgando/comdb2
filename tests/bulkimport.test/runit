@@ -60,8 +60,8 @@ function test_import_many_tables_over_table() {
 function test_multiple_imports_at_once() {
 	(
 		# Given
-		local src_tbl dst_tbl n_simultaneous_imports=8 pids=() rc=0
-		fixture_src_tbl_and_dst_tbl_have_same_schema src_tbl dst_tbl > /dev/null
+		local src_tbl=foo dst_tbl=foo n_simultaneous_imports=8 pids=() rc=0
+		fixture_src_tbl_and_dst_tbl_have_same_schema $src_tbl $dst_tbl > /dev/null
 		trap "query_src_db 'drop table $src_tbl'; query_dst_db 'drop table $dst_tbl'" EXIT
 
 		# When
@@ -82,8 +82,8 @@ function test_multiple_imports_at_once() {
 function test_mutual_simultaneous_import() {
 	(
 		# Given
-		local src_tbl dst_tbl n_mutual_imports=8 pids=() rc=0
-		fixture_src_tbl_and_dst_tbl_have_same_schema src_tbl dst_tbl > /dev/null
+		local src_tbl=foo dst_tbl=foo n_mutual_imports=8 pids=() rc=0
+		fixture_src_tbl_and_dst_tbl_have_same_schema $src_tbl $dst_tbl > /dev/null
 		trap "query_src_db 'drop table $src_tbl'; query_dst_db 'drop table $dst_tbl'" EXIT
 
 		# When
@@ -151,11 +151,72 @@ function test_heavy_traffic_import() {
 	)
 }
 
+function test_import_when_dst_table_has_rev_constraints() {
+	(
+		# Given
+		local src_tbl=foo dst_tbl_1=bar dst_tbl_2=baz rc=0
+		query_src_db "create table $src_tbl(i int unique)"
+		query_dst_db "create table $dst_tbl_1(i int unique)"
+		query_dst_db "create table $dst_tbl_2(i int, foreign key(i) references $dst_tbl_1(i))"
+		trap "query_src_db 'drop table $src_tbl';
+			query_dst_db 'drop table $dst_tbl_2';
+			query_dst_db 'drop table $dst_tbl_1';" EXIT
+
+		# When
+		query_dst_db "import $src_tbl from LOCAL_$SRC_DBNAME to $dst_tbl_1"
+
+		# Then
+		(( $? != 0 ))
+	)
+}
+
+function test_import_table_with_fk_constraints() {
+	(
+		# Given
+		local src_tbl_1=foo src_tbl_2=bar dst_tbl=baz rc=0
+		query_src_db "create table $src_tbl_1(i int unique)"
+		query_src_db "create table $src_tbl_2(i int, foreign key(i) references $src_tbl_1(i))"
+		query_dst_db "create table $dst_tbl(i int unique)"
+		trap "query_src_db 'drop table $src_tbl_2';
+			query_src_db 'drop table $src_tbl_1';
+			query_dst_db 'drop table $dst_tbl';" EXIT
+
+		# When
+		query_dst_db "import $src_tbl_2 from LOCAL_$SRC_DBNAME to $dst_tbl"
+
+		# Then
+		(( $? != 0 ))
+	)
+}
+
+function test_multiple_imports_in_transaction() {
+	(
+		# Given
+		local src_tbl_1=foo src_tbl_2=bar dst_tbl_1=baz dst_tbl_2=corge rc=0
+		fixture_src_tbl_and_dst_tbl_have_same_schema $src_tbl_1 $dst_tbl_1 > /dev/null
+		fixture_src_tbl_and_dst_tbl_have_same_schema $src_tbl_2 $dst_tbl_2 > /dev/null
+		trap "query_src_db 'drop table $src_tbl_1';
+			query_src_db 'drop table $src_tbl_2';
+			query_dst_db 'drop table $dst_tbl_1';
+			query_dst_db 'drop table $dst_tbl_2'" EXIT
+
+		# When
+query_dst_db - <<EOF
+begin
+import $src_tbl_1 from LOCAL_$SRC_DBNAME to $dst_tbl_1
+import $src_tbl_2 from LOCAL_$SRC_DBNAME to $dst_tbl_2
+commit
+EOF
+		# Then
+		(( $? == 0 )) && verify_eq $src_tbl_1 $dst_tbl_1 && verify_eq $src_tbl_2 $dst_tbl_2
+	)
+}
+
 function run_basic_test() {
 	(
 		# Given
-		local src_tbl dst_tbl
-		$1 src_tbl dst_tbl > /dev/null
+		local src_tbl=foo dst_tbl=foo
+		$1 $src_tbl $dst_tbl > /dev/null
 		trap "query_src_db 'drop table $src_tbl'; query_dst_db 'drop table $dst_tbl'" EXIT
 
 		# When

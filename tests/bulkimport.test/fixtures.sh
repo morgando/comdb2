@@ -1,48 +1,42 @@
 source util.sh
 
 function fixture_src_tbl_and_dst_tbl_have_same_schema() {
-	local -n _src_tbl="$1" _dst_tbl="$2"
-	_src_tbl=foo _dst_tbl=foo
+	local -r _src_tbl="$1" _dst_tbl="$2"
 	query_src_db "create table $_src_tbl(i int unique, j longlong default nextsequence)"
 	query_src_db "insert into $_src_tbl(i) values(1)"
 	query_dst_db "create table $_dst_tbl(i int unique, j longlong default nextsequence)"
 }
 
 function fixture_src_tbl_and_dst_tbl_have_different_schemas() {
-	local -n _src_tbl="$1" _dst_tbl="$2"
-	_src_tbl=foo _dst_tbl=foo
+	local -r _src_tbl="$1" _dst_tbl="$2"
 	query_src_db "create table $_src_tbl(i int unique, j longlong default nextsequence)"
 	query_src_db "insert into $_src_tbl(i) values(1)"
 	query_dst_db "create table $_dst_tbl(i int unique, j longlong default nextsequence)"
 }
 
 function fixture_src_tbl_and_dst_tbl_have_different_names() {
-	local -n _src_tbl="$1" _dst_tbl="$2"
-	_src_tbl=foo _dst_tbl=bar
+	local -r _src_tbl="$1" _dst_tbl="$2"
 	query_src_db "create table $_src_tbl(i int unique, j longlong default nextsequence)"
 	query_src_db "insert into $_src_tbl(i) values(1)"
 	query_dst_db "create table $_dst_tbl(b blob, j longlong default nextsequence)"
 }
 
 function fixture_src_tbl_has_noblob_dst_tbl_has_blob() {
-	local -n _src_tbl="$1" _dst_tbl="$2"
-	_src_tbl=foo _dst_tbl=foo
+	local -r _src_tbl="$1" _dst_tbl="$2"
 	query_src_db "create table $_src_tbl(i int unique, j longlong default nextsequence)"
 	query_src_db "insert into $_src_tbl(i) values(1)"
 	query_dst_db "create table $_dst_tbl(b blob, j longlong default nextsequence)"
 }
 
 function fixture_src_tbl_has_blob_dst_tbl_has_no_blob() {
-	local -n _src_tbl="$1" _dst_tbl="$2"
-	_src_tbl=foo _dst_tbl=foo
+	local -r _src_tbl="$1" _dst_tbl="$2"
 	query_src_db "create table $_src_tbl(b blob, j longlong default nextsequence)"
 	query_src_db "insert into $_src_tbl(b) values(x'f00f')"
 	query_dst_db "create table $_dst_tbl(i int unique, j longlong default nextsequence)"
 }
 
 function fixture_src_tbl_was_schema_changed() {
-	local -n _src_tbl="$1" _dst_tbl="$2"
-	_src_tbl=foo _dst_tbl=foo
+	local -r _src_tbl="$1" _dst_tbl="$2"
 	query_src_db "create table $_src_tbl(i int unique, j longlong default nextsequence)"
 	query_src_db "insert into $_src_tbl(i) values(1)"
 	query_src_db "alter table $_src_tbl add column k int"

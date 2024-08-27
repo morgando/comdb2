@@ -773,6 +773,13 @@ bulk_import_data_validate(const ImportData *p_local_data,
         return -1;
     }
 
+    if (db->n_rev_constraints) {
+        logmsg(LOGMSG_ERROR,
+               "[IMPORT] %s: Can't import onto a table with reverse constraints\n",
+               __func__);
+        return -1;
+    }
+
     /* compare stripe options */
     if (p_local_data->dtastripe != p_foreign_data->dtastripe ||
         p_local_data->blobstripe != p_foreign_data->blobstripe) {
@@ -1675,6 +1682,22 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
         goto err;
     }
 
+    const struct dbtable *db = get_dbtable_by_name(import_table);
+    if (!db) {
+        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+               import_table);
+        rc = -1;
+        goto err;
+    }
+
+    if (db->n_constraints) {
+        logmsg(LOGMSG_ERROR,
+               "[IMPORT] %s: Importing tables with constraints is not supported\n",
+               __func__);
+        rc = -1;
+        goto err;
+    }
+
     rc = bulk_import_data_load(&import_data);
     if (rc != 0) {
         logmsg(LOGMSG_FATAL, "[IMPORT] %s: Failed to load import data\n", __func__);
@@ -1723,8 +1746,6 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
     }
 
 err:
-    clear_bulk_import_data(&import_data);
-
     if (f_bulk_import != NULL) {
         fclose(f_bulk_import);
     }

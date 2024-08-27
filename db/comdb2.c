@@ -2789,8 +2789,6 @@ struct dbenv *newdbenv(char *dbname, char *lrlname)
     dbenv->connections = time_metric_new("connections");
     dbenv->watchdog_time = time_metric_new("watchdog_time");
 
-    pthread_mutex_init(&dbenv->import_lock, NULL);
-
     return dbenv;
 }
 

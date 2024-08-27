@@ -62,6 +62,9 @@ extern int should_ignore_btree(const char *filename,
                                int should_ignore_queues,
                                int name_boundary_exists);
 
+static uint64_t gbl_import_id = 0;
+pthread_mutex_t import_id_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /* Constants */
 #define FILENAMELEN 100
 
@@ -84,19 +87,19 @@ int bulk_import_tmpdb_should_ignore_btree(const char *filename)
     return should_ignore_btree(filename, bulk_import_tmpdb_should_ignore_table, 0, 1);
 }
 
-static void get_import_dbdir(char *import_dbdir, size_t sz_import_dbdir) {
-    snprintf(import_dbdir, sz_import_dbdir, "%s/import", comdb2_get_tmp_dir());
+static void get_import_dbdir(char *import_dbdir, size_t sz_import_dbdir, const uint64_t import_id) {
+    snprintf(import_dbdir, sz_import_dbdir, "%s/import%"PRIu64"", comdb2_get_tmp_dir(), import_id);
 }
 
 static int bulk_import_get_import_data_fname(char *import_data_fname,
-                                              size_t sz_import_data_fname) {
+                                              size_t sz_import_data_fname, const uint64_t import_id) {
     int rc;
     char import_dbdir[PATH_MAX];
 
     rc = 0;
 
     if (!gbl_import_mode) {
-        get_import_dbdir(import_dbdir, sizeof(import_dbdir));
+        get_import_dbdir(import_dbdir, sizeof(import_dbdir), import_id);
     } else {
         strncpy(import_dbdir, thedb->basedir, sizeof(import_dbdir));
     }
@@ -198,7 +201,7 @@ err:
  *      0 on success
  *      non-0 on failure
  */
-int bulk_import_setup_import_db(char **p_tmpDbDir) {
+int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
     char tmpDbDir[PATH_MAX];
     char tmpDbLogDir[PATH_MAX];
     char tmpDbTmpDir[PATH_MAX];
@@ -208,7 +211,7 @@ int bulk_import_setup_import_db(char **p_tmpDbDir) {
 
     fp = NULL;
     rc = dbdir_created = logdir_created = tmpdir_created = 0;
-    get_import_dbdir(tmpDbDir, sizeof(tmpDbDir));
+    get_import_dbdir(tmpDbDir, sizeof(tmpDbDir), import_id);
 
     rc = snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir) < 0;
     if (rc != 0) {
@@ -319,7 +322,7 @@ err:
  *      0 on success
  *      1 on failure
  */
-static int bulk_import_data_unpack_from_file(ImportData **pp_data) {
+static int bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_t import_id) {
     long fsize;
     int rc;
     void *line;
@@ -333,7 +336,7 @@ static int bulk_import_data_unpack_from_file(ImportData **pp_data) {
     fp = NULL;
 
     bulk_import_get_import_data_fname(import_data_fname,
-                                      sizeof(import_data_fname));
+                                      sizeof(import_data_fname), import_id);
 
     fp = fopen(import_data_fname, "r");
     if (!fp) {
@@ -958,6 +961,7 @@ static int bulkimport_switch_files(struct dbtable *db,
         return -1;
     }
 
+
     /* from here on use goto backout not return */
     llmeta_dump_mapping_table(thedb, db->tablename, 1);
 
@@ -1580,9 +1584,11 @@ int bulk_import_do_import(const char *srcdb, const char *src_tablename, const ch
     tmpDbDir = command = exe = NULL;
     import_data = NULL;
 
-    pthread_mutex_lock(&(thedb->import_lock)); // Force imports to run serially, for now.
+    pthread_mutex_lock(&import_id_mutex);
+    const uint64_t import_id = gbl_import_id++;
+    pthread_mutex_unlock(&import_id_mutex);
 
-    rc = bulk_import_setup_import_db(&tmpDbDir);
+    rc = bulk_import_setup_import_db(&tmpDbDir, import_id);
     if (rc) {
         logmsg(LOGMSG_ERROR, "%s: Failed to setup import db\n", __func__);
         goto err;
@@ -1612,7 +1618,7 @@ int bulk_import_do_import(const char *srcdb, const char *src_tablename, const ch
         goto err;
     }
     
-    rc = bulk_import_data_unpack_from_file(&import_data);
+    rc = bulk_import_data_unpack_from_file(&import_data, import_id);
     if (rc != 0) {
         logmsg(LOGMSG_ERROR, "%s: Failed to unpack import data from %s\n",
                __func__, fpath);
@@ -1648,8 +1654,6 @@ err:
         }
     }
     
-    pthread_mutex_unlock(&(thedb->import_lock));
-   
     return rc;
 }
 
@@ -1704,7 +1708,7 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
         goto err;
     }
 
-    rc = bulk_import_get_import_data_fname(import_file_path, sizeof(import_file_path));
+    rc = bulk_import_get_import_data_fname(import_file_path, sizeof(import_file_path), 0);
     if (rc != 0) {
         logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to get import data fname\n",
                __func__);

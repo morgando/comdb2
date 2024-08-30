@@ -445,13 +445,13 @@ void clear_bulk_import_data(ImportData *p_data) {
 }
 
 /**
- * Grabs all the bulk import data for the local table specified in
- * p_data->table_name.
+ * Grabs all the bulk import data for a local table
+ * @param table_name name of the local table
  * @param p_data    pointer to place to store bulk import data, the table_name
  *                  member should be set as input
  * @return 0 on success !0 otherwise
  */
-static int bulk_import_data_load(ImportData *p_data) {
+static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     unsigned i, j;
     int bdberr;
     struct dbtable *db;
@@ -462,14 +462,20 @@ static int bulk_import_data_load(ImportData *p_data) {
 
     rc = 0;
 
+    p_data->table_name = strdup(table_name);
+    if (!p_data->table_name) {
+        rc = ENOMEM;
+        goto err;
+    }
+
     /* clear data that may not get initialized*/
     p_data->compress = 0;
     p_data->compress_blobs = 0;
 
     /* find the table we're using */
-    if (!(db = get_dbtable_by_name(p_data->table_name))) {
+    if (!(db = get_dbtable_by_name(table_name))) {
         logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
-               p_data->table_name);
+               table_name);
         rc = -1;
         goto err;
     }
@@ -482,11 +488,11 @@ static int bulk_import_data_load(ImportData *p_data) {
     }
 
     /* get table's schema from the meta table and calculate it's crc32 */
-    if (get_csc2_file(p_data->table_name, -1 /*highest csc2_version*/,
+    if (get_csc2_file(table_name, -1 /*highest csc2_version*/,
                       &p_csc2_text, NULL /*csc2len*/)) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: could not get schema for table: %s\n", __func__,
-               p_data->table_name);
+               table_name);
         rc = -1;
         goto err;
     }
@@ -504,7 +510,7 @@ static int bulk_import_data_load(ImportData *p_data) {
                          get_db_compress_blobs(db, &p_data->compress_blobs)))) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: failed to fetch odh flags for table: %s\n",
-               __func__, p_data->table_name);
+               __func__, table_name);
         rc = -1;
         goto err;
     }
@@ -521,7 +527,7 @@ static int bulk_import_data_load(ImportData *p_data) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: failed to fetch version number for %s's main data "
                "files\n",
-               __func__, p_data->table_name);
+               __func__, table_name);
         rc = -1;
         goto err;
     }
@@ -554,18 +560,18 @@ static int bulk_import_data_load(ImportData *p_data) {
         logmsg(
             LOGMSG_ERROR,
             "[IMPORT] %s: Failed to get inplace update option for table %s\n",
-            __func__, p_data->table_name);
+            __func__, table_name);
     }
     if (get_db_instant_schema_change(db, &p_data->isc)) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: Failed to get instant schema change option for "
                "table %s\n",
-               __func__, p_data->table_name);
+               __func__, table_name);
     }
     if (get_db_datacopy_odh(db, &p_data->dc_odh)) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: Failed to get datacopy odh option for table %s\n",
-               __func__, p_data->table_name);
+               __func__, table_name);
     }
 
     p_data->n_data_files = p_data->dtastripe;
@@ -592,11 +598,11 @@ static int bulk_import_data_load(ImportData *p_data) {
     }
 
     t = curtran_gettran();
-    int version = get_csc2_version_tran(p_data->table_name, t);
+    int version = get_csc2_version_tran(table_name, t);
     if (version == -1) {
         logmsg(LOGMSG_ERROR,
                "[IMPORT] %s: Could not find csc2 version for table %s\n",
-               __func__, p_data->table_name);
+               __func__, table_name);
         rc = -1;
         goto err;
     }
@@ -609,7 +615,7 @@ static int bulk_import_data_load(ImportData *p_data) {
     }
 
     for (int vers = 1; vers <= version; vers++) {
-        get_csc2_file_tran(p_data->table_name, vers, &p_data->csc2[vers - 1],
+        get_csc2_file_tran(table_name, vers, &p_data->csc2[vers - 1],
                            &len, t);
     }
 
@@ -652,7 +658,7 @@ static int bulk_import_data_load(ImportData *p_data) {
             logmsg(LOGMSG_ERROR,
                    "[IMPORT] %s: failed to fetch version number for %s's "
                    "index: %d files\n",
-                   __func__, p_data->table_name, i);
+                   __func__, table_name, i);
             rc = -1;
             goto err;
         }
@@ -704,7 +710,7 @@ static int bulk_import_data_load(ImportData *p_data) {
             logmsg(LOGMSG_ERROR,
                    "[IMPORT] %s: failed to fetch version number for %s's "
                    "blob: %d files\n",
-                   __func__, p_data->table_name, i);
+                   __func__, table_name, i);
             rc = -1;
             goto err;
         }
@@ -1165,7 +1171,7 @@ backout:
 static int bulk_import_complete(ImportData *p_foreign_data,
                            const char *dst_tablename) {
     unsigned i;
-    int offset, num_files, nsiblings, bdberr, loaded_import_data, rc;
+    int offset, num_files, nsiblings, bdberr, loaded_import_data, have_schema_lk, rc;
     unsigned long long dst_data_genid;
     unsigned long long dst_index_genids[MAXINDEX];
     unsigned long long dst_blob_genids[MAXBLOBS];
@@ -1176,12 +1182,14 @@ static int bulk_import_complete(ImportData *p_foreign_data,
     char dst_path[PATH_MAX];
     char **src_files, **dst_files;
 
-    rc = num_files = nsiblings = loaded_import_data = bdberr = offset = 0;
-    local_data.table_name = strdup(dst_tablename);
+    rc = num_files = nsiblings = loaded_import_data = bdberr = offset = have_schema_lk = 0;
     src_files = dst_files = NULL;
     db = NULL;
 
-    rc = bulk_import_data_load(&local_data);
+    rdlock_schema_lk();
+    have_schema_lk = 1;
+
+    rc = bulk_import_data_load(dst_tablename, &local_data);
     if (rc) {
         logmsg(LOGMSG_ERROR, "[IMPORT] %s: failed getting local data\n",
                __func__);
@@ -1197,20 +1205,18 @@ static int bulk_import_complete(ImportData *p_foreign_data,
         goto err;
     }
 
-    dst_data_genid = bdb_get_cmp_context(db->handle);
-    for (i = 0; i < p_foreign_data->num_index_genids; ++i)
-        dst_index_genids[i] = bdb_get_cmp_context(db->handle);
-    for (i = 0; i < p_foreign_data->num_blob_genids; ++i)
-        dst_blob_genids[i] = bdb_get_cmp_context(db->handle);
-
-    // make sure all the data checks out and we can do the import
-    rc = bulk_import_data_validate(&local_data, p_foreign_data, dst_data_genid,
-                                  dst_index_genids, dst_blob_genids);
+    rc = bulk_import_data_validate(&local_data, p_foreign_data);
     if (rc) {
         logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to validate import with rc %d\n",
                               __func__, rc);
         goto err;
     }
+
+    dst_data_genid = bdb_get_cmp_context(db->handle);
+    for (i = 0; i < p_foreign_data->num_index_genids; ++i)
+        dst_index_genids[i] = bdb_get_cmp_context(db->handle);
+    for (i = 0; i < p_foreign_data->num_blob_genids; ++i)
+        dst_blob_genids[i] = bdb_get_cmp_context(db->handle);
 
     rc = bulk_import_generate_filenames(&local_data, p_foreign_data, dst_data_genid,
                                    dst_index_genids, dst_blob_genids,
@@ -1220,6 +1226,15 @@ static int bulk_import_complete(ImportData *p_foreign_data,
                               __func__, rc);
         goto err;
     }
+
+    // We release the schema lock here to avoid holding it while doing scp.
+    // We will need to make sure that the table still exists when we reacquire
+    // the lock to do the actual schema change.
+    unlock_schema_lk();
+    have_schema_lk = 0;
+
+    clear_bulk_import_data(&local_data);
+    loaded_import_data = 0;
 
     for (int fileix = 0; fileix < num_files; ++fileix) {
         snprintf(src_path, sizeof(src_path), "%s/%s", p_foreign_data->data_dir,
@@ -1249,13 +1264,44 @@ static int bulk_import_complete(ImportData *p_foreign_data,
         }
     }
 
+    // This is where everything actually happens. We need the schema lock in write mode.
     wrlock_schema_lk();
+    have_schema_lk = 1;
+
+    rc = bulk_import_data_load(dst_tablename, &local_data);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "[IMPORT] %s: failed getting local data\n",
+               __func__);
+        goto err;
+    }
+    loaded_import_data = 1;
+
+    // Make sure that the destination table still exists.
+    db = get_dbtable_by_name(local_data.table_name);
+    if (!db) {
+        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+               p_foreign_data->table_name);
+        rc = -1;
+        goto err;
+    }
+
+    // Need to redo validation: blobstripe genid could change live
+    rc = bulk_import_data_validate(&local_data, p_foreign_data);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to validate import with rc %d\n",
+                              __func__, rc);
+        goto err;
+    }
+
     rc =
         bulkimport_switch_files(db, p_foreign_data, dst_data_genid,
                                 dst_index_genids, dst_blob_genids, &local_data);
-    unlock_schema_lk();
 
 err:
+    if (have_schema_lk) {
+        unlock_schema_lk();
+    }
+
     if (loaded_import_data) {
         clear_bulk_import_data(&local_data);
     }
@@ -1680,12 +1726,6 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
     buf = NULL;
     f_bulk_import = NULL;
 
-    import_data.table_name = strdup(import_table);
-    if (import_data.table_name == NULL) {
-        rc = ENOMEM;
-        goto err;
-    }
-
     const struct dbtable *db = get_dbtable_by_name(import_table);
     if (!db) {
         logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
@@ -1702,7 +1742,7 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
         goto err;
     }
 
-    rc = bulk_import_data_load(&import_data);
+    rc = bulk_import_data_load(import_table, &import_data);
     if (rc != 0) {
         logmsg(LOGMSG_FATAL, "[IMPORT] %s: Failed to load import data\n", __func__);
         goto err;

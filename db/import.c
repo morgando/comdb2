@@ -48,15 +48,19 @@
 #include "sc_global.h"
 #include "str0.h"
 
-extern void get_txndir_args(char *txndir, size_t sz_txndir, const char *dbdir);
 extern char *comdb2_get_tmp_dir();
+extern int comdb2_get_tmp_dir_args(char *tmp_dir, ssize_t sz, const char *basedir, const char *envname, int nonames);
+extern void get_txndir_args(char *txndir, size_t sz_txndir, const char *dbdir, const char *envname, int nonames);
+
 extern tran_type *curtran_gettran(void);
 extern void curtran_puttran(tran_type *tran);
+
 extern int gbl_import_mode;
 extern char *gbl_import_table;
 extern char *gbl_file_copier;
 extern char gbl_dbname[MAX_DBNAME_LENGTH];
 extern char *gbl_dbdir;
+
 extern int should_ignore_btree(const char *filename,
                                int (*should_ignore_table)(const char *),
                                int should_ignore_queues,
@@ -68,11 +72,50 @@ pthread_mutex_t import_id_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Constants */
 #define FILENAMELEN 100
 
-int bulk_import_tmpdb_should_ignore_table(const char *table) {
-    const char *required_tables[] =
-        {"comdb2_llmeta", "sqlite_stat1", "sqlite_stat4", "comdb2_metadata", gbl_import_table, "" /* sentinel */};
-    const char *required_table;
+/* inputs can't be null and ending can't be emptystring */
+static int str_has_ending(const char * const s_start, const char * const e_start) {
+    const ssize_t s_len = strlen(s_start);
+    const ssize_t e_len = strlen(e_start);
+    if (e_len > s_len) { return 0; }
 
+    const char * e_last = e_start + e_len;
+    const char * s_last = s_start + s_len;
+
+    while ((*e_last-- == *s_last--) && (e_last >= e_start)) {}
+    return e_last < e_start;
+}
+
+int get_str_ending_from_list(const char *str, const char **list) {
+    const char * ending;
+    for (int i=0; ((ending = list[i]), *ending != '\0'); ++i) {
+        if (str_has_ending(str, ending)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int is_named_table(const char *tablename) {
+    static const char * named_table_endings[] =
+        {".metadata", ".llmeta", "" /* delimiter */};
+
+    return get_str_ending_from_list(tablename, named_table_endings) >= 0;
+}
+
+int bulk_import_tmpdb_should_ignore_table(const char *table) {
+    const char * required_tables[] = {
+        "comdb2_llmeta",
+        "comdb2_metadata",
+        "sqlite_stat1",
+        "sqlite_stat4",
+        gbl_import_table,
+        "" /* sentinel */ };
+
+    if (is_named_table(table)) {
+        return 0;
+    }
+
+    const char * required_table;
     for (int i=0; (required_table = required_tables[i]), required_table[0] != '\0'; ++i) {
         if (strcmp(required_table, table) == 0) {
             return 0;
@@ -202,33 +245,12 @@ err:
  *      non-0 on failure
  */
 int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
-    char tmpDbDir[PATH_MAX];
-    char tmpDbLogDir[PATH_MAX];
-    char tmpDbTmpDir[PATH_MAX];
-    char fname[PATH_MAX];
-    FILE *fp;
-    int rc, dbdir_created, logdir_created, tmpdir_created;
+    int dbdir_created = 0;
 
-    fp = NULL;
-    rc = dbdir_created = logdir_created = tmpdir_created = 0;
+    char tmpDbDir[PATH_MAX];
     get_import_dbdir(tmpDbDir, sizeof(tmpDbDir), import_id);
 
-    rc = snprintf(tmpDbLogDir, sizeof(tmpDbLogDir), "%s/logs", tmpDbDir) < 0;
-    if (rc != 0) {
-        goto err;
-    }
-
-    rc = snprintf(tmpDbTmpDir, sizeof(tmpDbTmpDir), "%s/tmp", tmpDbDir) < 0;
-    if (rc != 0) {
-        goto err;
-    }
-
-    rc = snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir) < 0;
-    if (rc != 0) {
-        goto err;
-    }
-
-    rc = mkdir(tmpDbDir, 0700);
+    int rc = mkdir(tmpDbDir, 0700);
     if (rc != 0) {
         // Don't exclude failure when the directory already exists:
         // The import directory is removed after the import; however it may
@@ -242,25 +264,14 @@ int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
     }
     dbdir_created = 1;
 
-    rc = mkdir(tmpDbLogDir, 0700);
-    if (rc != 0) {
-        logmsg(LOGMSG_ERROR,
-               "%s: Failed to create import log dir '%s' with errno %s\n",
-               __func__, tmpDbLogDir, strerror(errno));
+    char fname[PATH_MAX];
+    rc = snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
+    if (rc < 0 || rc >= sizeof(fname)) {
+        rc = 1;
         goto err;
     }
-    logdir_created = 1;
 
-    rc = mkdir(tmpDbTmpDir, 0700);
-    if (rc != 0) {
-        logmsg(LOGMSG_ERROR,
-               "%s: Failed to create import tmp dir '%s' with errno %s\n",
-               __func__, tmpDbTmpDir, strerror(errno));
-        goto err;
-    }
-    tmpdir_created = 1;
-
-    fp = fopen(fname, "w");
+    FILE * fp = fopen(fname, "w");
     if (fp == NULL) {
         logmsg(LOGMSG_ERROR,
                "%s: Failed to open %s for writing with errno %s\n", __func__,
@@ -269,7 +280,7 @@ int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
         goto err;
     }
 
-    fprintf(fp, "name import\ndir %s", tmpDbDir);
+    fprintf(fp, "name import\ndir %s\nnonames on", tmpDbDir);
 
     rc = fclose(fp);
     if (rc == EOF) {
@@ -283,30 +294,10 @@ int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
     }
 
 err:
-    if (rc) {
-        if (tmpdir_created) {
-            if (rmdir(tmpDbTmpDir)) {
-                logmsg(LOGMSG_ERROR,
-                       "%s: Failed to remove dir '%s' with errno %s\n",
-                       __func__, tmpDbTmpDir, strerror(errno));
-            }
-        }
-
-        if (logdir_created) {
-            if (rmdir(tmpDbLogDir)) {
-                logmsg(LOGMSG_ERROR,
-                       "%s: Failed to remove dir '%s' with errno %s\n",
-                       __func__, tmpDbLogDir, strerror(errno));
-            }
-        }
-
-        if (dbdir_created) {
-            if (rmdir(tmpDbDir)) {
-                logmsg(LOGMSG_ERROR,
-                       "%s: Failed to remove dir '%s' with errno %s\n",
-                       __func__, tmpDbDir, strerror(errno));
-            }
-        }
+    if (rc && dbdir_created && rmdir(tmpDbDir)) {
+        logmsg(LOGMSG_ERROR,
+               "%s: Failed to remove dir '%s' with errno %s\n",
+               __func__, tmpDbDir, strerror(errno));
     }
 
     return rc;
@@ -1318,15 +1309,13 @@ err:
     return rc;
 }
 
-static void comdb2_files_tmpdb_get_file_destination(char *copy_dst, ssize_t sz, const char *dir, const char *fname) {
-    if (strcmp(dir, "") != 0) {
-        snprintf(copy_dst, sz, "%s%s%s%s%s", gbl_dbdir,
-             "/", dir, "/", fname);
-    } else {
-        snprintf(copy_dst, sz, "%s%s%s", gbl_dbdir,
-             "/", fname);
-        
-    }
+static int comdb2_files_tmpdb_get_file_destination(char *dst_path, ssize_t sz, const char *dir, const char *fname) {
+    const int has_dir = strcmp(dir, "") != 0;
+    const int rc = has_dir
+        ? snprintf(dst_path, sz, "%s/%s/%s", gbl_dbdir, dir, fname)
+        : snprintf(dst_path, sz, "%s/%s", gbl_dbdir, fname);
+
+    return rc < 0 || rc >= sz;
 }
 
 typedef struct str_list_elt {
@@ -1482,6 +1471,95 @@ err:
     return rc;
 }
 
+int symlink_local_files_to_named_fdb_files(const char *fdb_name) {
+    int rc = 0;
+
+    static const char *named_file_endings[] =
+        {"_file_vers_map", ".metadata.dta", ".llmeta.dta", "" /* delimiter */};
+    static const char *unnamed_files[] =
+        {"file_vers_map", "comdb2_metadata.dta", "comdb2_llmeta.dta", "" /* delimiter */};
+
+    const char *ending;
+    for (int i=0; ((ending = named_file_endings[i]), *ending != '\0'); ++i) {
+        char fdb_named_file[FILENAME_MAX];
+        snprintf(fdb_named_file, sizeof(fdb_named_file), "%s/%s%s", gbl_dbdir, fdb_name, ending);
+
+        FILE * f = fopen(fdb_named_file, "w");
+        if (!f) {
+            logmsg(LOGMSG_ERROR, "%s: fopen failed with errno(%s)\n", __func__, strerror(errno));
+            goto err;
+        }
+
+        rc = fclose(f);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s: fclose failed with errno(%s)\n", __func__, strerror(errno));
+            goto err;
+        }
+
+        char local_file[FILENAME_MAX];
+        snprintf(local_file, sizeof(local_file), "%s/%s", gbl_dbdir, unnamed_files[i]);
+
+        rc = symlink(fdb_named_file, local_file);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s: Symlink failed with errno(%s)\n", __func__, strerror(errno));
+            goto err;
+        }
+    }
+
+err:
+    return rc;
+}
+
+int symlink_local_dirs_to_named_fdb_dirs(const char *fdb_name) {
+    char local_txndir[PATH_MAX];
+    get_txndir_args(local_txndir, sizeof(local_txndir), gbl_dbdir, gbl_dbname, 1);
+
+    char fdb_named_txndir[PATH_MAX];
+    get_txndir_args(fdb_named_txndir, sizeof(fdb_named_txndir), gbl_dbdir, fdb_name, 0);
+
+    char local_tmpdir[PATH_MAX];
+    int rc = comdb2_get_tmp_dir_args(local_tmpdir, sizeof(local_tmpdir), gbl_dbdir, gbl_dbname, 1);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to get local tmpdir", __func__);
+        goto err;
+    }
+
+    char fdb_named_tmpdir[PATH_MAX];
+    rc = comdb2_get_tmp_dir_args(fdb_named_tmpdir, sizeof(fdb_named_tmpdir), gbl_dbdir, fdb_name, 0);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to get named tmpdir for fdb %s", __func__, fdb_name);
+        goto err;
+    }
+
+    rc = mkdir(fdb_named_txndir, 0700);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to create directory %s with errno(%s)\n",
+            __func__, fdb_named_txndir, strerror(errno));
+    }
+
+    rc = mkdir(fdb_named_tmpdir, 0700);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Failed to create directory %s with errno(%s)\n",
+            __func__, fdb_named_tmpdir, strerror(errno));
+    }
+
+    rc = symlink(fdb_named_txndir, local_txndir);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Symlink failed with errno(%s)\n", __func__, strerror(errno));
+        goto err;
+    }
+
+    rc = symlink(fdb_named_tmpdir, local_tmpdir);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: Symlink failed with errno(%s)\n", __func__, strerror(errno));
+        goto err;
+    }
+
+
+err:
+    return rc;
+}
+
 /*
  * Gets foreign db's files and writes them into the local environment.
  *
@@ -1493,12 +1571,10 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     cdb2_hndl_tp *hndl;
     fdb_t *fdb;
     int rc, t_rc;
-    char txndir[PATH_MAX];
     char query[2000];
 
     rc = t_rc = 0;
     hndl = NULL;
-    get_txndir_args(txndir, sizeof(txndir), gbl_dbdir);
 
     rc = create_fdb(fdb_name, &fdb);
     if (rc) {
@@ -1506,6 +1582,24 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
             LOGMSG_ERROR,
             "[IMPORT] %s: Failed to create fdb with rc %d\n",
             __func__, rc);
+        goto err;
+    }
+
+    const char * fdb_dbname = fdb_dbname_name(fdb);
+
+    rc = symlink_local_dirs_to_named_fdb_dirs(fdb_dbname);
+    if (rc) {
+        logmsg(LOGMSG_ERROR,
+            "[IMPORT] %s: Failed to symlink local dirs to named fdb dirs\n",
+            __func__);
+        goto err;
+    }
+
+    rc = symlink_local_files_to_named_fdb_files(fdb_dbname);
+    if (rc) {
+        logmsg(LOGMSG_ERROR,
+            "[IMPORT] %s: Failed to symlink local files to named fdb files\n",
+            __func__);
         goto err;
     }
 

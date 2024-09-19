@@ -1426,6 +1426,24 @@ char *comdb2_get_sav_dir(void)
     return path;
 }
 
+int comdb2_get_tmp_dir_name_args(char *tmp_dir_name, ssize_t sz, const char *envname, int nonames) {
+    const int rc = nonames
+        ? snprintf(tmp_dir_name, sz, "tmp")
+        : snprintf(tmp_dir_name, sz, "%s.tmpdbs", envname);
+    return rc < 0 || rc >= sz;
+}
+
+int comdb2_get_tmp_dir_args(char *tmp_dir_path, ssize_t sz, const char *basedir, const char *envname, int nonames) {
+    char tmp_dir_name[FILENAME_MAX];
+    int rc = comdb2_get_tmp_dir_name_args(tmp_dir_name, sizeof(tmp_dir_name), envname, nonames);
+    if (rc) {
+        return rc;
+    }
+
+    rc = snprintf(tmp_dir_path, sz, "%s/%s", basedir, tmp_dir_name);
+    return rc < 0 || rc >= sz;
+}
+
 /* gets called single threaded from init() during startup to initialize.
    subsequent calls are thread-safe. */
 char *comdb2_get_tmp_dir(void)
@@ -1449,10 +1467,9 @@ char *comdb2_get_tmp_dir(void)
             logmsg(LOGMSG_WARN, "copying full path\n");
         }
 
-        if (gbl_nonames)
-            snprintf(path, PATH_MAX, "%s/tmp", thedb->basedir);
-        else
-            snprintf(path, PATH_MAX, "%s/%s.tmpdbs", thedb->basedir, thedb->envname);
+        if (comdb2_get_tmp_dir_args(path, sizeof(path), thedb->basedir, thedb->envname, gbl_nonames)) {
+            abort();
+        }
 
         once = 1;
     }
@@ -3056,17 +3073,25 @@ int llmeta_open(void)
     return 0;
 }
 
-void get_txndir_args(char *txndir, size_t sz_txndir, const char *dbdir)
+/* returns 0 on success */
+int get_txndir_name(char *txndir_name, ssize_t sz, const char *envname, int nonames) {
+    const int rc = nonames
+        ? snprintf(txndir_name, sz, "logs")
+        : snprintf(txndir_name, sz, "%s.txn", envname);
+    return rc < 0 || rc >= sz;
+}
+
+void get_txndir_args(char *txndir, size_t sz_txndir, const char *dbdir, const char *envname, int nonames)
 {
-    if (gbl_nonames)
-        snprintf(txndir, sz_txndir, "%s/logs", dbdir);
-    else
-        snprintf(txndir, sz_txndir, "%s/%s.txn", dbdir, gbl_dbname);
+    char txndir_name[FILENAME_MAX];
+    get_txndir_name(txndir_name, sizeof(txndir_name), envname, nonames);
+
+    snprintf(txndir, sz_txndir, "%s/%s", dbdir, txndir_name);
 }
 
 static void get_txndir(char *txndir, size_t sz_txndir)
 {
-    get_txndir_args(txndir, sz_txndir, thedb->basedir);
+    get_txndir_args(txndir, sz_txndir, thedb->basedir, gbl_dbname, gbl_nonames);
 }
 
 static void get_savdir(char *savdir, size_t sz_savdir)
@@ -3675,17 +3700,6 @@ static int init(int argc, char **argv)
         exit(1);
     }
 
-    if (gbl_import_mode) {
-        gbl_exit = 1;
-        gbl_fullrecovery = 1;
-
-        rc = bulk_import_tmpdb_pull_foreign_dbfiles(gbl_import_src);
-        if (rc != 0) {
-            logmsg(LOGMSG_FATAL, "[IMPORT] %s: Failed to copy files from source db\n", __func__);
-            return -1;
-        }
-    }
-
     dbname = gbl_import_mode ? "import" : argv[optind++];
     int namelen = strlen(dbname);
     if (namelen == 0 || namelen >= MAX_DBNAME_LENGTH) {
@@ -3694,6 +3708,7 @@ static int init(int argc, char **argv)
         return -1;
     }
     strcpy(gbl_dbname, dbname);
+
     char tmpuri[1024];
     snprintf(tmpuri, sizeof(tmpuri), "%s@%s", gbl_dbname, gbl_myhostname);
     gbl_myuri = intern(tmpuri);
@@ -3714,6 +3729,17 @@ static int init(int argc, char **argv)
     Pthread_key_create(&comdb2_open_key, NULL);
     Pthread_key_create(&query_info_key, NULL);
     Pthread_key_create(&DBG_FREE_CURSOR, free);
+
+    if (gbl_import_mode) {
+        gbl_exit = 1;
+        gbl_fullrecovery = 1;
+
+        rc = bulk_import_tmpdb_pull_foreign_dbfiles(gbl_import_src);
+        if (rc != 0) {
+            logmsg(LOGMSG_FATAL, "[IMPORT] %s: Failed to copy files from source db\n", __func__);
+            return -1;
+        }
+    }
 
     if (lrlname == NULL) {
         char *lrlenv = getenv("COMDB2_CONFIG");

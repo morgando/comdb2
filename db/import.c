@@ -48,6 +48,9 @@
 #include "sc_global.h"
 #include "str0.h"
 
+#define __import_logmsg(lvl, msg, ...) \
+    logmsg(lvl, "[IMPORT] %s: " msg, __func__, ## __VA_ARGS__)
+
 extern char *comdb2_get_tmp_dir();
 extern int comdb2_get_tmp_dir_args(char *tmp_dir, ssize_t sz, const char *basedir, const char *envname, int nonames);
 extern void get_txndir_args(char *txndir, size_t sz_txndir, const char *dbdir, const char *envname, int nonames);
@@ -185,8 +188,8 @@ int bulk_import_copy_file_to_replicant(const char *dst_path,
 
     rc = system(command);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to copy %s to replicant %s\n",
-               __func__, dst_path, hostname);
+        __import_logmsg(LOGMSG_ERROR, "Failed to copy %s to replicant %s\n",
+               dst_path, hostname);
         goto err;
     }
 
@@ -200,32 +203,28 @@ err:
 /*
  * Cleans up all resources created in `bulk_import_setup_import_db`.
  *
- * p_tmpDbDir: The path of the db directory of the import db to be cleaned.
+ * p_tmp_db_dir: The path of the db directory of the import db to be cleaned.
  *
  * returns
  *      0 on success
  *      non-0 on failure
  */
-static int bulk_import_cleanup_import_db(char *tmpDbDir) {
-    char *command;
-    int size, rc;
+static int bulk_import_cleanup_import_db(char *tmp_db_dir) {
+    int rc = 0;
 
-    command = NULL;
-    rc = size = 0;
-
-    size = snprintf(NULL, 0, "rm -rf %s", tmpDbDir);
-    command = malloc(++size);
+    const int size = snprintf(NULL, 0, "rm -rf %s", tmp_db_dir) + 1;
+    char * command = malloc(size);
     if (!command) {
         rc = ENOMEM;
         goto err;
     }
 
-    sprintf(command, "rm -rf %s", tmpDbDir);
+    sprintf(command, "rm -rf %s", tmp_db_dir);
     if ((rc = system(command)), rc != 0) {
         goto err;
     }
 
-    free(tmpDbDir);
+    free(tmp_db_dir);
 
 err:
     if (command) {
@@ -238,34 +237,34 @@ err:
 /*
  * Creates all directories and files needed to run the import db.
  *
- * p_tmpDbDir: Will point to the path of the import db directory on success.
+ * p_tmp_db_dir: Will point to the path of the import db directory on success.
  *
  * returns
  *      0 on success
  *      non-0 on failure
  */
-int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
+int bulk_import_setup_import_db(char **p_tmp_db_dir, const uint64_t import_id) {
     int dbdir_created = 0;
 
-    char tmpDbDir[PATH_MAX];
-    get_import_dbdir(tmpDbDir, sizeof(tmpDbDir), import_id);
+    char tmp_db_dir[PATH_MAX];
+    get_import_dbdir(tmp_db_dir, sizeof(tmp_db_dir), import_id);
 
-    int rc = mkdir(tmpDbDir, 0700);
+    int rc = mkdir(tmp_db_dir, 0700);
     if (rc != 0) {
         // Don't exclude failure when the directory already exists:
         // The import directory is removed after the import; however it may
         // still exist if the remove failed. Running an import on an old
         // directory may result in undefined behavior.
         // TODO: Could probably just warn here because of archival.
-        logmsg(LOGMSG_ERROR,
-               "%s: Failed to create import dir '%s' with errno %s\n", __func__,
-               tmpDbDir, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to create import dir '%s' with errno %s\n",
+               tmp_db_dir, strerror(errno));
         goto err;
     }
     dbdir_created = 1;
 
     char fname[PATH_MAX];
-    rc = snprintf(fname, sizeof(fname), "%s/import.lrl", tmpDbDir);
+    rc = snprintf(fname, sizeof(fname), "%s/import.lrl", tmp_db_dir);
     if (rc < 0 || rc >= sizeof(fname)) {
         rc = 1;
         goto err;
@@ -273,31 +272,35 @@ int bulk_import_setup_import_db(char **p_tmpDbDir, const uint64_t import_id) {
 
     FILE * fp = fopen(fname, "w");
     if (fp == NULL) {
-        logmsg(LOGMSG_ERROR,
-               "%s: Failed to open %s for writing with errno %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to open %s for writing with errno %s\n",
                fname, strerror(errno));
         rc = 1;
         goto err;
     }
 
-    fprintf(fp, "name import\ndir %s\nnonames on", tmpDbDir);
+    fprintf(fp, "name import\ndir %s\nnonames on", tmp_db_dir);
 
     rc = fclose(fp);
     if (rc == EOF) {
         goto err;
     }
 
-    *p_tmpDbDir = strdup(tmpDbDir);
-    if (*p_tmpDbDir == NULL) {
+    *p_tmp_db_dir = strdup(tmp_db_dir);
+    if (*p_tmp_db_dir == NULL) {
         rc = ENOMEM;
         goto err;
     }
 
 err:
-    if (rc && dbdir_created && rmdir(tmpDbDir)) {
-        logmsg(LOGMSG_ERROR,
-               "%s: Failed to remove dir '%s' with errno %s\n",
-               __func__, tmpDbDir, strerror(errno));
+    if (rc && dbdir_created) {
+        char *dup_tmp_db_dir = strdup(tmp_db_dir);
+        if (!dup_tmp_db_dir
+            || bulk_import_cleanup_import_db(dup_tmp_db_dir)) {
+            __import_logmsg(LOGMSG_ERROR,
+                   "Failed to cleanup dir '%s'\n",
+                   tmp_db_dir);
+        }
     }
 
     return rc;
@@ -331,24 +334,24 @@ static int bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_
 
     fp = fopen(import_data_fname, "r");
     if (!fp) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to open file %s. err %s\n",
-               __func__, import_data_fname, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Failed to open file %s. err %s\n",
+               import_data_fname, strerror(errno));
         rc = 1;
         goto err;
     }
 
     rc = stat(import_data_fname, &st);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to stat file %s. err %s\n",
-               __func__, import_data_fname, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Failed to stat file %s. err %s\n",
+               import_data_fname, strerror(errno));
         goto err;
     }
     fsize = st.st_size;
 
     line = malloc(fsize);
     if (!line) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Could not allocate line of size %ld\n", __func__,
+        __import_logmsg(LOGMSG_ERROR,
+               "Could not allocate line of size %ld\n",
                fsize + 1);
         rc = ENOMEM;
         goto err;
@@ -356,18 +359,17 @@ static int bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_
 
     size_t num_read = fread(line, fsize, 1, fp);
     if (num_read < 1) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Read less than expected from file %s. Num read = "
+        __import_logmsg(LOGMSG_ERROR,
+               "Read less than expected from file %s. Num read = "
                "%lu and fsize = %lu\n",
-               __func__, import_data_fname, num_read, fsize);
+               import_data_fname, num_read, fsize);
         rc = 1;
         goto err;
     }
 
     *pp_data = import_data__unpack(NULL, fsize, line);
     if (*pp_data == NULL) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Error unpacking incoming message\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR, "Error unpacking incoming message\n");
         rc = 1;
         goto err;
     }
@@ -465,7 +467,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
 
     /* find the table we're using */
     if (!(db = get_dbtable_by_name(table_name))) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                table_name);
         rc = -1;
         goto err;
@@ -481,8 +483,8 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     /* get table's schema from the meta table and calculate it's crc32 */
     if (get_csc2_file(table_name, -1 /*highest csc2_version*/,
                       &p_csc2_text, NULL /*csc2len*/)) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: could not get schema for table: %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR,
+               "could not get schema for table: %s\n",
                table_name);
         rc = -1;
         goto err;
@@ -499,9 +501,9 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     if (get_db_odh(db, &p_data->odh) ||
         (p_data->odh && (get_db_compress(db, &p_data->compress) ||
                          get_db_compress_blobs(db, &p_data->compress_blobs)))) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed to fetch odh flags for table: %s\n",
-               __func__, table_name);
+        __import_logmsg(LOGMSG_ERROR,
+               "failed to fetch odh flags for table: %s\n",
+               table_name);
         rc = -1;
         goto err;
     }
@@ -515,10 +517,9 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
                                   (unsigned long long *)&p_data->data_genid,
                                   &bdberr) ||
         bdberr != BDBERR_NOERROR) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed to fetch version number for %s's main data "
-               "files\n",
-               __func__, table_name);
+        __import_logmsg(LOGMSG_ERROR,
+               "failed to fetch version number for %s's main data "
+               "files\n", table_name);
         rc = -1;
         goto err;
     }
@@ -548,21 +549,21 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     /* get ipu/isc options from meta table */
 
     if (get_db_inplace_updates(db, &p_data->ipu)) {
-        logmsg(
+        __import_logmsg(
             LOGMSG_ERROR,
-            "[IMPORT] %s: Failed to get inplace update option for table %s\n",
-            __func__, table_name);
+            "Failed to get inplace update option for table %s\n",
+            table_name);
     }
     if (get_db_instant_schema_change(db, &p_data->isc)) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Failed to get instant schema change option for "
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to get instant schema change option for "
                "table %s\n",
-               __func__, table_name);
+               table_name);
     }
     if (get_db_datacopy_odh(db, &p_data->dc_odh)) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Failed to get datacopy odh option for table %s\n",
-               __func__, table_name);
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to get datacopy odh option for table %s\n",
+               table_name);
     }
 
     p_data->n_data_files = p_data->dtastripe;
@@ -576,10 +577,9 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
         len = bdb_form_file_name(db->handle, 1, 0, i, p_data->data_genid,
                                  tempname, sizeof(tempname));
         if (len <= 0 || len > 64) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: failed to retrieve the data filename, stripe "
-                   "%d\n",
-                   __func__, i);
+            __import_logmsg(LOGMSG_ERROR,
+                   "failed to retrieve the data filename, stripe "
+                   "%d\n", i);
         }
         p_data->data_files[i] = strdup(tempname);
         if (!p_data->data_files[i]) {
@@ -591,9 +591,9 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     t = curtran_gettran();
     int version = get_csc2_version_tran(table_name, t);
     if (version == -1) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Could not find csc2 version for table %s\n",
-               __func__, table_name);
+        __import_logmsg(LOGMSG_ERROR,
+               "Could not find csc2 version for table %s\n",
+               table_name);
         rc = -1;
         goto err;
     }
@@ -646,10 +646,10 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
                 db->handle, NULL /*tran*/, i /*ixnum*/,
                 (unsigned long long *)&p_data->index_genids[i], &bdberr) ||
             bdberr != BDBERR_NOERROR) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: failed to fetch version number for %s's "
+            __import_logmsg(LOGMSG_ERROR,
+                   "failed to fetch version number for %s's "
                    "index: %d files\n",
-                   __func__, table_name, i);
+                   table_name, i);
             rc = -1;
             goto err;
         }
@@ -657,10 +657,10 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
         len = bdb_form_file_name(db->handle, 0, 0, i, p_data->index_genids[i],
                                  tempname, sizeof(tempname));
         if (len <= 0 || len > 64) {
-            logmsg(
+            __import_logmsg(
                 LOGMSG_ERROR,
-                "[IMPORT] %s: failed to retrieve the index filename, ix %d\n",
-                __func__, i);
+                "failed to retrieve the index filename, ix %d\n",
+                i);
         }
         p_data->index_files[i] = strdup(tempname);
     }
@@ -698,10 +698,10 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
                 db->handle, NULL /*tran*/, i + 1 /*dtanum*/,
                 (unsigned long long *)&p_data->blob_genids[i], &bdberr) ||
             bdberr != BDBERR_NOERROR) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: failed to fetch version number for %s's "
+            __import_logmsg(LOGMSG_ERROR,
+                   "failed to fetch version number for %s's "
                    "blob: %d files\n",
-                   __func__, table_name, i);
+                   table_name, i);
             rc = -1;
             goto err;
         }
@@ -712,10 +712,10 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
                                          p_data->blob_genids[i], tempname,
                                          sizeof(tempname));
                 if (len <= 0 || len > 64) {
-                    logmsg(LOGMSG_ERROR,
-                           "[IMPORT] %s: failed to retrieve the blob "
+                    __import_logmsg(LOGMSG_ERROR,
+                           "failed to retrieve the blob "
                            "filename, ix %d stripe %d\n",
-                           __func__, i, j);
+                           i, j);
                 }
                 p_data->blob_files[i]->files[j] = strdup(tempname);
             }
@@ -724,10 +724,10 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
                                      p_data->blob_genids[i], tempname,
                                      sizeof(tempname));
             if (len <= 0 || len > 64) {
-                logmsg(LOGMSG_ERROR,
-                       "[IMPORT] %s: failed to retrieve the blob filename, "
+                __import_logmsg(LOGMSG_ERROR,
+                       "failed to retrieve the blob filename, "
                        "ix %d stripe %d\n",
-                       __func__, i, 0);
+                       i, 0);
             }
             p_data->blob_files[i]->files[0] = strdup(tempname);
         }
@@ -757,7 +757,7 @@ bulk_import_data_validate(const ImportData *p_local_data,
      * files */
 
     if (thedb->master != gbl_myhostname) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: I'm not the master\n", __func__);
+        __import_logmsg(LOGMSG_ERROR, "I'm not the master\n");
         return -1;
     }
 
@@ -767,26 +767,24 @@ bulk_import_data_validate(const ImportData *p_local_data,
     unsigned long long genid;
     struct dbtable *db = get_dbtable_by_name(p_local_data->table_name);
     if (get_blobstripe_genid(db, &genid) == 0) {
-        fprintf(
-            stderr,
-            "Destination database has a blobstripe genid. Can't bulkimport\n");
+        __import_logmsg(LOGMSG_ERROR,
+               "Destination db has a blobstripe genid. Can't import.\n");
         return -1;
     }
 
     if (db->n_rev_constraints) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Can't import onto a table with reverse constraints\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR,
+               "Can't import onto a table with reverse constraints\n");
         return -1;
     }
 
     /* compare stripe options */
     if (p_local_data->dtastripe != p_foreign_data->dtastripe ||
         p_local_data->blobstripe != p_foreign_data->blobstripe) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: stripe settings differ for table: %s dtastripe: "
+        __import_logmsg(LOGMSG_ERROR,
+               "stripe settings differ for table: %s dtastripe: "
                "%d %d blobstripe: %d %d\n",
-               __func__, p_local_data->table_name, p_local_data->dtastripe,
+               p_local_data->table_name, p_local_data->dtastripe,
                p_foreign_data->dtastripe, p_local_data->blobstripe,
                p_foreign_data->blobstripe);
         return -1;
@@ -860,7 +858,7 @@ static int bulk_import_generate_filenames(
 
     /* find the table we're importing TO */
     if (!(db = get_dbtable_by_name(p_data->table_name))) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                p_data->table_name);
         return -1;
     }
@@ -951,8 +949,8 @@ static int bulkimport_switch_files(struct dbtable *db,
 
     /* close the table */
     if (bdb_close_only(db->handle, &bdberr)) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed to close table: %s bdberr: %d\n", __func__,
+        __import_logmsg(LOGMSG_ERROR,
+               "failed to close table: %s bdberr: %d\n",
                p_foreign_data->table_name, bdberr);
         bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
         return -1;
@@ -964,8 +962,8 @@ static int bulkimport_switch_files(struct dbtable *db,
 
 retry_bulk_update:
     if (++retries >= gbl_maxretries) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: giving up after %d retries\n",
-               __func__, retries);
+        __import_logmsg(LOGMSG_ERROR, "giving up after %d retries\n",
+               retries);
 
         outrc = -1;
         goto backout;
@@ -976,17 +974,17 @@ retry_bulk_update:
         trans_abort(&iq, tran);
         tran = NULL;
 
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: bulk update failed for table: %s attempting "
+        __import_logmsg(LOGMSG_ERROR,
+               "bulk update failed for table: %s attempting "
                "retry\n",
-               __func__, p_foreign_data->table_name);
+               p_foreign_data->table_name);
     }
 
     if (trans_start(&iq, NULL /*parent_trans*/, &tran)) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed starting bulk update transaction for "
+        __import_logmsg(LOGMSG_ERROR,
+               "failed starting bulk update transaction for "
                "table: %s\n",
-               __func__, p_foreign_data->table_name);
+               p_foreign_data->table_name);
         goto retry_bulk_update;
     }
 
@@ -994,10 +992,10 @@ retry_bulk_update:
     if (bdb_new_file_version_data(db->handle, tran, 0 /*dtanum*/,
                                   dst_data_genid, &bdberr) ||
         bdberr != BDBERR_NOERROR) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed updating version for table: %s main data "
+        __import_logmsg(LOGMSG_ERROR,
+               "failed updating version for table: %s main data "
                "files\n",
-               __func__, p_foreign_data->table_name);
+               p_foreign_data->table_name);
         goto retry_bulk_update;
     }
 
@@ -1007,10 +1005,10 @@ retry_bulk_update:
         if (bdb_new_file_version_index(db->handle, tran, i /*ixnum*/,
                                        dst_index_genids[i], &bdberr) ||
             bdberr != BDBERR_NOERROR) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: failed updating version for %s's index: %d "
+            __import_logmsg(LOGMSG_ERROR,
+                   "failed updating version for %s's index: %d "
                    "files new version: %llx\n",
-                   __func__, p_foreign_data->table_name, i,
+                   p_foreign_data->table_name, i,
                    (long long unsigned int)p_foreign_data->index_genids[i]);
             goto retry_bulk_update;
         }
@@ -1022,19 +1020,19 @@ retry_bulk_update:
         if (bdb_new_file_version_data(db->handle, tran, i + 1 /*dtanum*/,
                                       dst_blob_genids[i], &bdberr) ||
             bdberr != BDBERR_NOERROR) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: failed updating version for %s's blob: %d "
+            __import_logmsg(LOGMSG_ERROR,
+                   "failed updating version for %s's blob: %d "
                    "files new version: %llx\n",
-                   __func__, p_foreign_data->table_name, i,
+                   p_foreign_data->table_name, i,
                    (long long unsigned int)p_foreign_data->blob_genids[i]);
             goto retry_bulk_update;
         }
     }
 
     if (table_version_upsert(db, tran, &bdberr) || bdberr != BDBERR_NOERROR) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed to upsert table version bdberr %d\n",
-               __func__, bdberr);
+        __import_logmsg(LOGMSG_ERROR,
+               "failed to upsert table version bdberr %d\n",
+               bdberr);
         goto retry_bulk_update;
     }
 
@@ -1063,9 +1061,9 @@ retry_bulk_update:
 
     /* commit new versions */
     if (trans_commit_adaptive(&iq, tran, gbl_myhostname)) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed bulk update commit for table: %s\n",
-               __func__, p_foreign_data->table_name);
+        __import_logmsg(LOGMSG_ERROR,
+               "failed bulk update commit for table: %s\n",
+               p_foreign_data->table_name);
         goto retry_bulk_update;
     }
 
@@ -1073,8 +1071,8 @@ retry_bulk_update:
         /* There is no good way to rollback here. The new schema's were
          * committed but we couldn't reload them (parse error?). Lets just
          * abort here and hope we can do this after bounce */
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: failed reopening table: %s\n",
-               __func__, local_data->table_name);
+        __import_logmsg(LOGMSG_ERROR, "failed reopening table: %s\n",
+               local_data->table_name);
         clean_exit();
     }
     bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
@@ -1084,10 +1082,10 @@ retry_bulk_update:
                              strlen(db->tablename) + 1, 1, &bdberr);
     if (rc || bdberr != BDBERR_NOERROR) {
         /* TODO: there is no way out as llmeta was committed already */
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed to send logical log scdone for table: %s "
+        __import_logmsg(LOGMSG_ERROR,
+               "failed to send logical log scdone for table: %s "
                "bdberr: %d\n",
-               __func__, p_foreign_data->table_name, bdberr);
+               p_foreign_data->table_name, bdberr);
     }
     return 0;
 
@@ -1096,9 +1094,9 @@ backout:
 
     /* free the old bdb handle */
     if (bdb_free(db->handle, &bdberr) || bdberr != BDBERR_NOERROR) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed freeing old db for table: %s bdberr %d\n",
-               __func__, p_foreign_data->table_name, bdberr);
+        __import_logmsg(LOGMSG_ERROR,
+               "failed freeing old db for table: %s bdberr %d\n",
+               p_foreign_data->table_name, bdberr);
         clean_exit();
     }
 
@@ -1111,8 +1109,8 @@ backout:
               db->ix_nullsallowed, db->numblobs + 1 /*main dta*/,
               thedb->bdb_env, &bdberr)) ||
         bdberr != BDBERR_NOERROR) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: failed reopening table: %s, bdberr %d\n", __func__,
+        __import_logmsg(LOGMSG_ERROR,
+               "failed reopening table: %s, bdberr %d\n",
                local_data->table_name, bdberr);
         clean_exit();
     }
@@ -1123,24 +1121,27 @@ backout:
         /* delete files we don't need now */
         if (bdb_list_unused_files(db->handle, &bdberr, "bulkimport") ||
             bdberr != BDBERR_NOERROR)
-            logmsg(
+            __import_logmsg(
                 LOGMSG_ERROR,
-                "[IMPORT] %s: errors deleting files for table: %s bdberr: %d\n",
-                __func__, local_data->table_name, bdberr);
+                "errors deleting files for table: %s bdberr: %d\n",
+                local_data->table_name, bdberr);
     } else {
         /* delete files we don't need now */
         if (bdb_del_unused_files(db->handle, &bdberr) ||
             bdberr != BDBERR_NOERROR)
-            logmsg(
+            __import_logmsg(
                 LOGMSG_ERROR,
-                "[IMPORT] %s: errors deleting files for table: %s bdberr: %d\n",
-                __func__, local_data->table_name, bdberr);
+                "errors deleting files for table: %s bdberr: %d\n",
+                local_data->table_name, bdberr);
     }
 
     /* if we were successful */
-    if (!outrc)
-        printf("%s: successful for table: %s\n", __func__,
-               local_data->table_name);
+    if (!outrc) {
+        __import_logmsg(
+            LOGMSG_INFO,
+            "import successful for table: %s\n",
+            local_data->table_name);
+    }
 
     return outrc;
 }
@@ -1182,15 +1183,14 @@ static int bulk_import_complete(ImportData *p_foreign_data,
 
     rc = bulk_import_data_load(dst_tablename, &local_data);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: failed getting local data\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR, "failed getting local data\n");
         goto err;
     }
     loaded_import_data = 1;
 
     db = get_dbtable_by_name(local_data.table_name);
     if (!db) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                p_foreign_data->table_name);
         rc = -1;
         goto err;
@@ -1198,8 +1198,8 @@ static int bulk_import_complete(ImportData *p_foreign_data,
 
     rc = bulk_import_data_validate(&local_data, p_foreign_data);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to validate import with rc %d\n",
-                              __func__, rc);
+        __import_logmsg(LOGMSG_ERROR, "Failed to validate import with rc %d\n",
+                              rc);
         goto err;
     }
 
@@ -1213,8 +1213,8 @@ static int bulk_import_complete(ImportData *p_foreign_data,
                                    dst_index_genids, dst_blob_genids,
                                    &src_files, &dst_files, &num_files, &bdberr);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to generate filenames with rc %d\n",
-                              __func__, rc);
+        __import_logmsg(LOGMSG_ERROR, "Failed to generate filenames with rc %d\n",
+                              rc);
         goto err;
     }
 
@@ -1235,9 +1235,9 @@ static int bulk_import_complete(ImportData *p_foreign_data,
 
         rc = bdb_bless_btree(src_path, dst_path);
         if (rc) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: Blessing files failed with rc %d\n",
-                   __func__, rc);
+            __import_logmsg(LOGMSG_ERROR,
+                   "Blessing files failed with rc %d\n",
+                   rc);
             goto err;
         }
 
@@ -1247,9 +1247,9 @@ static int bulk_import_complete(ImportData *p_foreign_data,
 
             rc = bulk_import_copy_file_to_replicant(dst_path, hosts[nodeix]);
             if (rc) {
-                logmsg(LOGMSG_ERROR,
-                       "[IMPORT] %s: Failed to copy file to replicant with rc %d\n",
-                       __func__, rc);
+                __import_logmsg(LOGMSG_ERROR,
+                       "Failed to copy file to replicant with rc %d\n",
+                       rc);
                 goto err;
             }
         }
@@ -1261,8 +1261,7 @@ static int bulk_import_complete(ImportData *p_foreign_data,
 
     rc = bulk_import_data_load(dst_tablename, &local_data);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: failed getting local data\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR, "failed getting local data\n");
         goto err;
     }
     loaded_import_data = 1;
@@ -1270,7 +1269,7 @@ static int bulk_import_complete(ImportData *p_foreign_data,
     // Make sure that the destination table still exists.
     db = get_dbtable_by_name(local_data.table_name);
     if (!db) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                p_foreign_data->table_name);
         rc = -1;
         goto err;
@@ -1279,8 +1278,8 @@ static int bulk_import_complete(ImportData *p_foreign_data,
     // Need to redo validation: blobstripe genid could change live
     rc = bulk_import_data_validate(&local_data, p_foreign_data);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to validate import with rc %d\n",
-                              __func__, rc);
+        __import_logmsg(LOGMSG_ERROR, "Failed to validate import with rc %d\n",
+                              rc);
         goto err;
     }
 
@@ -1440,9 +1439,9 @@ static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
 
             fd = open(copy_dst, O_WRONLY | O_CREAT | O_APPEND, 0755);
             if (fd == -1) {
-                logmsg(LOGMSG_ERROR,
-                       "[IMPORT] %s: Failed to open file %s (errno: %s)\n",
-                       __func__, copy_dst, strerror(errno));
+                __import_logmsg(LOGMSG_ERROR,
+                       "Failed to open file %s (errno: %s)\n",
+                       copy_dst, strerror(errno));
                 rc = 1;
                 goto err;
             }
@@ -1450,10 +1449,9 @@ static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
 
         const ssize_t bytes_written = write(fd, chunk_content, chunk_size);
         if (bytes_written != chunk_size) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: failed to write to the file (expected: %d "
-                   "got: %ld)\n",
-                   __func__, chunk_size, bytes_written);
+            __import_logmsg(LOGMSG_ERROR,
+                   "failed to write to the file (expected: %d "
+                   "got: %ld)\n", chunk_size, bytes_written);
             rc = 1;
             goto err;
         }
@@ -1486,13 +1484,13 @@ int symlink_local_files_to_named_fdb_files(const char *fdb_name) {
 
         FILE * f = fopen(fdb_named_file, "w");
         if (!f) {
-            logmsg(LOGMSG_ERROR, "%s: fopen failed with errno(%s)\n", __func__, strerror(errno));
+            __import_logmsg(LOGMSG_ERROR, "fopen failed with errno(%s)\n", strerror(errno));
             goto err;
         }
 
         rc = fclose(f);
         if (rc) {
-            logmsg(LOGMSG_ERROR, "%s: fclose failed with errno(%s)\n", __func__, strerror(errno));
+            __import_logmsg(LOGMSG_ERROR, "fclose failed with errno(%s)\n", strerror(errno));
             goto err;
         }
 
@@ -1501,7 +1499,7 @@ int symlink_local_files_to_named_fdb_files(const char *fdb_name) {
 
         rc = symlink(fdb_named_file, local_file);
         if (rc) {
-            logmsg(LOGMSG_ERROR, "%s: Symlink failed with errno(%s)\n", __func__, strerror(errno));
+            __import_logmsg(LOGMSG_ERROR, "Symlink failed with errno(%s)\n", strerror(errno));
             goto err;
         }
     }
@@ -1520,38 +1518,38 @@ int symlink_local_dirs_to_named_fdb_dirs(const char *fdb_name) {
     char local_tmpdir[PATH_MAX];
     int rc = comdb2_get_tmp_dir_args(local_tmpdir, sizeof(local_tmpdir), gbl_dbdir, gbl_dbname, 1);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to get local tmpdir", __func__);
+        __import_logmsg(LOGMSG_ERROR, "Failed to get local tmpdir");
         goto err;
     }
 
     char fdb_named_tmpdir[PATH_MAX];
     rc = comdb2_get_tmp_dir_args(fdb_named_tmpdir, sizeof(fdb_named_tmpdir), gbl_dbdir, fdb_name, 0);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to get named tmpdir for fdb %s", __func__, fdb_name);
+        __import_logmsg(LOGMSG_ERROR, "Failed to get named tmpdir for fdb %s", fdb_name);
         goto err;
     }
 
     rc = mkdir(fdb_named_txndir, 0700);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to create directory %s with errno(%s)\n",
-            __func__, fdb_named_txndir, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Failed to create directory %s with errno(%s)\n",
+            fdb_named_txndir, strerror(errno));
     }
 
     rc = mkdir(fdb_named_tmpdir, 0700);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to create directory %s with errno(%s)\n",
-            __func__, fdb_named_tmpdir, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Failed to create directory %s with errno(%s)\n",
+            fdb_named_tmpdir, strerror(errno));
     }
 
     rc = symlink(fdb_named_txndir, local_txndir);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Symlink failed with errno(%s)\n", __func__, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Symlink failed with errno(%s)\n", strerror(errno));
         goto err;
     }
 
     rc = symlink(fdb_named_tmpdir, local_tmpdir);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Symlink failed with errno(%s)\n", __func__, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Symlink failed with errno(%s)\n", strerror(errno));
         goto err;
     }
 
@@ -1578,10 +1576,10 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
 
     rc = create_fdb(fdb_name, &fdb);
     if (rc) {
-        logmsg(
+        __import_logmsg(
             LOGMSG_ERROR,
-            "[IMPORT] %s: Failed to create fdb with rc %d\n",
-            __func__, rc);
+            "Failed to create fdb with rc %d\n",
+            rc);
         goto err;
     }
 
@@ -1589,35 +1587,33 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
 
     rc = symlink_local_dirs_to_named_fdb_dirs(fdb_dbname);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-            "[IMPORT] %s: Failed to symlink local dirs to named fdb dirs\n",
-            __func__);
+        __import_logmsg(LOGMSG_ERROR,
+            "Failed to symlink local dirs to named fdb dirs\n");
         goto err;
     }
 
     rc = symlink_local_files_to_named_fdb_files(fdb_dbname);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-            "[IMPORT] %s: Failed to symlink local files to named fdb files\n",
-            __func__);
+        __import_logmsg(LOGMSG_ERROR,
+            "Failed to symlink local files to named fdb files\n");
         goto err;
     }
 
     rc = cdb2_open(&hndl, fdb_dbname_name(fdb), fdb_dbname_class_routing(fdb), 0);
     if (rc) {
-        logmsg(
+        __import_logmsg(
             LOGMSG_ERROR,
-            "[IMPORT] %s: Failed to open a handle to src db with rc %d\n",
-            __func__, rc);
+            "Failed to open a handle to src db with rc %d\n",
+            rc);
         goto err;
     }
 
     snprintf(query, sizeof(query), "exec procedure sys.cmd.send('flush')");
     rc = cdb2_run_statement(hndl, query);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Got an error flushing src db. errstr: %s\n",
-               __func__, cdb2_errstr(hndl));
+        __import_logmsg(LOGMSG_ERROR,
+               "Got an error flushing src db. errstr: %s\n",
+               cdb2_errstr(hndl));
         goto err;
     }
     while (cdb2_next_record(hndl) == CDB2_OK) {}
@@ -1625,18 +1621,18 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     snprintf(query, sizeof(query), "select distinct filename from comdb2_files where type='berkdb'");
     rc = cdb2_run_statement(hndl, query);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Failed to get file names from src db. errstr: %s\n",
-               __func__, cdb2_errstr(hndl));
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to get file names from src db. errstr: %s\n",
+               cdb2_errstr(hndl));
         goto err;
     }
 
     str_list *filename_list;
     rc = comdb2_files_tmpdb_process_filenames(hndl, &filename_list);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Failed to process filenames from src db. rc: %d\n",
-               __func__, rc);
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to process filenames from src db. rc: %d\n",
+               rc);
         goto err;
     }
 
@@ -1650,18 +1646,18 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     free(select_files_query);
     LISTC_CLEAN(filename_list, lnk, 1, str_list_elt);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Got an error grabbing files from src db. errstr: "
+        __import_logmsg(LOGMSG_ERROR,
+               "Got an error grabbing files from src db. errstr: "
                "%s\n",
-               __func__, cdb2_errstr(hndl));
+               cdb2_errstr(hndl));
         goto err;
     }
 
     rc = comdb2_files_tmpdb_process_incoming_files(hndl);
     if (rc) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Failed to process files from src db. rc: %d",
-               __func__, rc);
+        __import_logmsg(LOGMSG_ERROR,
+               "Failed to process files from src db. rc: %d",
+               rc);
         goto err;
     }
 
@@ -1669,9 +1665,9 @@ err:
     if (hndl) {
         t_rc = cdb2_close(hndl);
         if (t_rc) {
-            logmsg(LOGMSG_ERROR,
-                   "[IMPORT] %s: Failed to close hndl. rc: %d",
-                   __func__, t_rc);
+            __import_logmsg(LOGMSG_ERROR,
+                   "Failed to close hndl. rc: %d",
+                   t_rc);
         }
     }
 
@@ -1714,61 +1710,54 @@ err:
 
 int bulk_import_do_import(const char *srcdb, const char *src_tablename, const char *dst_tablename)
 {
-    int rc, t_rc, size;
-    char *tmpDbDir, *command, *exe;
-    char fpath[PATH_MAX];
-    ImportData *import_data;
-    const char *my_tier = get_my_mach_class_str();
-
-    rc = t_rc = size = 0;
-    tmpDbDir = command = exe = NULL;
-    import_data = NULL;
+    char *tmp_db_dir = NULL;
+    char *command = NULL;
+    char *exe = NULL;
+    ImportData *import_data = NULL;
 
     pthread_mutex_lock(&import_id_mutex);
     const uint64_t import_id = gbl_import_id++;
     pthread_mutex_unlock(&import_id_mutex);
 
-    rc = bulk_import_setup_import_db(&tmpDbDir, import_id);
+    int rc = bulk_import_setup_import_db(&tmp_db_dir, import_id);
     if (rc) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to setup import db\n", __func__);
+        __import_logmsg(LOGMSG_ERROR, "Failed to setup import db\n");
         goto err;
     }
 
     rc = get_my_comdb2_executable(&exe);
     if (rc != 0) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to get my comdb2 executable\n", __func__);
+        __import_logmsg(LOGMSG_ERROR, "Failed to get my comdb2 executable\n");
         goto err;
     }
 
-    size = 1 + snprintf(NULL, 0, "%s --import --dir %s --tables %s --src %s --my-tier %s",
-                    exe, tmpDbDir, src_tablename, srcdb, my_tier);
-    command = malloc(size);
+    const char *my_tier = get_my_mach_class_str();
+    const int cmd_size = 1 + snprintf(NULL, 0, "%s --import --dir %s --tables %s --src %s --my-tier %s",
+                    exe, tmp_db_dir, src_tablename, srcdb, my_tier);
+    command = malloc(cmd_size);
     if (command == NULL) {
         rc = ENOMEM;
         goto err;
     }
 
     sprintf(command, "%s --import --dir %s --tables %s --src %s --my-tier %s",
-            exe, tmpDbDir, src_tablename, srcdb, my_tier);
+            exe, tmp_db_dir, src_tablename, srcdb, my_tier);
 
     rc = system(command);
     if (rc != 0) {
-        logmsg(LOGMSG_ERROR, "%s: Import process failed with rc %d.\n",
-               __func__, rc);
+        __import_logmsg(LOGMSG_ERROR, "Import process failed with rc %d.\n", rc);
         goto err;
     }
     
     rc = bulk_import_data_unpack_from_file(&import_data, import_id);
     if (rc != 0) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to unpack import data from %s\n",
-               __func__, fpath);
+        __import_logmsg(LOGMSG_ERROR, "Failed to unpack import data\n");
         goto err;
     }
 
     rc = bulk_import_complete(import_data, dst_tablename);
     if (rc != 0) {
-        logmsg(LOGMSG_ERROR, "%s: Failed to complete import.\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR, "Failed to complete import.\n");
         goto err;
     }
 
@@ -1785,12 +1774,12 @@ err:
         import_data__free_unpacked(import_data, NULL);
     }
 
-    if (tmpDbDir) {
-        t_rc = bulk_import_cleanup_import_db(tmpDbDir);
+    if (tmp_db_dir) {
+        const int t_rc = bulk_import_cleanup_import_db(tmp_db_dir);
         if (t_rc != 0) {
             // Don't error here: We've finished the import successfully.
             // Emit a warning because subsequent imports will fail if the import dir already exists
-            logmsg(LOGMSG_WARN, "Cleaning up import db failed with rc %d\n", t_rc);
+            __import_logmsg(LOGMSG_WARN, "Cleaning up import db failed with rc %d\n", t_rc);
         }
     }
     
@@ -1822,37 +1811,35 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
 
     const struct dbtable *db = get_dbtable_by_name(import_table);
     if (!db) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: no such table: %s\n", __func__,
+        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                import_table);
         rc = -1;
         goto err;
     }
 
     if (db->n_constraints) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Importing tables with constraints is not supported\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR,
+               "Importing tables with constraints is not supported\n");
         rc = -1;
         goto err;
     }
 
     rc = bulk_import_data_load(import_table, &import_data);
     if (rc != 0) {
-        logmsg(LOGMSG_FATAL, "[IMPORT] %s: Failed to load import data\n", __func__);
+        __import_logmsg(LOGMSG_FATAL, "Failed to load import data\n");
         goto err;
     }
 
     rc = bulk_import_get_import_data_fname(import_file_path, sizeof(import_file_path), 0);
     if (rc != 0) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to get import data fname\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR, "Failed to get import data fname\n");
         goto err;
     }
 
     f_bulk_import = fopen(import_file_path, "w");
     if (f_bulk_import == NULL) {
-        logmsg(LOGMSG_ERROR, "[IMPORT] %s: Failed to open file %s. err %s\n",
-               __func__, import_file_path, strerror(errno));
+        __import_logmsg(LOGMSG_ERROR, "Failed to open file %s. err %s\n",
+               import_file_path, strerror(errno));
         rc = 1;
         goto err;
     }
@@ -1866,19 +1853,17 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
 
     written_bytes = import_data__pack(&import_data, buf);
     if (written_bytes != len) {
-        logmsg(LOGMSG_ERROR,
-               "[IMPORT] %s: Did not pack full protobuf buffer.\n",
-               __func__);
+        __import_logmsg(LOGMSG_ERROR,
+               "Did not pack full protobuf buffer.\n");
         rc = 1;
         goto err;
     }
 
     written_bytes = fwrite(buf, 1, len, f_bulk_import);
     if (written_bytes != len) {
-        logmsg(
+        __import_logmsg(
             LOGMSG_ERROR,
-            "[IMPORT] %s: Did not write full protobuf buffer to file",
-            __func__);
+            "Did not write full protobuf buffer to file");
         rc = 1;
         goto err;
     }

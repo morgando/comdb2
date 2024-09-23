@@ -186,6 +186,7 @@ void berkdb_use_malloc_for_regions_with_callbacks(void *mem,
 extern int bdb_gbl_asof_modsnap_init(bdb_state_type *);
 extern int bulk_import_tmpdb_write_import_data(char *import_table);
 extern int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name);
+extern int bulk_import_cleanup_import_dirs();
 extern void set_dbdir(char *dir);
 extern void bb_berkdb_reset_worst_lock_wait_time_us();
 extern int has_low_headroom(const char *path, int headroom, int debug);
@@ -3830,6 +3831,12 @@ static int init(int argc, char **argv)
             "database directory. Failed to archive them.\n");
             return -1;
         }
+    }
+
+    rc = bulk_import_cleanup_import_dirs();
+    if (rc) {
+        logmsg(LOGMSG_FATAL, "Failed to remove leftover import directories\n");
+        return -1;
     }
 
     /* Initialize SSL backend before creating any net.

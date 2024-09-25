@@ -176,39 +176,34 @@ static int bulk_import_get_import_data_fname(char *import_data_fname,
  *
  * dst_path: The path of the file to be copied.
  * hostname: The name of the host to copy the file to.
- *
- * returns
- *      0 on success
- *      non-0 on failure
  */
-int bulk_import_copy_file_to_replicant(const char *dst_path,
+static enum comdb2_import_op bulk_import_copy_file_to_replicant(const char *dst_path,
                                        const char *hostname) {
-    char *command;
-    int offset, rc;
+    int rc = COMDB2_IMPORT_RC_SUCCESS;
+    char *command = NULL;
 
-    rc = offset = 0;
-    command = NULL;
-
-    offset = snprintf(NULL, 0, "%s -r %s %s:%s", gbl_file_copier, dst_path,
+    const int offset = snprintf(NULL, 0, "%s -r %s %s:%s", gbl_file_copier, dst_path,
                       hostname, dst_path);
-    command = malloc(++offset);
-    if (command == NULL) {
-        rc = ENOMEM;
+    command = malloc(offset+1);
+    if (!command) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
-    offset = sprintf(command, "%s -r %s %s:%s", gbl_file_copier, dst_path,
+    sprintf(command, "%s -r %s %s:%s", gbl_file_copier, dst_path,
                      hostname, dst_path);
 
     rc = system(command);
     if (rc) {
         __import_logmsg(LOGMSG_ERROR, "Failed to copy %s to replicant %s\n",
                dst_path, hostname);
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
 err:
-    if (command != NULL) {
+    if (command) {
         free(command);
     }
     return rc;
@@ -218,23 +213,21 @@ err:
  * Cleans up all resources created in `bulk_import_setup_import_db`.
  *
  * p_tmp_db_dir: The path of the db directory of the import db to be cleaned.
- *
- * returns
- *      0 on success
- *      non-0 on failure
  */
-static int bulk_import_cleanup_import_db(char *tmp_db_dir) {
-    int rc = 0;
+static enum comdb2_import_op bulk_import_cleanup_import_db(char *tmp_db_dir) {
+    int rc = COMDB2_IMPORT_RC_SUCCESS;
 
     const int size = snprintf(NULL, 0, "rm -rf %s", tmp_db_dir) + 1;
     char * command = malloc(size);
     if (!command) {
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
     sprintf(command, "rm -rf %s", tmp_db_dir);
     if ((rc = system(command)), rc != 0) {
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -275,14 +268,14 @@ err:
     return rc;
 }
 
-int bulk_import_write_import_db_lrl(char *tmp_db_dir, const char *srcdb) {
+static enum comdb2_import_op bulk_import_write_import_db_lrl(char *tmp_db_dir, const char *srcdb) {
     FILE *fp = NULL;
-    int rc = 0;
+    int rc = COMDB2_IMPORT_RC_SUCCESS;
 
     char fname[PATH_MAX];
     int t_rc = snprintf(fname, sizeof(fname), "%s/import.lrl", tmp_db_dir);
     if (t_rc < 0 || t_rc >= sizeof(fname)) {
-        rc = 1;
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -291,7 +284,7 @@ int bulk_import_write_import_db_lrl(char *tmp_db_dir, const char *srcdb) {
         __import_logmsg(LOGMSG_ERROR,
                "Failed to open %s for writing with errno %s\n",
                fname, strerror(errno));
-        rc = 1;
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -302,9 +295,10 @@ int bulk_import_write_import_db_lrl(char *tmp_db_dir, const char *srcdb) {
 
 err:
     if (fp) {
-        t_rc = fclose(fp);
-        rc = rc ? rc : t_rc;
+        t_rc = fclose(fp) ? COMDB2_IMPORT_RC_INTERNAL : 0;
+        rc = rc ? rc : t_rc;;
     }
+
     return rc;
 }
 
@@ -312,13 +306,10 @@ err:
  * Creates all directories and files needed to run the import db.
  *
  * p_tmp_db_dir: Will point to the path of the import db directory on success.
- * TODO
- *
- * returns
- *      0 on success
- *      non-0 on failure
+ * import_id: Id of this import
+ * srcdb: name of the source db
  */
-int bulk_import_setup_import_db(char **p_tmp_db_dir, const uint64_t import_id, const char *srcdb) {
+static enum comdb2_import_op bulk_import_setup_import_db(char **p_tmp_db_dir, const uint64_t import_id, const char *srcdb) {
     int dbdir_created = 0;
 
     char tmp_db_dir[PATH_MAX];
@@ -346,12 +337,13 @@ int bulk_import_setup_import_db(char **p_tmp_db_dir, const uint64_t import_id, c
 
     *p_tmp_db_dir = strdup(tmp_db_dir);
     if (*p_tmp_db_dir == NULL) {
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         goto err;
     }
 
+    return COMDB2_IMPORT_RC_SUCCESS;
 err:
-    if (rc && dbdir_created) {
+    if (dbdir_created) {
         char *dup_tmp_db_dir = strdup(tmp_db_dir);
         if (!dup_tmp_db_dir
             || bulk_import_cleanup_import_db(dup_tmp_db_dir)) {
@@ -360,8 +352,7 @@ err:
                    tmp_db_dir);
         }
     }
-
-    return rc;
+    return COMDB2_IMPORT_RC_INTERNAL;
 }
 
 /*
@@ -369,24 +360,14 @@ err:
  *
  * pp_data: Will point to a pointer to a populated
  *          `ImportData` struct on success.
- *
- * returns
- *      0 on success
- *      1 on failure
+ * import_id: Id of this import
  */
-static int bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_t import_id) {
-    long fsize;
-    int rc;
-    void *line;
-    FILE *fp;
+static enum comdb2_import_op bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_t import_id) {
+    int rc = COMDB2_IMPORT_RC_SUCCESS;
+    void *line = NULL;
+    FILE *fp = NULL;
+
     char import_data_fname[PATH_MAX];
-    struct stat st;
-
-    fsize = 0;
-    rc = 0;
-    line = NULL;
-    fp = NULL;
-
     bulk_import_get_import_data_fname(import_data_fname,
                                       sizeof(import_data_fname), import_id);
 
@@ -394,24 +375,24 @@ static int bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_
     if (!fp) {
         __import_logmsg(LOGMSG_ERROR, "Failed to open file %s. err %s\n",
                import_data_fname, strerror(errno));
-        rc = 1;
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
+    struct stat st;
     rc = stat(import_data_fname, &st);
     if (rc) {
         __import_logmsg(LOGMSG_ERROR, "Failed to stat file %s. err %s\n",
                import_data_fname, strerror(errno));
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
-    fsize = st.st_size;
+    const long fsize = st.st_size;
 
     line = malloc(fsize);
     if (!line) {
-        __import_logmsg(LOGMSG_ERROR,
-               "Could not allocate line of size %ld\n",
-               fsize + 1);
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -421,14 +402,14 @@ static int bulk_import_data_unpack_from_file(ImportData **pp_data, const uint64_
                "Read less than expected from file %s. Num read = "
                "%lu and fsize = %lu\n",
                import_data_fname, num_read, fsize);
-        rc = 1;
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
     *pp_data = import_data__unpack(NULL, fsize, line);
     if (*pp_data == NULL) {
         __import_logmsg(LOGMSG_ERROR, "Error unpacking incoming message\n");
-        rc = 1;
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -504,19 +485,19 @@ void clear_bulk_import_data(ImportData *p_data) {
  *                  member should be set as input
  * @return 0 on success !0 otherwise
  */
-static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
+static enum comdb2_import_op bulk_import_data_load(const char *table_name, ImportData *p_data) {
     unsigned i, j;
     int bdberr;
     struct dbtable *db;
     char *p_csc2_text = NULL;
     char tempname[64 /*hah*/];
     tran_type *t = NULL;
-    int len, pgsz, rc;
-
-    rc = 0;
+    int len, pgsz;
+    int rc = 0;
 
     p_data->table_name = strdup(table_name);
     if (!p_data->table_name) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -536,6 +517,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     /* get the data dir */
     p_data->data_dir = strdup(thedb->basedir);
     if (!p_data->data_dir) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -630,6 +612,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     p_data->n_data_files = p_data->dtastripe;
     p_data->data_files = malloc(sizeof(char *) * p_data->n_data_files);
     if (!p_data->data_files) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -644,6 +627,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
         }
         p_data->data_files[i] = strdup(tempname);
         if (!p_data->data_files[i]) {
+            __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
             rc = ENOMEM;
             goto err;
         }
@@ -662,6 +646,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     p_data->n_csc2 = version;
     p_data->csc2 = malloc(sizeof(char *) * p_data->n_csc2);
     if (!p_data->csc2) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -680,6 +665,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     p_data->index_genids =
         malloc(sizeof(unsigned long int) * p_data->n_index_genids);
     if (!p_data->index_genids) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -687,6 +673,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     p_data->n_index_files = p_data->n_index_genids;
     p_data->index_files = malloc(sizeof(char *) * p_data->n_index_files);
     if (!p_data->index_files) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -696,6 +683,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
     p_data->blob_genids =
         malloc(sizeof(unsigned long int) * p_data->n_blob_genids);
     if (!p_data->blob_genids) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -730,6 +718,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
         p_data->n_blob_files = p_data->num_blob_genids;
         p_data->blob_files = malloc(sizeof(BlobFiles *) * p_data->n_blob_files);
         if (!p_data->blob_files) {
+            __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
             rc = ENOMEM;
             goto err;
         }
@@ -737,6 +726,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
         for (int i = 0; i < p_data->n_blob_files; ++i) {
             p_data->blob_files[i] = malloc(sizeof(BlobFiles));
             if (!p_data->blob_files[i]) {
+                __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
                 rc = ENOMEM;
                 goto err;
             }
@@ -746,6 +736,7 @@ static int bulk_import_data_load(const char *table_name, ImportData *p_data) {
             b->n_files = p_data->blobstripe ? p_data->dtastripe : 1;
             b->files = malloc(sizeof(char *) * b->n_files);
             if (!b->files) {
+                __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
                 rc = ENOMEM;
                 goto err;
             }
@@ -799,6 +790,7 @@ err:
         curtran_puttran(t);
     }
 
+    rc = rc ? COMDB2_IMPORT_RC_INTERNAL : COMDB2_IMPORT_RC_SUCCESS;
     return rc;
 }
 
@@ -811,39 +803,32 @@ err:
  *                          validate
  * @return 0 on success, !0 otherwise
  */
-static int
+static enum comdb2_import_op 
 bulk_import_data_validate(const char *dst_table_name,
                           const int src_dtastripe,
                           const int src_blobstripe) {
-    /* lots of sanity checks so that hopefully we never swap in incompatible data
-     * files */
-
     if (thedb->master != gbl_myhostname) {
         __import_logmsg(LOGMSG_ERROR, "I'm not the master\n");
-        return -1;
+        return COMDB2_IMPORT_RC_INTERNAL;
     }
-
-    /* do not check data_dir for equality since it doesn't need to be the same
-     * on all machines */
 
     struct dbtable * const db = get_dbtable_by_name(dst_table_name);
     if (!db) {
         __import_logmsg(LOGMSG_ERROR,
-               "Could not find table %s\n", dst_table_name);
-        return -1;
+                "Destination table '%s' was not found\n", dst_table_name);
+        return COMDB2_IMPORT_RC_NO_DST_TBL;
     }
 
     unsigned long long genid;
     if (get_blobstripe_genid(db, &genid) == 0) {
         __import_logmsg(LOGMSG_ERROR,
-               "Destination db has a blobstripe genid. Can't import.\n");
-        return -1;
+                "Destination db has a blobstripe genid\n");
+        return COMDB2_IMPORT_RC_BLOBSTRIPE_GENID;
     }
 
     if (db->n_rev_constraints) {
-        __import_logmsg(LOGMSG_ERROR,
-               "Can't import onto a table with reverse constraints\n");
-        return -1;
+        __import_logmsg(LOGMSG_ERROR, "Destination table has reverse constraints\n");
+        return COMDB2_IMPORT_RC_REV_CONSTRAINTS;
     }
 
     /* compare stripe options */
@@ -854,14 +839,14 @@ bulk_import_data_validate(const char *dst_table_name,
                "dst(%d) src(%d) blobstripe: dst(%d) src(%d)\n",
                gbl_dtastripe, src_dtastripe, gbl_blobstripe,
                src_blobstripe);
-        return -1;
+        return COMDB2_IMPORT_RC_STRIPE_MISMATCH;
     }
 
     /* success */
-    return 0;
+    return COMDB2_IMPORT_RC_SUCCESS;
 }
 
-static int bulk_import_perform_initial_validation(const char *src_db_name,
+static enum comdb2_import_op bulk_import_perform_initial_validation(const char *src_db_name,
                                                   const char *dst_table_name) {
     cdb2_hndl_tp *hndl = NULL;
     fdb_t *fdb = NULL;
@@ -870,8 +855,10 @@ static int bulk_import_perform_initial_validation(const char *src_db_name,
     if (rc) {
         __import_logmsg(
             LOGMSG_ERROR,
-            "Failed to create fdb with rc %d\n",
-            rc);
+            "Failed to create fdb '%s' with rc %d\n",
+            src_db_name, rc);
+        rc = (rc == FDB_ERR_CLASS_UNKNOWN || rc == FDB_ERR_CLASS_DENIED)
+            ? COMDB2_IMPORT_RC_BAD_SOURCE_CLASS : COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -879,8 +866,9 @@ static int bulk_import_perform_initial_validation(const char *src_db_name,
     if (rc) {
         __import_logmsg(
             LOGMSG_ERROR,
-            "Failed to open a handle to src db with rc %d\n",
-            rc);
+            "Failed to open a handle to src db '%s' with rc %d\n",
+            fdb_dbname_name(fdb), rc);
+        rc = COMDB2_IMPORT_RC_NO_SRC_CONN;
         goto err;
     }
 
@@ -890,8 +878,9 @@ static int bulk_import_perform_initial_validation(const char *src_db_name,
         || (cdb2_next_record(hndl) != CDB2_OK);
     if (rc) {
         __import_logmsg(LOGMSG_ERROR,
-               "Failed to tunables from source db. errstr: %s\n",
+               "Failed to get tunables from source db.\nerrstr: %s\n",
                cdb2_errstr(hndl));
+        rc = CDB2ERR_CONNECT_ERROR ? COMDB2_IMPORT_RC_NO_SRC_CONN : COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -930,16 +919,15 @@ err:
  * populated.
  * @param num_files             pointer to number of files populated in each
  * list.
- * @param bdberr                bdb error, if any
  *
  * @return 0 on success !0 otherwise
  */
-static int bulk_import_generate_filenames(
+static enum comdb2_import_op bulk_import_generate_filenames(
     const ImportData *p_data, const ImportData *p_foreign_data,
     const unsigned long long dst_data_genid,
     const unsigned long long *p_dst_index_genids,
     const unsigned long long *p_dst_blob_genids, char ***p_src_files,
-    char ***p_dst_files, int *p_num_files, int *bdberr) {
+    char ***p_dst_files, int *p_num_files) {
     struct dbtable *db = NULL;
     int dtanum;
     int ixnum;
@@ -979,7 +967,7 @@ static int bulk_import_generate_filenames(
     if (!(db = get_dbtable_by_name(p_data->table_name))) {
         __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                p_data->table_name);
-        return -1;
+        return COMDB2_IMPORT_RC_NO_DST_TBL;
     }
 
     /* add data files */
@@ -1032,8 +1020,7 @@ static int bulk_import_generate_filenames(
         fileix++;
     }
 
-    *bdberr = BDBERR_NOERROR;
-    return 0;
+    return COMDB2_IMPORT_RC_SUCCESS;
 }
 
 /*
@@ -1047,7 +1034,7 @@ static int bulk_import_generate_filenames(
  * dst_blob_genids: genids associated with the new blob files.
  * local_data: pointer to a struct describing the local target table.
  */
-static int bulkimport_switch_files(struct dbtable *db,
+static enum comdb2_import_op bulkimport_switch_files(struct dbtable *db,
                                    const ImportData *p_foreign_data,
                                    unsigned long long dst_data_genid,
                                    unsigned long long *dst_index_genids,
@@ -1072,7 +1059,7 @@ static int bulkimport_switch_files(struct dbtable *db,
                "failed to close table: %s bdberr: %d\n",
                p_foreign_data->table_name, bdberr);
         bdb_tran_abort(thedb->bdb_env, lock_table_tran, &bdberr);
-        return -1;
+        return COMDB2_IMPORT_RC_INTERNAL;
     }
 
 
@@ -1084,7 +1071,7 @@ retry_bulk_update:
         __import_logmsg(LOGMSG_ERROR, "giving up after %d retries\n",
                retries);
 
-        outrc = -1;
+        outrc = COMDB2_IMPORT_RC_INTERNAL;
         goto backout;
     }
 
@@ -1206,7 +1193,7 @@ retry_bulk_update:
                "bdberr: %d\n",
                p_foreign_data->table_name, bdberr);
     }
-    return 0;
+    return COMDB2_IMPORT_RC_SUCCESS;
 
 backout:
     llmeta_dump_mapping_table(thedb, db->tablename, 1 /*err*/);
@@ -1274,66 +1261,55 @@ backout:
  * p_foreign_data: Pointer to a struct describing the import data.
  * dst_tablename:  Name of local table into which the data 
  *                 is to be imported.
- *
- * returns
- *  0 on success
- *  non-0 on failure
  */
-static int bulk_import_complete(ImportData *p_foreign_data,
+static enum comdb2_import_op bulk_import_complete(ImportData *p_foreign_data,
                            const char *dst_tablename) {
-    unsigned i;
-    int offset, num_files, nsiblings, bdberr, loaded_import_data, have_schema_lk, rc;
-    unsigned long long dst_data_genid;
-    unsigned long long dst_index_genids[MAXINDEX];
-    unsigned long long dst_blob_genids[MAXBLOBS];
-    ImportData local_data = {0};
+    int offset, num_files, nsiblings, loaded_import_data, have_schema_lk;
+    ImportData local_data = IMPORT_DATA__INIT;
     const char *hosts[REPMAX];
-    struct dbtable *db;
     char src_path[PATH_MAX];
     char dst_path[PATH_MAX];
     char **src_files, **dst_files;
 
-    rc = num_files = nsiblings = loaded_import_data = bdberr = offset = have_schema_lk = 0;
+    num_files = nsiblings = loaded_import_data = offset = have_schema_lk = 0;
     src_files = dst_files = NULL;
-    db = NULL;
 
     rdlock_schema_lk();
     have_schema_lk = 1;
 
-    rc = bulk_import_data_load(dst_tablename, &local_data);
+    int rc = bulk_import_data_validate(dst_tablename, p_foreign_data->dtastripe, p_foreign_data->blobstripe);
     if (rc) {
-        __import_logmsg(LOGMSG_ERROR, "failed getting local data\n");
-        goto err;
-    }
-    loaded_import_data = 1;
-
-    db = get_dbtable_by_name(dst_tablename);
-    if (!db) {
-        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
-               dst_tablename);
-        rc = -1;
-        goto err;
-    }
-
-    rc = bulk_import_data_validate(dst_tablename, p_foreign_data->dtastripe, p_foreign_data->blobstripe);
-    if (rc) {
+        // keep the rc
         __import_logmsg(LOGMSG_ERROR, "Failed to validate import with rc %d\n",
                               rc);
         goto err;
     }
 
-    dst_data_genid = bdb_get_cmp_context(db->handle);
-    for (i = 0; i < p_foreign_data->num_index_genids; ++i)
-        dst_index_genids[i] = bdb_get_cmp_context(db->handle);
-    for (i = 0; i < p_foreign_data->num_blob_genids; ++i)
-        dst_blob_genids[i] = bdb_get_cmp_context(db->handle);
+    rc = bulk_import_data_load(dst_tablename, &local_data);
+    if (rc) {
+        __import_logmsg(LOGMSG_ERROR, "failed getting local data\n");
+        rc = COMDB2_IMPORT_RC_INTERNAL;
+        goto err;
+    }
+    loaded_import_data = 1;
 
-    rc = bulk_import_generate_filenames(&local_data, p_foreign_data, dst_data_genid,
-                                   dst_index_genids, dst_blob_genids,
-                                   &src_files, &dst_files, &num_files, &bdberr);
+    const unsigned long long dst_data_genid = bdb_get_cmp_context(thedb->bdb_env);
+
+    unsigned long long dst_index_genids[MAXINDEX];
+    for (int i = 0; i < p_foreign_data->num_index_genids; ++i)
+        dst_index_genids[i] = bdb_get_cmp_context(thedb->bdb_env);
+
+    unsigned long long dst_blob_genids[MAXBLOBS];
+    for (int i = 0; i < p_foreign_data->num_blob_genids; ++i)
+        dst_blob_genids[i] = bdb_get_cmp_context(thedb->bdb_env);
+
+    rc = bulk_import_generate_filenames(&local_data, p_foreign_data,
+                                   dst_data_genid, dst_index_genids, dst_blob_genids,
+                                   &src_files, &dst_files, &num_files);
     if (rc) {
         __import_logmsg(LOGMSG_ERROR, "Failed to generate filenames with rc %d\n",
                               rc);
+        rc = COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
 
@@ -1357,6 +1333,7 @@ static int bulk_import_complete(ImportData *p_foreign_data,
             __import_logmsg(LOGMSG_ERROR,
                    "Blessing files failed with rc %d\n",
                    rc);
+            rc = COMDB2_IMPORT_RC_INTERNAL;
             goto err;
         }
 
@@ -1369,6 +1346,7 @@ static int bulk_import_complete(ImportData *p_foreign_data,
                 __import_logmsg(LOGMSG_ERROR,
                        "Failed to copy file to replicant with rc %d\n",
                        rc);
+                rc = COMDB2_IMPORT_RC_INTERNAL;
                 goto err;
             }
         }
@@ -1378,33 +1356,38 @@ static int bulk_import_complete(ImportData *p_foreign_data,
     wrlock_schema_lk();
     have_schema_lk = 1;
 
-    rc = bulk_import_data_load(dst_tablename, &local_data);
-    if (rc) {
-        __import_logmsg(LOGMSG_ERROR, "failed getting local data\n");
-        goto err;
-    }
-    loaded_import_data = 1;
-
-    // Make sure that the destination table still exists.
-    db = get_dbtable_by_name(dst_tablename);
-    if (!db) {
-        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
-               dst_tablename);
-        rc = -1;
-        goto err;
-    }
-
     // Need to redo validation: blobstripe genid could change live
     rc = bulk_import_data_validate(dst_tablename, p_foreign_data->dtastripe, p_foreign_data->blobstripe);
     if (rc) {
+        // keep the rc
         __import_logmsg(LOGMSG_ERROR, "Failed to validate import with rc %d\n",
                               rc);
         goto err;
     }
 
+    struct dbtable * const db = get_dbtable_by_name(dst_tablename);
+    if (!db) {
+        __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
+               dst_tablename);
+        // This is an internal error: We just passed validation while holding
+        // the schema lock, so the table should exist.
+        rc = COMDB2_IMPORT_RC_INTERNAL;
+        goto err;
+    }
+
+    rc = bulk_import_data_load(dst_tablename, &local_data);
+    if (rc) {
+        __import_logmsg(LOGMSG_ERROR, "failed getting local data\n");
+        rc = COMDB2_IMPORT_RC_INTERNAL;
+        goto err;
+    }
+    loaded_import_data = 1;
+
+    // Any error here is an internal error
     rc =
         bulkimport_switch_files(db, p_foreign_data, dst_data_genid,
-                                dst_index_genids, dst_blob_genids, &local_data);
+                                dst_index_genids, dst_blob_genids, &local_data)
+        ? COMDB2_IMPORT_RC_INTERNAL : 0;
 
 err:
     if (have_schema_lk) {
@@ -1483,14 +1466,12 @@ static char * generate_select_files_query(cdb2_hndl_tp *hndl, str_list *btree_fi
     return query;
 }
 
-static int comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl, str_list **filename_list_pp) {
-    int rc = 0;
-
+static enum comdb2_import_tmpdb_op comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl, str_list **filename_list_pp) {
     *filename_list_pp
         = listc_new(offsetof(str_list_elt, lnk));
     str_list * const filename_list_p = *filename_list_pp;
     if (!filename_list_p) {
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         goto err;
     }
 
@@ -1499,14 +1480,13 @@ static int comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl, str_list **f
         const int fname_len = cdb2_column_size(hndl, 0);
 
         if (fname_len > PATH_MAX) {
-            rc = 1;
             goto err;
         }
 
         if (!should_ignore_btree(fname, bulk_import_tmpdb_should_ignore_table, 0, 0)) {
             str_list_elt * const elt = calloc(1, sizeof(str_list_elt));
             if (!elt) {
-                rc = ENOMEM;
+                __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
                 goto err;
             }
 
@@ -1515,22 +1495,19 @@ static int comdb2_files_tmpdb_process_filenames(cdb2_hndl_tp *hndl, str_list **f
         }
     }
 
+    return COMDB2_IMPORT_TMPDB_RC_SUCCESS;
 err:
-    if (rc && filename_list_p) {
+    if (filename_list_p) {
         LISTC_CLEAN(filename_list_p, lnk, 1, str_list_elt);
         free(filename_list_p);
     }
-
-    return rc;
+    return COMDB2_IMPORT_TMPDB_RC_INTERNAL;
 }
 
-static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
-    char * fname;
-    int rc, fd;
-
-    fname = NULL;
-    rc = 0;
-    fd = -1;
+static enum comdb2_import_tmpdb_op comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
+    char * fname = NULL;
+    int rc = COMDB2_IMPORT_TMPDB_RC_SUCCESS;
+    int fd = -1;
 
     while (cdb2_next_record(hndl) == CDB2_OK) {
         const char *next_fname = (char *)cdb2_column_value(hndl, 0);
@@ -1561,7 +1538,7 @@ static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
                 __import_logmsg(LOGMSG_ERROR,
                        "Failed to open file %s (errno: %s)\n",
                        copy_dst, strerror(errno));
-                rc = 1;
+                rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
                 goto err;
             }
         }
@@ -1571,7 +1548,7 @@ static int comdb2_files_tmpdb_process_incoming_files(cdb2_hndl_tp *hndl) {
             __import_logmsg(LOGMSG_ERROR,
                    "failed to write to the file (expected: %d "
                    "got: %ld)\n", chunk_size, bytes_written);
-            rc = 1;
+            rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
             goto err;
         }
     }
@@ -1588,9 +1565,7 @@ err:
     return rc;
 }
 
-int symlink_local_files_to_named_fdb_files(const char *fdb_name) {
-    int rc = 0;
-
+static enum comdb2_import_op symlink_local_files_to_named_fdb_files(const char *fdb_name) {
     static const char *named_file_endings[] =
         {"_file_vers_map", ".metadata.dta", ".llmeta.dta", "" /* delimiter */};
     static const char *unnamed_files[] =
@@ -1601,13 +1576,13 @@ int symlink_local_files_to_named_fdb_files(const char *fdb_name) {
         char fdb_named_file[FILENAME_MAX];
         snprintf(fdb_named_file, sizeof(fdb_named_file), "%s/%s%s", gbl_dbdir, fdb_name, ending);
 
-        FILE * f = fopen(fdb_named_file, "w");
+        FILE * const f = fopen(fdb_named_file, "w");
         if (!f) {
             __import_logmsg(LOGMSG_ERROR, "fopen failed with errno(%s)\n", strerror(errno));
             goto err;
         }
 
-        rc = fclose(f);
+        int rc = fclose(f);
         if (rc) {
             __import_logmsg(LOGMSG_ERROR, "fclose failed with errno(%s)\n", strerror(errno));
             goto err;
@@ -1623,11 +1598,12 @@ int symlink_local_files_to_named_fdb_files(const char *fdb_name) {
         }
     }
 
+    return COMDB2_IMPORT_RC_SUCCESS;
 err:
-    return rc;
+    return COMDB2_IMPORT_RC_INTERNAL;
 }
 
-int symlink_local_dirs_to_named_fdb_dirs(const char *fdb_name) {
+static enum comdb2_import_op symlink_local_dirs_to_named_fdb_dirs(const char *fdb_name) {
     char local_txndir[PATH_MAX];
     get_txndir_args(local_txndir, sizeof(local_txndir), gbl_dbdir, gbl_dbname, 1);
 
@@ -1672,19 +1648,15 @@ int symlink_local_dirs_to_named_fdb_dirs(const char *fdb_name) {
         goto err;
     }
 
-
+    return COMDB2_IMPORT_RC_SUCCESS;
 err:
-    return rc;
+    return COMDB2_IMPORT_RC_INTERNAL;
 }
 
 /*
  * Gets foreign db's files and writes them into the local environment.
- *
- * returns
- *  0 on success
- *  non-0 on failure
  */
-int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
+enum comdb2_import_tmpdb_op bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
     cdb2_hndl_tp *hndl;
     fdb_t *fdb;
     int rc, t_rc;
@@ -1757,6 +1729,7 @@ int bulk_import_tmpdb_pull_foreign_dbfiles(const char *fdb_name) {
 
     char *select_files_query = generate_select_files_query(hndl, filename_list);
     if (!select_files_query) {
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         rc = ENOMEM;
         goto err;
     }
@@ -1790,23 +1763,28 @@ err:
         }
     }
 
-    rc = rc != 0 ? rc : t_rc;
+    rc = rc || t_rc ? COMDB2_IMPORT_TMPDB_RC_INTERNAL : COMDB2_IMPORT_TMPDB_RC_SUCCESS;
     return rc;
 }
 
-static int get_my_comdb2_executable(char **p_exe)
+/*
+ * Gets this process's executable
+ *
+ * p_exe: will hold the executable on success
+ */
+static enum comdb2_import_op get_my_comdb2_executable(char **p_exe)
 {
-    int rc, size;
+    int size;
     pid_t pid;
 
-    rc = size = 0;
+    size = 0;
     pid = getpid();
 
 #if defined(_LINUX_SOURCE)
     size = snprintf(NULL, 0, "/proc/%ld/exe", (long) pid);
     *p_exe = malloc(++size);
     if (*p_exe == NULL) {
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         goto err;
     }
     sprintf(*p_exe, "/proc/%ld/exe", (long) pid);
@@ -1814,7 +1792,7 @@ static int get_my_comdb2_executable(char **p_exe)
     size = snprintf(NULL, 0, "/proc/%ld/execname", (long) pid);
     *p_exe = malloc(++size);
     if (*p_exe == NULL) {
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         goto err;
     }
     sprintf(*p_exe, "/proc/%ld/execname", (long) pid);
@@ -1822,13 +1800,55 @@ static int get_my_comdb2_executable(char **p_exe)
     #error "Unsupported platform"
 #endif
 
+    return COMDB2_IMPORT_RC_SUCCESS;
 err:
-    return rc;
+    return COMDB2_IMPORT_RC_INTERNAL;
 }
 
+const char *bulk_import_get_err_str(const int rc) {
+    switch (rc) {
+        case COMDB2_IMPORT_RC_NO_DST_TBL:
+            return "Destination table does not exist";
+        case COMDB2_IMPORT_RC_NO_SRC_TBL:
+            return "Source table does not exist";
+        case COMDB2_IMPORT_RC_BLOBSTRIPE_GENID:
+            return "Destination table has a blobstripe genid";
+        case COMDB2_IMPORT_RC_CONSTRAINTS:
+            return "Source table has constraints";
+        case COMDB2_IMPORT_RC_REV_CONSTRAINTS:
+            return "Destination table has reverse constraints";
+        case COMDB2_IMPORT_RC_STRIPE_MISMATCH:
+            return "Stripe settings differ between source and destination db";
+        case COMDB2_IMPORT_RC_NO_SRC_CONN:
+            return "Unable to establish a connection to source db";
+        case COMDB2_IMPORT_RC_BAD_SOURCE_CLASS:
+            return "Can't connect to provided source db class";
+        case COMDB2_IMPORT_RC_INTERNAL:
+            return "An internal error occurred";
+        case COMDB2_IMPORT_RC_UNKNOWN:
+        default:
+            return "An unknown error occurred";
+    }
+}
 
-int bulk_import_do_import(const char *srcdb, const char *src_tablename, const char *dst_tablename)
-{
+static enum comdb2_import_op get_import_rcode_from_tmpdb_rcode(const int rc) {
+    switch (rc) {
+        case COMDB2_IMPORT_TMPDB_RC_SUCCESS:
+            return COMDB2_IMPORT_RC_SUCCESS;
+        case COMDB2_IMPORT_TMPDB_RC_NO_SRC_TBL:
+            return COMDB2_IMPORT_RC_NO_SRC_TBL;
+        case COMDB2_IMPORT_TMPDB_RC_CONSTRAINTS:
+            return COMDB2_IMPORT_RC_CONSTRAINTS;
+        case COMDB2_IMPORT_TMPDB_RC_INTERNAL:
+            return COMDB2_IMPORT_RC_INTERNAL;
+        default:
+            return COMDB2_IMPORT_RC_UNKNOWN;
+    }
+}
+
+enum comdb2_import_op bulk_import_do_import(const char *srcdb, 
+                          const char *src_tablename,
+                          const char *dst_tablename) {
     char *tmp_db_dir = NULL;
     char *command = NULL;
     char *exe = NULL;
@@ -1846,12 +1866,14 @@ int bulk_import_do_import(const char *srcdb, const char *src_tablename, const ch
 
     rc = bulk_import_setup_import_db(&tmp_db_dir, import_id, srcdb);
     if (rc) {
+        assert(rc == COMDB2_IMPORT_RC_INTERNAL);
         __import_logmsg(LOGMSG_ERROR, "Failed to setup import db\n");
         goto err;
     }
 
     rc = get_my_comdb2_executable(&exe);
     if (rc != 0) {
+        assert(rc == COMDB2_IMPORT_RC_INTERNAL);
         __import_logmsg(LOGMSG_ERROR, "Failed to get my comdb2 executable\n");
         goto err;
     }
@@ -1863,7 +1885,8 @@ int bulk_import_do_import(const char *srcdb, const char *src_tablename, const ch
         + 1;
     command = malloc(cmd_size);
     if (command == NULL) {
-        rc = ENOMEM;
+        rc = COMDB2_IMPORT_RC_INTERNAL;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
         goto err;
     }
 
@@ -1873,12 +1896,16 @@ int bulk_import_do_import(const char *srcdb, const char *src_tablename, const ch
 
     rc = system(command);
     if (rc != 0) {
-        __import_logmsg(LOGMSG_ERROR, "Import process failed with rc %d.\n", rc);
+        rc = WIFEXITED(rc)
+            ? get_import_rcode_from_tmpdb_rcode(WEXITSTATUS(rc))
+            : COMDB2_IMPORT_RC_INTERNAL; 
+        __import_logmsg(LOGMSG_ERROR, "Import process failed.\n");
         goto err;
     }
     
     rc = bulk_import_data_unpack_from_file(&import_data, import_id);
     if (rc != 0) {
+        assert(rc == COMDB2_IMPORT_RC_INTERNAL);
         __import_logmsg(LOGMSG_ERROR, "Failed to unpack import data\n");
         goto err;
     }
@@ -1918,12 +1945,8 @@ err:
  * Packs bulk import data about a table to a file.
  *
  * import_table: The name of the table
- *
- * returns
- *      0 on success
- *      non-0 on failure
  */
-int bulk_import_tmpdb_write_import_data(const char *import_table) {
+enum comdb2_import_tmpdb_op bulk_import_tmpdb_write_import_data(const char *import_table) {
     int rc;
     int written_bytes;
     unsigned len;
@@ -1932,7 +1955,6 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
     char import_file_path[PATH_MAX];
     ImportData import_data = IMPORT_DATA__INIT;
 
-    rc = 0;
     len = written_bytes = 0;
     buf = NULL;
     f_bulk_import = NULL;
@@ -1941,26 +1963,28 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
     if (!db) {
         __import_logmsg(LOGMSG_ERROR, "no such table: %s\n",
                import_table);
-        rc = -1;
+        rc = COMDB2_IMPORT_TMPDB_RC_NO_SRC_TBL;
         goto err;
     }
 
     if (db->n_constraints) {
         __import_logmsg(LOGMSG_ERROR,
                "Importing tables with constraints is not supported\n");
-        rc = -1;
+        rc = COMDB2_IMPORT_TMPDB_RC_CONSTRAINTS;
         goto err;
     }
 
     rc = bulk_import_data_load(import_table, &import_data);
     if (rc != 0) {
         __import_logmsg(LOGMSG_FATAL, "Failed to load import data\n");
+        rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
         goto err;
     }
 
     rc = bulk_import_get_import_data_fname(import_file_path, sizeof(import_file_path), 0);
     if (rc != 0) {
         __import_logmsg(LOGMSG_ERROR, "Failed to get import data fname\n");
+        rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
         goto err;
     }
 
@@ -1968,14 +1992,15 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
     if (f_bulk_import == NULL) {
         __import_logmsg(LOGMSG_ERROR, "Failed to open file %s. err %s\n",
                import_file_path, strerror(errno));
-        rc = 1;
+        rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
         goto err;
     }
 
     len = import_data__get_packed_size(&import_data);
     buf = malloc(len);
     if (buf == NULL) {
-        rc = ENOMEM;
+        __import_logmsg(LOGMSG_ERROR, "Could not allocate memory\n");
+        rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
         goto err;
     }
 
@@ -1983,7 +2008,7 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
     if (written_bytes != len) {
         __import_logmsg(LOGMSG_ERROR,
                "Did not pack full protobuf buffer.\n");
-        rc = 1;
+        rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
         goto err;
     }
 
@@ -1992,7 +2017,7 @@ int bulk_import_tmpdb_write_import_data(const char *import_table) {
         __import_logmsg(
             LOGMSG_ERROR,
             "Did not write full protobuf buffer to file");
-        rc = 1;
+        rc = COMDB2_IMPORT_TMPDB_RC_INTERNAL;
         goto err;
     }
 

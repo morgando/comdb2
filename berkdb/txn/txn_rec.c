@@ -221,7 +221,7 @@ __txn_dist_commit_recover(dbenv, dbtp, lsnp, op, info)
 		if (commit_lsn_map && (ret = __txn_commit_map_remove(dbenv, argp->txnid->utxnid))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to remove %"PRIu64" from the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		ret = __db_txnlist_update(dbenv,
@@ -241,8 +241,12 @@ __txn_dist_commit_recover(dbenv, dbtp, lsnp, op, info)
 			logmsg(LOGMSG_USER, "%s op %d updated %s to ignore\n",
 				__func__, op, dist_txnid);
 #endif
-		} else if (ret != TXN_OK)
+		} else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to add to txnlist. Got rc %d\n", __func__, 
+					ret);
+			ret = EINVAL;
 			goto err;
+		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 	} else {
 		/* This is a normal commit; mark it appropriately. */
@@ -252,7 +256,7 @@ __txn_dist_commit_recover(dbenv, dbtp, lsnp, op, info)
 			&& (ret = __txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to add %"PRIu64" to the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		ret = __db_txnlist_update(dbenv,
@@ -270,10 +274,9 @@ __txn_dist_commit_recover(dbenv, dbtp, lsnp, op, info)
 				TXN_COMMIT, lsnp);
 		}
 		else if (ret != TXN_OK) {
-			__db_txnlist_update(dbenv,
-					info, argp->txnid->txnid, TXN_COMMIT, lsnp);
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist. Got rc %d\n", __func__, 
+					ret);
 			abort();
-			goto err;
 		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 		__txn_recover_dist_commit(dbenv, dist_txnid);
@@ -286,13 +289,7 @@ __txn_dist_commit_recover(dbenv, dbtp, lsnp, op, info)
 		*lsnp = argp->prev_lsn;
 	}
 
-	if (0) {
-err:		__db_err(dbenv,
-			"txnid %lx commit record found, already on commit list",
-			(u_long) argp->txnid->txnid);
-		ret = EINVAL;
-	}
-quiet_err:
+err:
 	__os_free(dbenv, argp);
 
 	return (ret);
@@ -474,7 +471,7 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 		if (commit_lsn_map && (ret = __txn_commit_map_remove(dbenv, argp->txnid->utxnid))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to remove %"PRIu64" from the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		/*
@@ -489,8 +486,12 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret == TXN_NOTFOUND)
 			ret = __db_txnlist_add(dbenv,
 			    info, argp->txnid->txnid, TXN_IGNORE, NULL);
-		else if (ret != TXN_OK)
+		else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist. txnid %"PRIx32" utxnid %"PRIx64" Got rc %d\n", __func__, 
+					argp->txnid->txnid, argp->txnid->utxnid, ret);
+			ret = EINVAL;
 			goto err;
+		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 	} else {
 		/* This is a normal commit; mark it appropriately. */
@@ -501,20 +502,23 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 			&& (ret = __txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to add %"PRIu64" to the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		ret = __db_txnlist_update(dbenv,
 		    info, argp->txnid->txnid, argp->opcode, lsnp);
 
-		if (ret == TXN_IGNORE)
+		if (ret == TXN_IGNORE) {
 			ret = TXN_OK;
-		else if (ret == TXN_NOTFOUND)
+		} else if (ret == TXN_NOTFOUND) {
 			ret = __db_txnlist_add(dbenv,
 			    info, argp->txnid->txnid,
 			    argp->opcode == TXN_ABORT ?
 			    TXN_IGNORE : argp->opcode, lsnp);
-		else if (ret != TXN_OK) {
+		} else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist. txnid %"PRIx32" utxnid %"PRIx64" Got rc %d\n", __func__, 
+					argp->txnid->txnid, argp->txnid->utxnid, ret);
+			ret = EINVAL;
 			goto err;
 		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
@@ -527,13 +531,7 @@ __txn_regop_gen_recover(dbenv, dbtp, lsnp, op, info)
 		*lsnp = argp->prev_lsn;
 	}
 
-	if (0) {
-err:		__db_err(dbenv,
-		    "txnid %lx commit record found, already on commit list",
-		    (u_long) argp->txnid->txnid);
-		ret = EINVAL;
-	}
-quiet_err:
+err:
 	__os_free(dbenv, argp);
 
 	return (ret);
@@ -599,7 +597,7 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		if (commit_lsn_map && (ret = __txn_commit_map_remove(dbenv, argp->txnid->utxnid))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to remove %"PRIu64" from the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		ret = __db_txnlist_update(dbenv,
@@ -610,8 +608,12 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret == TXN_NOTFOUND)
 			ret = __db_txnlist_add(dbenv,
 			    info, argp->txnid->txnid, TXN_IGNORE, NULL);
-		else if (ret != TXN_OK)
+		else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist. Got rc %d\n", __func__, 
+					ret);
+			ret = EINVAL;
 			goto err;
+		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 	} else {
 		/* This is a normal commit; mark it appropriately. */
@@ -622,7 +624,7 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 			&& (ret = __txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to add %"PRIu64" to the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		ret = __db_txnlist_update(dbenv,
@@ -635,8 +637,12 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 			    info, argp->txnid->txnid,
 			    argp->opcode == TXN_ABORT ?
 			    TXN_IGNORE : argp->opcode, lsnp);
-		else if (ret != TXN_OK)
+		else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist. Got rc %d\n", __func__, 
+					ret);
+			ret = EINVAL;
 			goto err;
+		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 	}
 
@@ -646,13 +652,7 @@ __txn_regop_recover(dbenv, dbtp, lsnp, op, info)
 		*lsnp = argp->prev_lsn;
 	}
 
-	if (0) {
-err:		__db_err(dbenv,
-		    "txnid %lx commit record found, already on commit list",
-		    (u_long)argp->txnid->txnid);
-		ret = EINVAL;
-	}
-quiet_err:
+err:
 	__os_free(dbenv, argp);
 
 	return (ret);
@@ -752,6 +752,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 			{
 				logmsg(LOGMSG_ERROR, "%s: error allocating ltrans, ret=%d\n", 
 					__func__, ret);
+				ret = EINVAL;
 				goto err;
 			}
 
@@ -761,6 +762,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 			{
 				logmsg(LOGMSG_ERROR, "%s: error calling txn_logical-start, %d\n", 
 					__func__, ret);
+				ret = EINVAL;
 				goto err;
 			}
 
@@ -779,6 +781,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 			{
 				logmsg(LOGMSG_ERROR, "%s: txn_logical_commit error, %d\n", __func__, 
 					ret);
+				ret = EINVAL;
 				goto err;
 			}
 
@@ -807,8 +810,12 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 		{
 			if ((ret = __txn_create_ltrans(dbenv, argp->ltranid,
 						       &lt, lsnp, &argp->begin_lsn, 
-						       &argp->last_commit_lsn)) != 0)
+						       &argp->last_commit_lsn)) != 0) {
+				logmsg(LOGMSG_ERROR, "%s: Failed to create ltrans. Got rc %d\n", __func__, 
+						ret);
+				ret = EINVAL;
 				goto err;
+			}
 		}
 
 		lt->last_lsn = argp->last_commit_lsn;
@@ -821,6 +828,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 			{
 				logmsg(LOGMSG_ERROR, "%s: txn_logical_commit error, %d\n", __func__, 
 					ret);
+				ret = EINVAL;
 				goto err;
 			}
 
@@ -830,7 +838,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 		if (commit_lsn_map && (ret = __txn_commit_map_remove(dbenv, argp->txnid->utxnid))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to remove %"PRIu64" from the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		/*
@@ -845,8 +853,12 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 		else if (ret == TXN_NOTFOUND)
 			ret = __db_txnlist_add(dbenv,
 					       info, argp->txnid->txnid, TXN_IGNORE, NULL);
-		else if (ret != TXN_OK)
+		else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist, rc %d\n", __func__, 
+				ret);
+			ret = EINVAL;
 			goto err;
+		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 	}
 	else
@@ -859,8 +871,12 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 			{
 				if((ret = __txn_create_ltrans(dbenv, argp->ltranid, 
 							      &lt, lsnp, &argp->begin_lsn, 
-							      &argp->last_commit_lsn)) != 0)
+							      &argp->last_commit_lsn)) != 0) {
+					logmsg(LOGMSG_ERROR, "%s: Failed to create ltrans, rc %d\n", __func__, 
+						ret);
+					ret = EINVAL;
 					goto err;
+				}
 			}
 
 			lt->last_lsn = *lsnp;
@@ -872,6 +888,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 								     lt->ltranid, lsnp)) != 0)
 				{
 					logmsg(LOGMSG_ERROR, "%s: txn_logical_commit error, %d\n", __func__, ret);
+					ret = EINVAL;
 					goto err;
 				}
                 
@@ -884,7 +901,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 			&& (ret = __txn_commit_map_add(dbenv, argp->txnid->utxnid, *lsnp))) {
 			logmsg(LOGMSG_ERROR, "%s: Failed to add %"PRIu64" to the commit map\n", __func__,
 				argp->txnid->utxnid);
-			goto quiet_err;
+			goto err;
 		}
 
 		/* This is a normal commit; mark it appropriately. */
@@ -898,8 +915,12 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 					       info, argp->txnid->txnid,
 					       argp->opcode == TXN_ABORT ?
 					       TXN_IGNORE : argp->opcode, lsnp);
-		else if (ret != TXN_OK)
+		else if (ret != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist, rc %d\n", __func__, 
+					ret);
+			ret = EINVAL;
 			goto err;
+		}
 		/* else ret = 0; Not necessary because TXN_OK == 0 */
 	}
 
@@ -910,14 +931,7 @@ __txn_regop_rowlocks_recover(dbenv, dbtp, lsnp, op, info)
 		*lsnp = argp->prev_lsn;
 	}
 
-	if (0) {
 err:
-		__db_err(dbenv,
-		    "txnid %lx commit record found, already on commit list",
-		    (u_long) argp->txnid->txnid);
-		ret = EINVAL;
-	}
-quiet_err:
 	__os_free(dbenv, argp);
 
 	return (ret);
@@ -949,6 +963,8 @@ __txn_xa_regop_recover(dbenv, dbtp, lsnp, op, info)
 		return (ret);
 
 	if (argp->opcode != TXN_PREPARE && argp->opcode != TXN_ABORT) {
+		logmsg(LOGMSG_ERROR, "%s: expected opcode to be either prepare or abort. Got %u\n", __func__, 
+				argp->opcode);
 		ret = EINVAL;
 		goto err;
 	}
@@ -964,8 +980,11 @@ __txn_xa_regop_recover(dbenv, dbtp, lsnp, op, info)
 
 	if (op == DB_TXN_FORWARD_ROLL) {
 		if ((ret = __db_txnlist_remove(dbenv,
-		    info, argp->txnid->txnid)) != TXN_OK)
+		    info, argp->txnid->txnid)) != TXN_OK) {
+			logmsg(LOGMSG_ERROR, "%s: Failed to remove from txnlist. Got rc %d\n", __func__, 
+					ret);
 			goto txn_err;
+		}
 	} else if (op == DB_TXN_BACKWARD_ROLL && ret == TXN_PREPARE) {
 		/*
 		 * On the backward pass, we have four possibilities:
@@ -981,8 +1000,11 @@ __txn_xa_regop_recover(dbenv, dbtp, lsnp, op, info)
 		if (argp->opcode == TXN_ABORT) {
 			if ((ret = __db_txnlist_update(dbenv,
 			     info, argp->txnid->txnid,
-			     TXN_ABORT, NULL)) != TXN_PREPARE)
+			     TXN_ABORT, NULL)) != TXN_PREPARE) {
+				logmsg(LOGMSG_ERROR, "%s: Failed to update txnlist. Got rc %d\n", __func__, 
+						ret);
 				goto txn_err;
+			}
 			ret = 0;
 		}
 		/*
@@ -1351,7 +1373,7 @@ int __txn_recycle_recover(dbenv, dbtp, lsnp, op, info)
 {
 	__txn_recycle_args * argp; int ret;
 #ifdef DEBUG_RECOVER
-	(void)__txn_child_print(dbenv, dbtp, lsnp, op, info);
+	(void)__txn_recycle_print(dbenv, dbtp, lsnp, op, info);
 #endif
 	if ((ret = __txn_recycle_read(dbenv, dbtp->data, &argp)) != 0)
 		return (ret);

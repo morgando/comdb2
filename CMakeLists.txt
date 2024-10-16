@@ -177,6 +177,18 @@ if(DEBUG_RECOVERY_LOCK)
     add_definitions(-DDEBUG_RECOVERY_LOCK)
 endif()
 
+option(DEBUG_RECOVER "Enable recovery debug trace" OFF)
+mark_as_advanced(DEBUG_RECOVER)
+if(DEBUG_RECOVER)
+    add_definitions(-DDEBUG_RECOVER)
+endif()
+
+option(DEBUG_PREPARE_TXNLIST "Enable txnlist debug trace" OFF)
+mark_as_advanced(DEBUG_PREPARE_TXNLIST)
+if(DEBUG_PREPARE_TXNLIST)
+    add_definitions(-DDEBUG_PREPARE_TXNLIST)
+endif()
+
 option(UFID_HASH_DEBUG "Enable ufid-hash debug trace" OFF)
 mark_as_advanced(UFID_HASH_DEBUG)
 if(UFID_HASH_DEBUG)

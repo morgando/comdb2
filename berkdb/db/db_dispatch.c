@@ -565,8 +565,8 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 		break;
 	case DB_TXN_BACKWARD_ROLL:
 		/*
-		 * Running full recovery in the backward pass.  If we've
-		 * seen this txnid before and added to it our commit list,
+		 * Running full recovery in the backward pass: If we've
+		 * seen this txnid before and added it to our commit list,
 		 * then we do nothing during this pass, unless this is a child
 		 * commit record, in which case we need to process it.  If
 		 * we've never seen it, then we call the appropriate recovery
@@ -1304,7 +1304,7 @@ __db_txnlist_gen(dbenv, listp, incr, min, max)
 	int ret;
 
 	/*
-	 * During recovery generation numbers keep track of "restart"
+	 * During recovery, generation numbers keep track of "restart"
 	 * checkpoints and recycle records.  Restart checkpoints occur
 	 * whenever we take a checkpoint and there are no outstanding
 	 * transactions.  When that happens, we can reset transaction IDs

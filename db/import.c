@@ -47,6 +47,9 @@
 #include "sc_callbacks.h"
 #include "sc_global.h"
 #include "str0.h"
+#include "version.h"
+
+#define BULK_IMPORT_MIN_SUPPORTED_VERSION "8.1.0"
 
 #define __import_logmsg(lvl, msg, ...) \
     logmsg(lvl, "[IMPORT] %s: " msg, __func__, ## __VA_ARGS__)
@@ -857,6 +860,41 @@ bulk_import_data_validate(const char *dst_table_name,
     return COMDB2_IMPORT_RC_SUCCESS;
 }
 
+static enum comdb2_import_op bulk_import_validate_src_vers_is_supported(const fdb_t * const fdb) {
+    const char * src_version = NULL;
+    int rc = fdb_get_server_version(fdb, &src_version);
+    if (rc) {
+        __import_logmsg(
+            LOGMSG_ERROR,
+            "Failed to get version for src db '%s' with rc %d\n",
+            fdb_dbname_name(fdb), rc);
+        return (rc == FDB_ERR_CONNECT) ? COMDB2_IMPORT_RC_NO_SRC_CONN : COMDB2_IMPORT_RC_INTERNAL;
+    }
+
+    int cmp_result;
+    rc = compare_semvers(src_version, BULK_IMPORT_MIN_SUPPORTED_VERSION, &cmp_result);
+    if (rc) {
+        __import_logmsg(
+            LOGMSG_ERROR,
+            "Failed compare version '%s' for src db '%s' "
+            "with min supported version '%s' with rc %d\n",
+            src_version, fdb_dbname_name(fdb), BULK_IMPORT_MIN_SUPPORTED_VERSION, rc);
+        return COMDB2_IMPORT_RC_INTERNAL;
+    }
+
+    const int src_version_is_smaller_than_min = cmp_result < 0;
+    if (src_version_is_smaller_than_min) {
+        __import_logmsg(
+            LOGMSG_ERROR,
+            "Version '%s' for src db '%s' "
+            "is less than min supported version '%s'\n",
+            src_version, fdb_dbname_name(fdb), BULK_IMPORT_MIN_SUPPORTED_VERSION);
+        return COMDB2_IMPORT_RC_BAD_SRC_VERS;
+    }
+
+    return COMDB2_IMPORT_RC_SUCCESS;
+}
+
 static enum comdb2_import_op bulk_import_perform_initial_validation(const char *src_db_name,
                                                   const char *dst_table_name) {
     cdb2_hndl_tp *hndl = NULL;
@@ -869,9 +907,26 @@ static enum comdb2_import_op bulk_import_perform_initial_validation(const char *
             "Failed to create fdb '%s' with rc %d\n",
             src_db_name, rc);
         rc = (rc == FDB_ERR_CLASS_UNKNOWN || rc == FDB_ERR_CLASS_DENIED)
-            ? COMDB2_IMPORT_RC_BAD_SOURCE_CLASS : COMDB2_IMPORT_RC_INTERNAL;
+            ? COMDB2_IMPORT_RC_BAD_SRC_CLASS : COMDB2_IMPORT_RC_INTERNAL;
         goto err;
     }
+
+/* 
+ * If we're running an open source build and the source db isn't running a supported
+ * version, then we'll fail to run queries on the source db that try to access 
+ * unimplemented features. The import will then fail with an internal error.
+ *
+ * For internal builds we explicitly check the source's version and fail 
+ * with a descriptive error on mismatch.
+ */
+#ifdef LEGACY_DEFAULTS
+    rc = bulk_import_validate_src_vers_is_supported(fdb);
+    if (rc) {
+        __import_logmsg(LOGMSG_ERROR,
+            "Failed version validation for src db '%s'\n", fdb_dbname_name(fdb));
+        goto err;
+    }
+#endif
 
     rc = cdb2_open(&hndl, fdb_dbname_name(fdb), fdb_dbname_class_routing(fdb), 0);
     if (rc) {
@@ -1838,8 +1893,10 @@ const char *bulk_import_get_err_str(const int rc) {
             return "Stripe settings differ between source and destination db";
         case COMDB2_IMPORT_RC_NO_SRC_CONN:
             return "Unable to establish a connection to source db";
-        case COMDB2_IMPORT_RC_BAD_SOURCE_CLASS:
+        case COMDB2_IMPORT_RC_BAD_SRC_CLASS:
             return "Can't connect to provided source db class";
+        case COMDB2_IMPORT_RC_BAD_SRC_VERS:
+            return "Source db version is less than min required for import";
         case COMDB2_IMPORT_RC_INTERNAL:
             return "An internal error occurred";
         case COMDB2_IMPORT_RC_UNKNOWN:
@@ -1883,6 +1940,7 @@ enum comdb2_import_op bulk_import_do_import(const char *srcdb,
 
     int rc = bulk_import_perform_initial_validation(srcdb, dst_tablename);
     if (rc) {
+        printf("rc %d\n", rc);
         __import_logmsg(LOGMSG_ERROR, "Failed initial validation. Aborting import.\n");
         goto err;
     }

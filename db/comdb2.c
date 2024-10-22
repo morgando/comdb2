@@ -214,7 +214,11 @@ pthread_key_t comdb2_open_key;
 #define QUOTE(x) QUOTE_(x)
 const char *const gbl_db_git_version_sha = QUOTE(GIT_VERSION_SHA=COMDB2_GIT_VERSION_SHA);
 const char gbl_db_version[] = QUOTE(COMDB2_BUILD_VERSION);
+#ifdef COMDB2_TEST
+const char * gbl_db_semver = QUOTE(COMDB2_SEMVER);
+#else
 const char gbl_db_semver[] = QUOTE(COMDB2_SEMVER);
+#endif
 const char gbl_db_codename[] = QUOTE(COMDB2_CODENAME);
 const char gbl_db_buildtype[] = QUOTE(COMDB2_BUILD_TYPE);
 

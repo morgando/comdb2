@@ -313,8 +313,8 @@ int create_fdb(const char *fdb_name, fdb_t **fdb);
  * Get dbname, tablename, and so on
  *
  */
-const char *fdb_dbname_name(fdb_t *fdb);
-const char *fdb_dbname_class_routing(fdb_t *fdb);
+const char *fdb_dbname_name(const fdb_t * const fdb);
+const char *fdb_dbname_class_routing(const fdb_t * const fdb);
 const char *fdb_table_entry_tblname(fdb_tbl_ent_t *ent);
 const char *fdb_table_entry_dbname(fdb_tbl_ent_t *ent);
 
@@ -369,6 +369,15 @@ int fdb_process_message(const char *line, int lline);
  *
  */
 int fdb_table_version(unsigned long long version);
+
+/*
+ * Get the comdb2 semantic version that an fdb is running
+ * 
+ * On success, *version points to the semantic version's 
+ * location in dynamic memory. It is the caller's 
+ * responsibility to free this pointer.
+ */
+int fdb_get_server_semver(const fdb_t * const fdb, const char ** version);
 
 /**
  * Clear sqlclntstate fdb_state object

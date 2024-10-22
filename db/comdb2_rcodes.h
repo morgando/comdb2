@@ -149,9 +149,10 @@ enum comdb2_import_op {
     COMDB2_IMPORT_RC_NO_ODH_OPTION = 12007,       /* Source table doesn't have ODH option */
     COMDB2_IMPORT_RC_STRIPE_MISMATCH = 12008,     /* Source and destination db have mismatched stripe settings */
     COMDB2_IMPORT_RC_NO_SRC_CONN = 12009,         /* Can't establish a connection to the source db */
-    COMDB2_IMPORT_RC_BAD_SOURCE_CLASS = 12010,    /* Can't connect to provided source class */
-    COMDB2_IMPORT_RC_INTERNAL = 12011,            /* An internal error occurred */
-    COMDB2_IMPORT_RC_UNKNOWN = 12012,             /* An unknown error occurred */
+    COMDB2_IMPORT_RC_BAD_SRC_CLASS = 12010,       /* Can't connect to provided source class */
+    COMDB2_IMPORT_RC_BAD_SRC_VERS = 12011,        /* Source db version is not supported */
+    COMDB2_IMPORT_RC_INTERNAL = 12012,            /* An internal error occurred */
+    COMDB2_IMPORT_RC_UNKNOWN = 12013,             /* An unknown error occurred */
 };
 
 enum comdb2_import_tmpdb_op { 

@@ -3570,8 +3570,8 @@ const char *fdb_parse_comdb2_remote_dbname(const char *zDatabase,
  * Get dbname, tablename, and so on
  *
  */
-const char *fdb_dbname_name(fdb_t *fdb) { return fdb->dbname; }
-const char *fdb_dbname_class_routing(fdb_t *fdb)
+const char *fdb_dbname_name(const fdb_t * const fdb) { return fdb->dbname; }
+const char *fdb_dbname_class_routing(const fdb_t * const fdb)
 {
     if (fdb->local)
         return "LOCAL";
@@ -5044,6 +5044,39 @@ int fdb_get_remote_version(const char *dbname, const char *table,
 done:
     cdb2_close(db);
     sqlite3_free(sql);
+
+    return rc;
+}
+
+int fdb_get_server_semver(const fdb_t * const fdb, const char ** version)
+{
+    cdb2_hndl_tp * hndl = NULL;
+    int rc = cdb2_open(&hndl, fdb_dbname_name(fdb), fdb_dbname_class_routing(fdb), 0);
+    if (rc) {
+        return FDB_ERR_GENERIC;
+    }
+
+    rc = cdb2_run_statement(hndl, "select comdb2_semver()");
+    if (rc) {
+        rc = (rc == CDB2ERR_CONNECT_ERROR) ? FDB_ERR_CONNECT : FDB_ERR_GENERIC;
+        goto done;
+    }
+
+    rc = cdb2_next_record(hndl); 
+    if (rc != CDB2_OK) {
+        rc = (rc == CDB2ERR_CONNECT_ERROR) ? FDB_ERR_CONNECT : FDB_ERR_GENERIC;
+        goto done;
+    }
+
+    assert(cdb2_column_type(hndl, 0) == CDB2_CSTRING);
+    *version = strdup((const char *)cdb2_column_value(hndl, 0));
+    if (!(*version)) {
+        rc = ENOMEM;
+        goto done;
+    }
+
+done:
+    cdb2_close(hndl);
 
     return rc;
 }

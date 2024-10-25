@@ -1720,7 +1720,7 @@ enum comdb2_import_tmpdb_op bulk_import_tmpdb_pull_foreign_dbfiles(const char *f
     }
     while (cdb2_next_record(hndl) == CDB2_OK) {}
 
-    snprintf(query, sizeof(query), "select distinct filename from comdb2_files where type='berkdb'");
+    snprintf(query, sizeof(query), "select distinct filename from comdb2_filenames where type='berkdb'");
     rc = cdb2_run_statement(hndl, query);
     if (rc) {
         __import_logmsg(LOGMSG_ERROR,

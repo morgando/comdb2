@@ -28,3 +28,14 @@ scripts.  To generates those
 6) kill bubble-generator.tcl after it's done
 The program depends on Tk and thus Xlib, so converting it to something that doesn't need X isn't trivial,
 and probably isn't worth the time.
+
+
+To create a new syntax diagram,
+
+1) Add its tcl definition in `docs/src/sqlitegen/bubble-generator-data.tcl`
+2) Add an html element for it in `docs/src/sqlitegen/all.html` of the following format:
+
+```
+<h3><diagram-name>:</h3>
+<img src="<diagram-name>.gif">
+```

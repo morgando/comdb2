@@ -1050,7 +1050,7 @@ static int newsql_write_response(struct sqlclntstate *c, int t, void *a, int i)
     case RESPONSE_ERROR_ACCESS: return newsql_error(c, a, CDB2ERR_ACCESS);
     case RESPONSE_ERROR_BAD_STATE: return newsql_error(c, a, CDB2ERR_BADSTATE);
     case RESPONSE_ERROR_PREPARE: return newsql_error(c, a, CDB2ERR_PREPARE_ERROR);
-    case RESPONSE_ERROR_REJECT: return newsql_error(c, a, CDB2ERR_REJECTED);
+    case RESPONSE_ERROR_QUERY_REJECTED: return newsql_error(c, a, CDB2ERR_REJECTED);
     case RESPONSE_REDIRECT_FOREIGN: return newsql_redirect_foreign(c, a, i);
     case RESPONSE_FLUSH: return c->plugin.flush(c);
     case RESPONSE_HEARTBEAT: return newsql_heartbeat(c);

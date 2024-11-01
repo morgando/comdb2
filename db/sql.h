@@ -350,22 +350,56 @@ enum {
 
 #define RESPONSE_TYPES                                                         \
     XRESPONSE(RESPONSE_COLUMNS)                                                \
+    XRESPONSE(RESPONSE_COLUMNS_FDB_PUSH)                                       \
     XRESPONSE(RESPONSE_COLUMNS_LUA)                                            \
     XRESPONSE(RESPONSE_COLUMNS_STR)                                            \
-    XRESPONSE(RESPONSE_COLUMNS_FDB_PUSH)                                       \
     XRESPONSE(RESPONSE_COST)                                                   \
     XRESPONSE(RESPONSE_DEBUG)                                                  \
     XRESPONSE(RESPONSE_EFFECTS)                                                \
     XRESPONSE(RESPONSE_ERROR)                                                  \
     XRESPONSE(RESPONSE_ERROR_ACCESS)                                           \
+    XRESPONSE(RESPONSE_ERROR_ANALYZE_ALREADY_RUNNING)                          \
+    XRESPONSE(RESPONSE_ERROR_APPSOCK_LIMIT)                                    \
+    XRESPONSE(RESPONSE_ERROR_BAD_COMM)                                         \
+    XRESPONSE(RESPONSE_ERROR_BAD_COMM_BUF)                                     \
+    XRESPONSE(RESPONSE_ERROR_BAD_REQUEST)                                      \
     XRESPONSE(RESPONSE_ERROR_BAD_STATE)                                        \
+    XRESPONSE(RESPONSE_ERROR_BUF_INVALID)                                      \
+    XRESPONSE(RESPONSE_ERROR_BUF_OVERFLOW)                                     \
+    XRESPONSE(RESPONSE_ERROR_CHANGENODE)                                       \
+    XRESPONSE(RESPONSE_ERROR_CHECK_CONSTRAINT)                                 \
+    XRESPONSE(RESPONSE_ERROR_CONSTRAINTS)                                      \
+    XRESPONSE(RESPONSE_ERROR_CONV_FAIL)                                        \
+    XRESPONSE(RESPONSE_ERROR_DB_FAIL)                                          \
+    XRESPONSE(RESPONSE_ERROR_DEADLOCK)                                         \
+    XRESPONSE(RESPONSE_ERROR_DIST_ABORT)                                       \
+    XRESPONSE(RESPONSE_ERROR_DUP_OLD)                                          \
+    XRESPONSE(RESPONSE_ERROR_FKEY_VIOLATION)                                   \
+    XRESPONSE(RESPONSE_ERROR_INTERNAL)                                         \
+    XRESPONSE(RESPONSE_ERROR_IO)                                               \
+    XRESPONSE(RESPONSE_ERROR_MASTER_QUEUE_FULL)                                \
+    XRESPONSE(RESPONSE_ERROR_MASTER_TIMEOUT)                                   \
+    XRESPONSE(RESPONSE_ERROR_NONKLESS)                                         \
+    XRESPONSE(RESPONSE_ERROR_NOT_SERIAL)                                       \
+    XRESPONSE(RESPONSE_ERROR_NO_MASTER)                                        \
+    XRESPONSE(RESPONSE_ERROR_OPR_OVERFLOW)                                     \
     XRESPONSE(RESPONSE_ERROR_PREPARE)                                          \
     XRESPONSE(RESPONSE_ERROR_PREPARE_RETRY)                                    \
-    XRESPONSE(RESPONSE_ERROR_REJECT)                                           \
-    XRESPONSE(RESPONSE_REDIRECT_FOREIGN)                                       \
+    XRESPONSE(RESPONSE_ERROR_QUERY_LIMIT)                                      \
+    XRESPONSE(RESPONSE_ERROR_QUERY_REJECTED)                                   \
+    XRESPONSE(RESPONSE_ERROR_READONLY)                                         \
+    XRESPONSE(RESPONSE_ERROR_ROLLBACK_NO_LOG)                                  \
+    XRESPONSE(RESPONSE_ERROR_ROLLBACK_QUERY_LIMIT)                             \
+    XRESPONSE(RESPONSE_ERROR_ROLLBACK_TOO_LARGE)                               \
+    XRESPONSE(RESPONSE_ERROR_ROLLBACK_TOO_OLD)                                 \
+    XRESPONSE(RESPONSE_ERROR_SCHEMA)                                           \
+    XRESPONSE(RESPONSE_ERROR_SCHEMA_CHANGE)                                    \
+    XRESPONSE(RESPONSE_ERROR_UNKNOWN)                                          \
+    XRESPONSE(RESPONSE_ERROR_VERIFY)                                           \
     XRESPONSE(RESPONSE_FLUSH)                                                  \
     XRESPONSE(RESPONSE_HEARTBEAT)                                              \
     XRESPONSE(RESPONSE_QUERY_STATS)                                            \
+    XRESPONSE(RESPONSE_REDIRECT_FOREIGN)                                       \
     XRESPONSE(RESPONSE_ROW)                                                    \
     XRESPONSE(RESPONSE_ROW_LAST)                                               \
     XRESPONSE(RESPONSE_ROW_LAST_DUMMY)                                         \
@@ -1378,7 +1412,7 @@ struct temptable get_tbl_by_rootpg(const sqlite3 *, int);
 void clone_temp_table(sqlite3_stmt *, struct temptable *);
 int sqlengine_prepare_engine(struct sqlthdstate *, struct sqlclntstate *,
                              int recreate);
-int sqlserver2sqlclient_error(int rc);
+int convert_sqlite_error_to_db_error(int rc);
 uint16_t stmt_num_tbls(sqlite3_stmt *);
 int newsql_dump_query_plan(struct sqlclntstate *clnt, sqlite3 *hndl);
 void init_cursor(BtCursor *, Vdbe *, Btree *);

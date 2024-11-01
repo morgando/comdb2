@@ -1049,7 +1049,7 @@ static int lua_check_errors(struct sqlclntstate *clnt, sqlite3 *sqldb,
 {
     int rc = sql_check_errors(clnt, sqldb, stmt, errstr);
     if (rc) {
-        rc = sqlserver2sqlclient_error(rc);
+        rc = convert_sqlite_error_to_db_error(rc);
     } else {
         rc = errstat_get_rc(&clnt->osql.xerr);
         if (rc) {

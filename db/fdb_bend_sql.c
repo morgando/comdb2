@@ -41,7 +41,7 @@
 #include "logmsg.h"
 
 extern int gbl_fdb_track;
-extern int blockproc2sql_error(int rc, const char *func, int line);
+extern int convert_blockproc_error_to_db_error(int rc, const char *func, int line);
 
 
 int fdb_appsock_work(const char *cid, struct sqlclntstate *clnt, int version,
@@ -415,7 +415,7 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
             } else {
                 if (rc == SQLITE_ABORT) {
                     /* convert this to user code */
-                    rc = blockproc2sql_error(clnt->osql.xerr.errval, __func__, __LINE__);
+                    rc = convert_blockproc_error_to_db_error(clnt->osql.xerr.errval, __func__, __LINE__);
                 }
                 irc = trans_abort_shadow((void **)&clnt->dbtran.shadow_tran,
                                          &bdberr);
@@ -435,7 +435,7 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
         rc = osql_sock_commit(clnt, tran2req(clnt->dbtran.mode), TRANS_CLNTCOMM_NORMAL);
         /* convert this to user code */
         if (rc == SQLITE_ABORT) {
-            rc = blockproc2sql_error(clnt->osql.xerr.errval, __func__, __LINE__);
+            rc = convert_blockproc_error_to_db_error(clnt->osql.xerr.errval, __func__, __LINE__);
         }
 
         break;

@@ -202,7 +202,7 @@ comdb2_query_preparer_t *query_preparer_plugin;
 void rcache_init(size_t, size_t);
 void rcache_destroy(void);
 void sql_reset_sqlthread(struct sql_thread *thd);
-int blockproc2sql_error(int rc, const char *func, int line);
+int convert_blockproc_error_to_db_error(int rc, const char *func, int line);
 static int test_no_btcursors(struct sqlthdstate *thd);
 static void sql_thread_describe(void *obj, FILE *out);
 static char *get_query_cost_as_string(struct sql_thread *thd,
@@ -594,7 +594,7 @@ static int send_intrans_response(struct sqlclntstate *clnt)
 void handle_failed_dispatch(struct sqlclntstate *clnt, char *errstr)
 {
     Pthread_mutex_lock(&clnt->wait_mutex);
-    write_response(clnt, RESPONSE_ERROR_REJECT, errstr, 0);
+    write_response(clnt, RESPONSE_ERROR_QUERY_REJECTED, errstr, 0);
     Pthread_mutex_unlock(&clnt->wait_mutex);
 }
 
@@ -1856,13 +1856,13 @@ static inline int replicant_can_retry_rc(struct sqlclntstate *clnt, int rc)
         return 0;
 
     /* Any isolation level can retry if nothing has been read */
-    if ((rc == CDB2ERR_NOTSERIAL || rc == CDB2ERR_VERIFY_ERROR) &&
+    if ((rc == RESPONSE_ERROR_NOT_SERIAL || rc == RESPONSE_ERROR_VERIFY) &&
         !clnt->sent_data_to_client && !get_asof_snapshot(clnt) &&
         gbl_snapshot_serial_verify_retry)
         return 1;
 
     /* Verify error can be retried in reccom or lower */
-    return (rc == CDB2ERR_VERIFY_ERROR) &&
+    return (rc == RESPONSE_ERROR_VERIFY) &&
            (clnt->dbtran.mode != TRANLEVEL_SNAPISOL) &&
            (clnt->dbtran.mode != TRANLEVEL_SERIAL) && 
            (clnt->dbtran.mode != TRANLEVEL_MODSNAP);
@@ -1981,7 +1981,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
                     } else {
                         if (rc == SQLITE_ABORT) {
                             /* convert this to user code */
-                            rc = blockproc2sql_error(clnt->osql.xerr.errval,
+                            rc = convert_blockproc_error_to_db_error(clnt->osql.xerr.errval,
                                                      __func__, __LINE__);
                         }
                         irc = trans_abort_shadow(
@@ -2044,7 +2044,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
                     } else {
                         if (rc == SQLITE_ABORT) {
                             /* convert this to user code */
-                            rc = blockproc2sql_error(clnt->osql.xerr.errval,
+                            rc = convert_blockproc_error_to_db_error(clnt->osql.xerr.errval,
                                                      __func__, __LINE__);
                             sql_debug_logf(clnt, __func__, __LINE__,
                                            "returning"
@@ -2052,8 +2052,8 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
                                            rc);
                         } else if (rc == SQLITE_CLIENT_CHANGENODE) {
                             rc = has_high_availability(clnt)
-                                     ? CDB2ERR_CHANGENODE
-                                     : SQLHERR_MASTER_TIMEOUT;
+                                     ? RESPONSE_ERROR_CHANGENODE
+                                     : RESPONSE_ERROR_MASTER_TIMEOUT;
                         }
                         irc = trans_abort_shadow(
                             (void **)&clnt->dbtran.shadow_tran, &bdberr);
@@ -2076,14 +2076,14 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
                     sql_debug_logf(clnt, __func__, __LINE__,
                                    "no-shadow-tran returning %d\n", rc);
                     if (rc == SQLITE_ABORT) {
-                        rc = blockproc2sql_error(clnt->osql.xerr.errval,
+                        rc = convert_blockproc_error_to_db_error(clnt->osql.xerr.errval,
                                                  __func__, __LINE__);
                         logmsg(LOGMSG_ERROR, "td=%p no-shadow-tran %s line %d, returning %d\n", (void *)pthread_self(),
                                __func__, __LINE__, rc);
                     } else if (rc == SQLITE_CLIENT_CHANGENODE) {
                         rc = has_high_availability(clnt)
-                                 ? CDB2ERR_CHANGENODE
-                                 : SQLHERR_MASTER_TIMEOUT;
+                                 ? RESPONSE_ERROR_CHANGENODE
+                                 : RESPONSE_ERROR_MASTER_TIMEOUT;
                         logmsg(LOGMSG_ERROR, "td=%p no-shadow-tran %s line %d, returning %d\n", (void *)pthread_self(),
                                __func__, __LINE__, rc);
                     }
@@ -2179,7 +2179,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
                 }
                 if (rc == SQLITE_ABORT) {
                     /* convert this to user code */
-                    rc = blockproc2sql_error(clnt->osql.xerr.errval, __func__,
+                    rc = convert_blockproc_error_to_db_error(clnt->osql.xerr.errval, __func__,
                                              __LINE__);
                     if (clnt->osql.xerr.errval == ERR_UNCOMMITTABLE_TXN) {
                         osql_set_replay(__FILE__, __LINE__, clnt,
@@ -2284,7 +2284,7 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
         clnt->osql.xerr.errval = ERR_BLOCK_FAILED + ERR_VERIFY;
         sql_set_sqlengine_state(clnt, __FILE__, __LINE__,
                                 SQLENG_NORMAL_PROCESS);
-        outrc = CDB2ERR_VERIFY_ERROR;
+        outrc = RESPONSE_ERROR_VERIFY;
         Pthread_mutex_lock(&clnt->wait_mutex);
         clnt->ready_for_heartbeats = 0;
         Pthread_mutex_unlock(&clnt->wait_mutex);
@@ -2931,10 +2931,17 @@ static int send_run_error(struct sqlclntstate *clnt, const char *err, int rc)
     return write_response(clnt, RESPONSE_ERROR, (void *)err, rc);
 }
 
+static int send_run_response(struct sqlclntstate *clnt, const char *err, int response) {
+    Pthread_mutex_lock(&clnt->wait_mutex);
+    clnt->ready_for_heartbeats = 0;
+    Pthread_mutex_unlock(&clnt->wait_mutex);
+    return write_response(clnt, response, (void *)err, 0);
+}
+
 static int handle_bad_engine(struct sqlclntstate *clnt)
 {
     logmsg(LOGMSG_ERROR, "unable to obtain sql engine\n");
-    send_run_error(clnt, "Client api should change nodes", CDB2ERR_CHANGENODE);
+    send_run_error(clnt, "Client api should change nodes", RESPONSE_ERROR_CHANGENODE);
     clnt->query_rc = -1;
     return -1;
 }
@@ -3657,12 +3664,9 @@ static int rc_sqlite_to_client(struct sqlthdstate *thd,
     sqlite3_stmt *stmt = rec->stmt;
     int irc;
 
-    /* get the engine error code, which is what we should pass
-       back to the client!
-     */
     irc = sql_check_errors(clnt, thd->sqldb, stmt, (const char **)perrstr);
     if (irc) {
-        irc = sqlserver2sqlclient_error(irc);
+        irc = convert_sqlite_error_to_db_error(irc);
     }
 
     if (!irc) {
@@ -3678,7 +3682,7 @@ static int rc_sqlite_to_client(struct sqlthdstate *thd,
             /* convert this to a user code */
             irc = (clnt->osql.error_is_remote)
                       ? irc
-                      : blockproc2sql_error(irc, __func__, __LINE__);
+                      : convert_blockproc_error_to_db_error(irc, __func__, __LINE__);
             if (replicant_can_retry_rc(clnt, irc) && !clnt->has_recording &&
                 clnt->osql.replay == OSQL_RETRY_NONE) {
                 osql_set_replay(__FILE__, __LINE__, clnt, OSQL_RETRY_DO);
@@ -3800,9 +3804,9 @@ static int run_stmt(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     }
 
     if ((rc = validate_columns(clnt, stmt)) != 0) {
-        send_run_error(clnt,
+        send_run_response(clnt,
                        "NEXTSEQUENCE function is not legal in this context",
-                       CDB2ERR_PREPARE_ERROR);
+                       RESPONSE_ERROR_PREPARE);
         return rc;
     }
 
@@ -4047,7 +4051,7 @@ retry_legacy_remote:
             switch(irc) {
             case ERR_ROW_HEADER:
             case ERR_CONVERSION_DT:
-                send_run_error(clnt, errstat_get_str(&err), CDB2ERR_CONV_FAIL);
+                send_run_response(clnt, errstat_get_str(&err), RESPONSE_ERROR_CONV_FAIL);
                 break;
             }
             if (fast_error) {
@@ -4072,180 +4076,6 @@ done:
         free(allocd_str);
     return rc;
 }
-
-/* SHARD
-    int irc = 0;
-    if(clnt->shard_slice<=1) {
-        if (clnt->is_newsql) {
-            if (!rc && (clnt->num_retry == clnt->sql_query->retry) &&
-                    (clnt->num_retry == 0 || clnt->sql_query->has_skip_rows == 0
-|| (clnt->sql_query->skip_rows < row_id))) irc = send_row_new(thd, clnt, ncols,
-row_id, columns); } else { irc = send_row_old(thd, clnt, new_row_data_type);
-        }
-    }
-
-    if(1) {
-       if(clnt->conns && clnt->conns_idx == 1) {
-         shard_flush_conns(clnt, 0);
-       }
-    }
-    .....
-        // if parallel, drain the shards
-    if (clnt->conns && clnt->conns_idx == 1) {
-        shard_flush_conns(clnt, 1);
-
-    ......
-
-#ifdef DEBUG
-        int hasn;
-        if (!(hasn = sqlite3_hasNColumns(stmt, ncols))) {
-            printf("Does not have %d cols\n", ncols);
-            abort();
-        }
-#endif
-
-        // create return row
-        rc = make_retrow(thd, clnt, rec, new_row_data_type, ncols, rowcount,
-                         fast_error, err);
-        if (rc)
-            goto out;
-
-        int sz = clnt->sql_query->cnonce.len;
-        char cnonce[256];
-        cnonce[0] = '\0';
-
-        if (gbl_extended_sql_debug_trace) {
-            bzero(cnonce, sizeof(cnonce));
-            snprintf(cnonce, 256, "%s", clnt->sql_query->cnonce.data);
-            logmsg(LOGMSG_USER, "%s: cnonce '%s': iswrite=%d replay=%d "
-                    "want_query_effects is %d, isselect is %d\n",
-                    __func__, cnonce, clnt->iswrite, clnt->osql.replay,
-                    clnt->want_query_effects,
-                    clnt->isselect);
-        }
-
-        // return row, if needed
-        if (!clnt->iswrite && clnt->osql.replay != OSQL_RETRY_DO) {
-            postponed_write = 0;
-            row_id++;
-
-            if (!clnt->want_query_effects || clnt->isselect) {
-                if(comm->send_row_data) {
-                    if (gbl_extended_sql_debug_trace) {
-                        logmsg(LOGMSG_USER, "%s: cnonce '%s' sending row\n",
-__func__, cnonce);
-                    }
-                    rc = comm->send_row_data(thd, clnt, new_row_data_type,
-                                             ncols, row_id, rc, columns);
-                    if (rc)
-                        goto out;
-                }
-            }
-        } else {
-            if (gbl_extended_sql_debug_trace) {
-                logmsg(LOGMSG_USER, "%s: cnonce '%s' setting postponed_write\n",
-                        __func__, cnonce);
-            }
-            postponed_write = 1;
-        }
-
-        rowcount++;
-        reqlog_set_rows(thd->logger, rowcount);
-        clnt->recno++;
-        if (clnt->rawnodestats)
-            clnt->rawnodestats->sql_rows++;
-
-        // flush
-        if(comm->flush && !clnt->iswrite) {
-            rc = comm->flush(clnt);
-            if (rc)
-                goto out;
-        }
-    } while ((rc = sqlite3_step(stmt)) == SQLITE_ROW);
-
-// whatever sqlite returns in sqlite3_step is only used to step out of the loop,
- //  otherwise ignored; we are gonna
- //  get it from sqlite (or osql.xerr)
-
-postprocessing:
-    if (rc == SQLITE_DONE)
-        rc = 0;
-
-    // closing: error codes, postponed write result and so on
-    rc =
-        post_sqlite_processing(thd, clnt, rec, postponed_write, ncols, row_id,
-                               columns, comm);
-
-out:
-    newsql_dealloc_row(columns, ncols);
-    return rc;
-
-  ....
-
-
-  int handle_sqlite_requests(struct sqlthdstate *thd,
-                           struct sqlclntstate *clnt,
-                           struct client_comm_if *comm)
-{
-    struct sql_state rec;
-    int rc;
-    int fast_error;
-    struct errstat err = {0};
-
-    bzero(&rec, sizeof(rec));
-
-    // loop if possible in case when cached remote schema becomes stale
-    do {
-        // get an sqlite engine
-        rc = get_prepared_bound_stmt(thd, clnt, &rec, &err, PREPARE_NONE);
-        if (rc) {
-            int irc = errstat_get_rc(&err);
-            // certain errors are saved, in that case we don't send anything
-            if(irc == ERR_PREPARE || irc == ERR_PREPARE_RETRY)
-                if(comm->send_prepare_error)
-                    comm->send_prepare_error(clnt, err.errstr,
-                                             (irc == ERR_PREPARE_RETRY));
-            goto errors;
-        }
-
-        // run the engine
-        fast_error = 0;
-        rc = run_stmt(thd, clnt, &rec, &fast_error, &err, comm);
-        if (rc) {
-            int irc = errstat_get_rc(&err);
-            switch(irc) {
-                case ERR_ROW_HEADER:
-                    if(comm->send_run_error)
-                        comm->send_run_error(clnt, errstat_get_str(&err),
-                                             CDB2ERR_CONV_FAIL);
-                    break;
-                case ERR_CONVERSION_DT:
-                    if(comm->send_run_error)
-                        comm->send_run_error(clnt, errstat_get_str(&err),
-                                             DB_ERR_CONV_FAIL);
-                    break;
-            }
-            if (fast_error)
-                goto errors;
-        }
-
-        if (rc == SQLITE_SCHEMA_REMOTE) {
-            update_schema_remotes(clnt, &rec);
-        }
-
-    } while (rc == SQLITE_SCHEMA_REMOTE);
-
-done:
-    sqlite_done(thd, clnt, &rec, rc);
-
-    return rc;
-
-errors:
-    handle_sqlite_error(thd, clnt, &rec);
-    goto done;
-}
-
-*/
 
 static int check_done_func(void *obj)
 {
@@ -4414,7 +4244,7 @@ check_version:
 
 int done_cb_evbuffer(struct sqlclntstate *clnt)
 {
-    if (clnt->query_rc == CDB2ERR_IO_ERROR) { /* dispatch timed out */
+    if (clnt->query_rc == RESPONSE_ERROR_IO) { /* dispatch timed out */
         return -1;
     }
     if (clnt->osql.replay == OSQL_RETRY_DO) {
@@ -4787,7 +4617,7 @@ void sqlengine_work_appsock(struct sqlthdstate *thd, struct sqlclntstate *clnt)
         logmsg(LOGMSG_ERROR, "%s td %p: unable to get a CURSOR transaction, rc=%d!\n", __func__, (void *)pthread_self(),
                rc);
         send_run_error(clnt, "Client api should change nodes",
-                       CDB2ERR_CHANGENODE);
+                       RESPONSE_ERROR_CHANGENODE);
         clnt->query_rc = -1;
         clnt->osql.timings.query_finished = osql_log_time();
         osql_log_time_done(clnt);
@@ -4862,7 +4692,7 @@ static void sqlengine_work_appsock_pp(struct thdpool *pool, void *work,
         break;
     case THD_FREE:
         /* we just mark the client done here, with error */
-        clnt->query_rc = CDB2ERR_IO_ERROR;
+        clnt->query_rc = RESPONSE_ERROR_IO;
         signal_clnt_as_done(clnt);
         break;
     }
@@ -5114,7 +4944,7 @@ static int verify_dispatch_sql_query(struct sqlclntstate *clnt)
         return 0;
     }
 
-    int rc = bTryAgain ? CDB2ERR_REJECTED: ERR_QUERY_REJECTED;
+    int rc = RESPONSE_ERROR_QUERY_REJECTED;
     char zRuleRes[100];
     memset(zRuleRes, 0, sizeof(zRuleRes));
     snprintf0(zRuleRes, sizeof(zRuleRes), "Rejected due to rule #%d", ruleNo);
@@ -5122,7 +4952,7 @@ static int verify_dispatch_sql_query(struct sqlclntstate *clnt)
         logmsg(LOGMSG_ERROR, "%s: REJECTED rc=%d {%s}: %s\n",
                __func__, rc, clnt->sql, zRuleRes);
     }
-    send_run_error(clnt, zRuleRes, rc);
+    send_run_response(clnt, zRuleRes, rc);
     return rc;
 }
 
@@ -6345,52 +6175,51 @@ enum {
 };
 
 /*
- * convert a block processor code error
- * to an sql code error
- * this is also done for blocksql on the client side
+ * Convert a block processor error code to a 
+ * db-subsystem error code.
  */
-int blockproc2sql_error(int rc, const char *func, int line)
+int convert_blockproc_error_to_db_error(int rc, const char *func, int line)
 {
     switch (rc) {
     case 0:
         return CDB2_OK;
     /* error dispatched by the block processor */
     case 102:
-        return CDB2ERR_NOMASTER;
+        return RESPONSE_ERROR_NO_MASTER;
     case 105:
-        return DB_ERR_TRN_BUF_INVALID;
+        return RESPONSE_ERROR_BUF_INVALID;
     case 106:
-        return DB_ERR_TRN_BUF_OVERFLOW;
+        return RESPONSE_ERROR_BUF_OVERFLOW;
     case ERR_READONLY: //195
-        return CDB2ERR_READONLY;
+        return RESPONSE_ERROR_READONLY;
     case 199:
-        return DB_ERR_BAD_REQUEST;
+        return RESPONSE_ERROR_BAD_REQUEST;
     case 208:
-        return DB_ERR_TRN_OPR_OVERFLOW;
+        return RESPONSE_ERROR_OPR_OVERFLOW;
     case 212:
-        return DB_ERR_NONKLESS;
+        return RESPONSE_ERROR_NONKLESS;
     case 220:
-        return CDB2ERR_DEADLOCK;
+        return RESPONSE_ERROR_DEADLOCK;
     case 222:
-        return CDB2__ERROR_CODE__DUP_OLD;
+        return RESPONSE_ERROR_DUP_OLD;
     case 224:
-        return CDB2ERR_VERIFY_ERROR;
+        return RESPONSE_ERROR_VERIFY;
     case 225:
-        return DB_ERR_TRN_DB_FAIL;
+        return RESPONSE_ERROR_DB_FAIL;
     case 230:
-        return DB_ERR_TRN_NOT_SERIAL;
+        return RESPONSE_ERROR_NOT_SERIAL;
     case 240:
-        return DB_ERR_TRN_SC;
+        return RESPONSE_ERROR_SCHEMA_CHANGE;
     case 301:
-        return CDB2ERR_CONV_FAIL;
+        return RESPONSE_ERROR_CONV_FAIL;
     case 998:
-        return DB_ERR_BAD_COMM_BUF;
+        return RESPONSE_ERROR_BAD_COMM_BUF;
     case 999:
-        return DB_ERR_BAD_COMM;
+        return RESPONSE_ERROR_BAD_COMM;
     case 2000:
-        return DB_ERR_TRN_DB_FAIL;
+        return RESPONSE_ERROR_DB_FAIL;
     case 2001:
-        return CDB2ERR_PREPARE_ERROR;
+        return RESPONSE_ERROR_PREPARE;
 
     /* hack for now; if somehow we get a 300/RC_INTERNAL_RETRY
        it means that due to schema change or similar issues
@@ -6398,87 +6227,92 @@ int blockproc2sql_error(int rc, const char *func, int line)
        in the future, this could be retried
      */
     case 300:
-        return CDB2ERR_DEADLOCK;
+        return RESPONSE_ERROR_DEADLOCK;
 
     /* error dispatched on the sql side */
     case ERR_NOMASTER:
-        return CDB2ERR_NOMASTER;
+        return RESPONSE_ERROR_NO_MASTER;
 
     case ERR_CONSTR:
-        return CDB2ERR_CONSTRAINTS;
+        return RESPONSE_ERROR_CONSTRAINTS;
 
     case ERR_DIST_ABORT:
-        return CDB2ERR_DIST_ABORT;
+        return RESPONSE_ERROR_DIST_ABORT;
 
     case ERR_NULL_CONSTRAINT:
-        return CDB2ERR_NULL_CONSTRAINT;
+        return RESPONSE_ERROR_CONSTRAINTS;
 
     case SQLITE_ACCESS:
-        return CDB2ERR_ACCESS;
+        return RESPONSE_ERROR_ACCESS;
 
     case 1229: /* ERR_BLOCK_FAILED + OP_FAILED_INTERNAL + ERR_FIND_CONSTRAINT */
-        return CDB2ERR_FKEY_VIOLATION;
+        return RESPONSE_ERROR_FKEY_VIOLATION;
 
     case ERR_UNCOMMITTABLE_TXN:
-        return CDB2ERR_VERIFY_ERROR;
+        return RESPONSE_ERROR_VERIFY;
 
     case ERR_REJECTED:
-        return SQLHERR_MASTER_QUEUE_FULL;
+        return RESPONSE_ERROR_MASTER_QUEUE_FULL;
 
     case SQLHERR_MASTER_TIMEOUT:
-        return SQLHERR_MASTER_TIMEOUT;
+        return RESPONSE_ERROR_MASTER_TIMEOUT;
 
     case ERR_NOT_DURABLE:
-        return CDB2ERR_CHANGENODE;
+        return RESPONSE_ERROR_CHANGENODE;
 
     case ERR_CHECK_CONSTRAINT + ERR_BLOCK_FAILED:
-        return CDB2ERR_CHECK_CONSTRAINT;
+        return RESPONSE_ERROR_CHECK_CONSTRAINT;
 
     case ERR_QUERY_REJECTED:
-        return CDB2ERR_QUERY_REJECTED;
+        return RESPONSE_ERROR_QUERY_REJECTED;
 
     default:
-        return DB_ERR_INTR_GENERIC;
+        return RESPONSE_ERROR_INTERNAL;
     }
 }
 
-int sqlserver2sqlclient_error(int rc)
+/*
+ * Convert a sqlite error code to a 
+ * db-subsystem error code.
+ */
+
+int convert_sqlite_error_to_db_error(int rc)
 {
     switch (rc) {
     case SQLITE_DEADLOCK:
     case SQLITE_BUSY:
-        return CDB2ERR_DEADLOCK;
+        return RESPONSE_ERROR_DEADLOCK;
     case SQLITE_TIMEDOUT:
     case SQLITE_COST_TOO_HIGH:
     case SQLITE_NO_TEMPTABLES:
     case SQLITE_NO_TABLESCANS:
-        return CDB2ERR_QUERYLIMIT;
+        return RESPONSE_ERROR_QUERY_LIMIT;
     case SQLITE_TRANTOOCOMPLEX:
-        return SQLHERR_ROLLBACKTOOLARGE;
+        return RESPONSE_ERROR_ROLLBACK_TOO_LARGE;
     case SQLITE_CLIENT_CHANGENODE:
-        return CDB2ERR_CHANGENODE;
+        return RESPONSE_ERROR_CHANGENODE;
     case SQLITE_TRAN_CANCELLED:
-        return SQLHERR_ROLLBACK_TOOOLD;
+        return RESPONSE_ERROR_ROLLBACK_TOO_OLD;
     case SQLITE_TRAN_NOLOG:
-        return SQLHERR_ROLLBACK_NOLOG;
+        return RESPONSE_ERROR_ROLLBACK_NO_LOG;
     case SQLITE_ACCESS:
-        return CDB2ERR_ACCESS;
+        return RESPONSE_ERROR_ACCESS;
     case ERR_TRAN_TOO_BIG:
-        return DB_ERR_TRN_OPR_OVERFLOW;
+        return RESPONSE_ERROR_OPR_OVERFLOW;
     case SQLITE_INTERNAL:
-        return CDB2ERR_INTERNAL;
+        return RESPONSE_ERROR_INTERNAL;
     case ERR_CONVERT_DTA:
-        return CDB2ERR_CONV_FAIL;
+        return RESPONSE_ERROR_CONV_FAIL;
     case SQLITE_TRAN_NOUNDO:
-        return SQLHERR_ROLLBACK_NOLOG; /* this will suffice */
+        return RESPONSE_ERROR_ROLLBACK_NO_LOG; /* this will suffice */
     case SQLITE_COMDB2SCHEMA:
-        return CDB2ERR_SCHEMA;
+        return RESPONSE_ERROR_SCHEMA;
     case CDB2ERR_PREPARE_ERROR:
-        return CDB2ERR_PREPARE_ERROR;
+        return RESPONSE_ERROR_PREPARE;
     case SQLITE_ANALYZE_ALREADY_RUNNING:
-        return CDB2ERR_ANALYZE_ALREADY_RUNNING;
+        return RESPONSE_ERROR_ANALYZE_ALREADY_RUNNING;
     default:
-        return CDB2ERR_UNKNOWN;
+        return RESPONSE_ERROR_UNKNOWN;
     }
 }
 
@@ -7154,7 +6988,7 @@ void clnt_plugin_reset(struct sqlclntstate *clnt)
 
 void exhausted_appsock_connections(struct sqlclntstate *clnt)
 {
-    write_response(clnt, RESPONSE_ERROR, "Exhausted appsock connections.", CDB2ERR_APPSOCK_LIMIT);
+    write_response(clnt, RESPONSE_ERROR_APPSOCK_LIMIT, "Exhausted appsock connections.", 0);
     gbl_denied_appsock_connection_count++;
     static time_t last = 0;
     time_t now = time(NULL);
@@ -7169,7 +7003,7 @@ void exhausted_appsock_connections(struct sqlclntstate *clnt)
 int maxquerytime_cb(struct sqlclntstate *clnt)
 {
     clnt->statement_timedout = 1;
-    return write_response(clnt, RESPONSE_ERROR, (char *)sqlite3ErrStr(SQLITE_TIMEDOUT), CDB2ERR_QUERYLIMIT);
+    return write_response(clnt, RESPONSE_ERROR_QUERY_LIMIT, (char *)sqlite3ErrStr(SQLITE_TIMEDOUT), 0);
 }
 
 /* Sqlite prototypes this as i64, since it insists on C89 compatibility, which precludes

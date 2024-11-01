@@ -2932,10 +2932,112 @@ after_callback:
 static int cdb2_convert_error_code(int rc)
 {
     switch (rc) {
+    case CDB2__ERROR_CODE__OK:
+        return CDB2_OK;
+    case CDB2__ERROR_CODE__CONNECT_ERROR:
+        return CDB2ERR_CONNECT_ERROR;
+    case CDB2__ERROR_CODE__NOTCONNECTED:
+        return CDB2ERR_NOTCONNECTED;
+    case CDB2__ERROR_CODE__PREPARE:
+        return CDB2ERR_PREPARE_ERROR;
+    case CDB2__ERROR_CODE__IO_ERROR:
+        return CDB2ERR_IO_ERROR;
+    case CDB2__ERROR_CODE__INTERNAL:
+        return CDB2ERR_INTERNAL;
+    case CDB2__ERROR_CODE__NOSTATEMENT:
+        return CDB2ERR_NOSTATEMENT;
+    case CDB2__ERROR_CODE__BAD_COLUMN:
+        return CDB2ERR_BADCOLUMN;
+    case CDB2__ERROR_CODE__BAD_STATE:
+        return CDB2ERR_BADSTATE;
+    case CDB2__ERROR_CODE__ASYNCERR:
+        return CDB2ERR_ASYNCERR;
+    case CDB2__ERROR_CODE__OK_ASYNC:
+        return CDB2_OK_ASYNC;
+    case CDB2__ERROR_CODE__INVALID_ID:
+        return CDB2ERR_INVALID_ID;
+    case CDB2__ERROR_CODE__RECORD_OUT_OF_RANGE:
+        return CDB2ERR_RECORD_OUT_OF_RANGE;
+    case CDB2__ERROR_CODE__REJECTED: /* TODO: Rejected vs query rejected */
+        return CDB2ERR_REJECTED;
+    case CDB2__ERROR_CODE__STOPPED:
+        return CDB2ERR_STOPPED;
+    case CDB2__ERROR_CODE__BAD_REQUEST:
+        return CDB2ERR_BADREQ;
+    case CDB2__ERROR_CODE__DBCREATE_FAILED:
+        return CDB2ERR_DBCREATE_FAILED;
+    case CDB2__ERROR_CODE__THREADPOOL_INTERNAL:
+        return CDB2ERR_THREADPOOL_INTERNAL;
+    case CDB2__ERROR_CODE__READONLY:
+        return CDB2ERR_READONLY;
+    case CDB2__ERROR_CODE__APPSOCK_LIMIT:
+        return CDB2ERR_APPSOCK_LIMIT;
+    case CDB2__ERROR_CODE__NO_MASTER:
+        return CDB2ERR_NOMASTER;
+    case CDB2__ERROR_CODE__NOT_SERIAL:
+        return CDB2ERR_NOTSERIAL;
+    case CDB2__ERROR_CODE__SCHEMA_CHANGE:
+        return CDB2ERR_SCHEMACHANGE;
+    case CDB2__ERROR_CODE__UNTAGGED_DATABASE:
+        return CDB2ERR_UNTAGGED_DATABASE;
+    case CDB2__ERROR_CODE__CONSTRAINTS:
+        return CDB2ERR_CONSTRAINTS;
+    case CDB2__ERROR_CODE__DEADLOCK:
+        return CDB2ERR_DEADLOCK;
+    case CDB2__ERROR_CODE__TRAN_IO_ERROR:
+        return CDB2ERR_TRAN_IO_ERROR;
+    case CDB2__ERROR_CODE__ACCESS:
+        return CDB2ERR_ACCESS;
+    case CDB2__ERROR_CODE__QUERY_LIMIT:
+        return CDB2ERR_QUERYLIMIT;
+    case CDB2__ERROR_CODE__VERIFY_ERROR:
+        return CDB2ERR_VERIFY_ERROR;
+    case CDB2__ERROR_CODE__FKEY_VIOLATION:
+        return CDB2ERR_FKEY_VIOLATION;
+    case CDB2__ERROR_CODE__NULL_CONSTRAINT:
+        return CDB2ERR_NULL_CONSTRAINT;
+    case CDB2__ERROR_CODE__CONV_FAIL:
+        return CDB2ERR_CONV_FAIL;
+    case CDB2__ERROR_CODE__NONKLESS:
+        return CDB2ERR_NONKLESS;
+    case CDB2__ERROR_CODE__MALLOC:
+        return CDB2ERR_MALLOC;
+    case CDB2__ERROR_CODE__NOTSUPPORTED:
+        return CDB2ERR_NOTSUPPORTED;
+    case CDB2__ERROR_CODE__DUPLICATE:
+        return CDB2ERR_DUPLICATE;
+    case CDB2__ERROR_CODE__TZNAME_FAIL:
+        return CDB2ERR_TZNAME_FAIL;
+    case CDB2__ERROR_CODE__CHANGENODE:
+        return CDB2ERR_CHANGENODE;
+    case CDB2__ERROR_CODE__SCHEMA:
+        return CDB2ERR_SCHEMA;
+    case CDB2__ERROR_CODE__CHECK_CONSTRAINT:
+        return CDB2ERR_CHECK_CONSTRAINT;
+    case CDB2__ERROR_CODE__DIST_ABORT:
+        return CDB2ERR_DIST_ABORT;
+    case CDB2__ERROR_CODE__UNKNOWN:
+        return CDB2ERR_UNKNOWN;
     case CDB2__ERROR_CODE__DUP_OLD:
         return CDB2ERR_DUPLICATE;
-    case CDB2__ERROR_CODE__PREPARE_ERROR_OLD:
+    case CDB2__ERROR_CODE__PREPARE_OLD:
         return CDB2ERR_PREPARE_ERROR;
+    case CDB2__ERROR_CODE__PREPARE_RETRY: /* TODO: Don't know whether to list explicitly or just let fall to default */
+    case CDB2__ERROR_CODE__OPR_OVERFLOW:
+    case CDB2__ERROR_CODE__MASTER_TIMEOUT:
+    case CDB2__ERROR_CODE__MASTER_QUEUE_FULL:
+    case CDB2__ERROR_CODE__WRONG_DB:
+    case CDB2__ERROR_CODE__ROLLBACK_TOO_OLD:
+    case CDB2__ERROR_CODE__TRAN_TOO_BIG:
+    case CDB2__ERROR_CODE__ROLLBACK_TOO_LARGE:
+    case CDB2__ERROR_CODE__ANALYZE_ALREADY_RUNNING:
+    case CDB2__ERROR_CODE__ROLLBACK_QUERY_LIMIT:
+    case CDB2__ERROR_CODE__ROLLBACK_NO_LOG:
+    case CDB2__ERROR_CODE__BAD_COMM:
+    case CDB2__ERROR_CODE__BAD_COMM_BUF:
+    case CDB2__ERROR_CODE__BUF_INVALID:
+    case CDB2__ERROR_CODE__BUF_OVERFLOW:
+    case CDB2__ERROR_CODE__DB_FAIL:
     default:
         return rc;
     }
@@ -4974,9 +5076,9 @@ read_record:
 
     if (using_hint) {
         if (hndl->firstresponse->error_code ==
-                CDB2__ERROR_CODE__PREPARE_ERROR_OLD ||
+                CDB2__ERROR_CODE__PREPARE_OLD ||
             hndl->firstresponse->error_code ==
-                CDB2__ERROR_CODE__PREPARE_ERROR) {
+                CDB2__ERROR_CODE__PREPARE) {
             sql = hndl->query;
             hndl->retry_all = 1;
             debugprint("goto retry_queries error_code=%d\n",

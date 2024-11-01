@@ -21,14 +21,14 @@ enum CDB2_ErrorCode {
     CONNECT_ERROR      = -1;
     NOTCONNECTED       = -2;
 
-    PREPARE_ERROR      = -3;
-    PREPARE_ERROR_OLD  = 1003;
+    PREPARE      = -3;
+    PREPARE_OLD  = 1003;
 
     IO_ERROR           = -4;
     INTERNAL           = -5;
     NOSTATEMENT        = -6;
-    BADCOLUMN          = -7;
-    BADSTATE           = -8;
+    BAD_COLUMN          = -7;
+    BAD_STATE           = -8;
     ASYNCERR           = -9;
     OK_ASYNC              = -10;
 
@@ -37,16 +37,16 @@ enum CDB2_ErrorCode {
 
     REJECTED                = -15;
     STOPPED                 = -16;
-    BADREQ                  = -17;
+    BAD_REQUEST                  = -17;
     DBCREATE_FAILED         = -18;
 
     THREADPOOL_INTERNAL     = -20;  /* some error in threadpool code */
     READONLY                = -21;
     APPSOCK_LIMIT           = -23;
 
-    NOMASTER                = -101;
-    NOTSERIAL               =  230;
-    SCHEMACHANGE            =  240;
+    NO_MASTER               = -101;
+    NOT_SERIAL              =  230;
+    SCHEMA_CHANGE           =  240;
     UNTAGGED_DATABASE       = -102;
     CONSTRAINTS             = -103;
     DEADLOCK                =  203;
@@ -54,8 +54,9 @@ enum CDB2_ErrorCode {
     TRAN_IO_ERROR           = -105;
     ACCESS                  = -106;
 
-    QUERYLIMIT              = -107;
+    QUERY_LIMIT              = -107;
     MASTER_TIMEOUT          = -109;
+    MASTER_QUEUE_FULL       = -110;
     WRONG_DB                = -111;
 
     VERIFY_ERROR            = 2;
@@ -71,6 +72,21 @@ enum CDB2_ErrorCode {
     DUPLICATE               = 299;
     TZNAME_FAIL             = 401;
     CHANGENODE              = 402;
+    ANALYZE_ALREADY_RUNNING = 403;
+    SCHEMA                  = 404;
+    CHECK_CONSTRAINT        = 405;
+    BAD_COMM        = 406;
+    BAD_COMM_BUF        = 407;
+    BUF_INVALID        = 408;
+    BUF_OVERFLOW        = 409;
+    DB_FAIL        = 410;
+    DIST_ABORT        = 411;
+    PREPARE_RETRY      = 412;
+    OPR_OVERFLOW      = 413;
+    ROLLBACK_TOO_OLD      = 414;
+    ROLLBACK_TOO_LARGE      = 415;
+    ROLLBACK_QUERY_LIMIT      = 416;
+    ROLLBACK_NO_LOG      = 417;
     UNKNOWN                 = 300;
 }
 

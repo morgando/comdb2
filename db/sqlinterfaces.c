@@ -2417,7 +2417,7 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
         outrc = rc;
 
         if (do_send_commitrollback_response(clnt, sideeffects)) {
-            write_response(clnt, RESPONSE_ERROR, clnt->osql.xerr.errstr, outrc);
+            write_response(clnt, outrc, clnt->osql.xerr.errstr, 0);
         }
     }
 
@@ -2928,14 +2928,7 @@ static int send_run_error(struct sqlclntstate *clnt, const char *err, int rc)
     Pthread_mutex_lock(&clnt->wait_mutex);
     clnt->ready_for_heartbeats = 0;
     Pthread_mutex_unlock(&clnt->wait_mutex);
-    return write_response(clnt, RESPONSE_ERROR, (void *)err, rc);
-}
-
-static int send_run_response(struct sqlclntstate *clnt, const char *err, int response) {
-    Pthread_mutex_lock(&clnt->wait_mutex);
-    clnt->ready_for_heartbeats = 0;
-    Pthread_mutex_unlock(&clnt->wait_mutex);
-    return write_response(clnt, response, (void *)err, 0);
+    return write_response(clnt, rc, (void *)err, 0);
 }
 
 static int handle_bad_engine(struct sqlclntstate *clnt)
@@ -3804,7 +3797,7 @@ static int run_stmt(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     }
 
     if ((rc = validate_columns(clnt, stmt)) != 0) {
-        send_run_response(clnt,
+        send_run_error(clnt,
                        "NEXTSEQUENCE function is not legal in this context",
                        RESPONSE_ERROR_PREPARE);
         return rc;
@@ -4051,7 +4044,7 @@ retry_legacy_remote:
             switch(irc) {
             case ERR_ROW_HEADER:
             case ERR_CONVERSION_DT:
-                send_run_response(clnt, errstat_get_str(&err), RESPONSE_ERROR_CONV_FAIL);
+                send_run_error(clnt, errstat_get_str(&err), RESPONSE_ERROR_CONV_FAIL);
                 break;
             }
             if (fast_error) {
@@ -4952,7 +4945,7 @@ static int verify_dispatch_sql_query(struct sqlclntstate *clnt)
         logmsg(LOGMSG_ERROR, "%s: REJECTED rc=%d {%s}: %s\n",
                __func__, rc, clnt->sql, zRuleRes);
     }
-    send_run_response(clnt, zRuleRes, rc);
+    send_run_error(clnt, zRuleRes, rc);
     return rc;
 }
 

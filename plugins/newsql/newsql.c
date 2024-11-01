@@ -1041,28 +1041,59 @@ static int newsql_write_response(struct sqlclntstate *c, int t, void *a, int i)
 {
     switch (t) {
     case RESPONSE_COLUMNS: return newsql_columns(c, a);
+    case RESPONSE_COLUMNS_FDB_PUSH: return newsql_columns_fdb_push(c, a, i);
     case RESPONSE_COLUMNS_LUA: return newsql_columns_lua(c, a);
     case RESPONSE_COLUMNS_STR: return newsql_columns_str(c, a, i);
-    case RESPONSE_COLUMNS_FDB_PUSH:
-        return newsql_columns_fdb_push(c, a, i);
+    case RESPONSE_COST: return newsql_cost(c);
     case RESPONSE_DEBUG: return newsql_debug(c, a);
     case RESPONSE_ERROR: return newsql_error(c, a, i);
-    case RESPONSE_ERROR_ACCESS: return newsql_error(c, a, CDB2ERR_ACCESS);
-    case RESPONSE_ERROR_BAD_STATE: return newsql_error(c, a, CDB2ERR_BADSTATE);
-    case RESPONSE_ERROR_PREPARE: return newsql_error(c, a, CDB2ERR_PREPARE_ERROR);
-    case RESPONSE_ERROR_QUERY_REJECTED: return newsql_error(c, a, CDB2ERR_REJECTED);
-    case RESPONSE_REDIRECT_FOREIGN: return newsql_redirect_foreign(c, a, i);
+    case RESPONSE_ERROR_ACCESS: return newsql_error(c, a, CDB2__ERROR_CODE__ACCESS);
+    case RESPONSE_ERROR_ANALYZE_ALREADY_RUNNING: return newsql_error(c, a, CDB2__ERROR_CODE__ANALYZE_ALREADY_RUNNING);
+    case RESPONSE_ERROR_APPSOCK_LIMIT: return newsql_error(c, a, CDB2__ERROR_CODE__APPSOCK_LIMIT);
+    case RESPONSE_ERROR_BAD_COMM: return newsql_error(c, a, CDB2__ERROR_CODE__BAD_COMM);
+    case RESPONSE_ERROR_BAD_COMM_BUF: return newsql_error(c, a, CDB2__ERROR_CODE__BAD_COMM_BUF);
+    case RESPONSE_ERROR_BAD_REQUEST: return newsql_error(c, a, CDB2__ERROR_CODE__BAD_REQUEST);
+    case RESPONSE_ERROR_BAD_STATE: return newsql_error(c, a, CDB2__ERROR_CODE__BAD_STATE);
+    case RESPONSE_ERROR_BUF_INVALID: return newsql_error(c, a, CDB2__ERROR_CODE__BUF_INVALID);
+    case RESPONSE_ERROR_BUF_OVERFLOW: return newsql_error(c, a, CDB2__ERROR_CODE__BUF_OVERFLOW);
+    case RESPONSE_ERROR_CHANGENODE: return newsql_error(c, a, CDB2__ERROR_CODE__CHANGENODE);
+    case RESPONSE_ERROR_CHECK_CONSTRAINT: return newsql_error(c, a, CDB2__ERROR_CODE__CHECK_CONSTRAINT);
+    case RESPONSE_ERROR_CONSTRAINTS: return newsql_error(c, a, CDB2__ERROR_CODE__CONSTRAINTS);
+    case RESPONSE_ERROR_CONV_FAIL: return newsql_error(c, a, CDB2__ERROR_CODE__CONV_FAIL);
+    case RESPONSE_ERROR_DB_FAIL: return newsql_error(c, a, CDB2__ERROR_CODE__DB_FAIL);
+    case RESPONSE_ERROR_DEADLOCK: return newsql_error(c, a, CDB2__ERROR_CODE__DEADLOCK);
+    case RESPONSE_ERROR_DIST_ABORT: return newsql_error(c, a, CDB2__ERROR_CODE__DIST_ABORT);
+    case RESPONSE_ERROR_DUP_OLD: return newsql_error(c, a, CDB2__ERROR_CODE__DUP_OLD);
+    case RESPONSE_ERROR_FKEY_VIOLATION: return newsql_error(c, a, CDB2__ERROR_CODE__FKEY_VIOLATION);
+    case RESPONSE_ERROR_INTERNAL: return newsql_error(c, a, CDB2__ERROR_CODE__INTERNAL);
+    case RESPONSE_ERROR_IO: return newsql_error(c, a, CDB2__ERROR_CODE__IO_ERROR);
+    case RESPONSE_ERROR_MASTER_QUEUE_FULL: return newsql_error(c, a, CDB2__ERROR_CODE__MASTER_QUEUE_FULL);
+    case RESPONSE_ERROR_MASTER_TIMEOUT: return newsql_error(c, a, CDB2__ERROR_CODE__MASTER_TIMEOUT);
+    case RESPONSE_ERROR_NONKLESS: return newsql_error(c, a, CDB2__ERROR_CODE__NONKLESS);
+    case RESPONSE_ERROR_NOT_SERIAL: return newsql_error(c, a, CDB2__ERROR_CODE__NOT_SERIAL);
+    case RESPONSE_ERROR_NO_MASTER: return newsql_error(c, a, CDB2__ERROR_CODE__NO_MASTER);
+    case RESPONSE_ERROR_OPR_OVERFLOW: return newsql_error(c, a, CDB2__ERROR_CODE__OPR_OVERFLOW);
+    case RESPONSE_ERROR_PREPARE: return newsql_error(c, a, CDB2__ERROR_CODE__PREPARE);
+    case RESPONSE_ERROR_QUERY_LIMIT: return newsql_error(c, a, CDB2__ERROR_CODE__QUERY_LIMIT);
+    case RESPONSE_ERROR_QUERY_REJECTED: return newsql_error(c, a, CDB2__ERROR_CODE__REJECTED);
+    case RESPONSE_ERROR_READONLY: return newsql_error(c, a, CDB2__ERROR_CODE__READONLY);
+    case RESPONSE_ERROR_ROLLBACK_NO_LOG: return newsql_error(c, a, CDB2__ERROR_CODE__ROLLBACK_NO_LOG);
+    case RESPONSE_ERROR_ROLLBACK_QUERY_LIMIT: return newsql_error(c, a, CDB2__ERROR_CODE__ROLLBACK_QUERY_LIMIT);
+    case RESPONSE_ERROR_ROLLBACK_TOO_LARGE: return newsql_error(c, a, CDB2__ERROR_CODE__ROLLBACK_TOO_LARGE);
+    case RESPONSE_ERROR_ROLLBACK_TOO_OLD: return newsql_error(c, a, CDB2__ERROR_CODE__ROLLBACK_TOO_OLD);
+    case RESPONSE_ERROR_SCHEMA: return newsql_error(c, a, CDB2__ERROR_CODE__SCHEMA);
+    case RESPONSE_ERROR_SCHEMA_CHANGE: return newsql_error(c, a, CDB2__ERROR_CODE__SCHEMA_CHANGE);
+    case RESPONSE_ERROR_UNKNOWN: return newsql_error(c, a, CDB2__ERROR_CODE__UNKNOWN);
+    case RESPONSE_ERROR_VERIFY: return newsql_error(c, a, CDB2__ERROR_CODE__VERIFY_ERROR);
     case RESPONSE_FLUSH: return c->plugin.flush(c);
     case RESPONSE_HEARTBEAT: return newsql_heartbeat(c);
-    case RESPONSE_ROW:
-        return c->sqlite_row_format ? newsql_row_sqlite(c, a, i)
-                                    : newsql_row(c, a, i);
+    case RESPONSE_REDIRECT_FOREIGN: return newsql_redirect_foreign(c, a, i);
+    case RESPONSE_ROW: return c->sqlite_row_format ? newsql_row_sqlite(c, a, i) : newsql_row(c, a, i);
     case RESPONSE_ROW_LAST: return newsql_row_last(c);
     case RESPONSE_ROW_LAST_DUMMY: return newsql_row_last_dummy(c);
     case RESPONSE_ROW_LUA: return newsql_row_lua(c, a);
     case RESPONSE_ROW_STR: return newsql_row_str(c, a, i);
     case RESPONSE_TRACE: return newsql_trace(c, a);
-    case RESPONSE_COST: return newsql_cost(c);
     /* fastsql only messages */
     case RESPONSE_EFFECTS:
     case RESPONSE_ERROR_PREPARE_RETRY:

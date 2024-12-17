@@ -7279,20 +7279,18 @@ char *cdb2_string_escape(cdb2_hndl_tp *hndl, const char *src)
 }
 
 int cdb2_get_property(cdb2_hndl_tp *hndl, const char *key, char **value) {
-    if (hndl == NULL)
+    if (hndl == NULL) {
         return CDB2ERR_NOSTATEMENT;
-    *value = NULL;
-    if (strcmp(key, "sql:tail") == 0) {
-        if (hndl->firstresponse == NULL)
-            return CDB2ERR_NOSTATEMENT;
-        if (!hndl->firstresponse->has_sql_tail_offset) {
-            return CDB2ERR_OLD_SERVER;
-        }
-        char *str = malloc(20);
-        sprintf(str, "%d", hndl->firstresponse->sql_tail_offset);
-        *value = str;
+    } else if (strcmp(key, "sql:tail") != 0) {
+        return CDB2ERR_UNKNOWN_PROPERTY;
+    } else if (hndl->firstresponse == NULL) {
+        return CDB2ERR_NOSTATEMENT;
+    } else if (!hndl->firstresponse->has_sql_tail_offset) {
+        return CDB2ERR_OLD_SERVER;
+    } else {
+        *value = malloc(20);
+        if (!value) { return ENOMEM; }
+        sprintf(*value, "%d", hndl->firstresponse->sql_tail_offset);
         return 0;
     }
-    else
-        return CDB2ERR_UNKNOWN_PROPERTY;
 }

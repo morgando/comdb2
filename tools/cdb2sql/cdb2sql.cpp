@@ -38,10 +38,10 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <algorithm> // find_if_not
 
 #include "cdb2api.h"
 #include "cdb2_constants.h"
-#include "completer_buf.h"
 
 static char *dbname = NULL;
 static char *dbtype = NULL;
@@ -112,7 +112,6 @@ static char *prompt = main_prompt;
 static int connect_to_master = 0;
 static int cdb2_master = 0;
 int multiline = 0;
-struct completer_buf *completer = NULL;
 
 static int now_ms(void)
 {
@@ -1712,41 +1711,53 @@ static int run_statement(const char *sql, int ntypes, int *types,
     return 0;
 }
 
-static int process_line(char *sql, int ntypes, int *types,
-                         int *start_time, int *run_time)
+static int is_comment_or_empty_line(const char * sql)
 {
-    char *sqlstr = sql;
-    int rc;
-
-    verbose_print("processing line sql '%.30s...'\n", sql);
-    /* Trim whitespace and then ignore comments and empty lines. */
-    while (isspace(*sqlstr))
-        sqlstr++;
-
-    if (sqlstr[0] == '#' || sqlstr[0] == '\0' ||
-        (sqlstr[0] == '-' && sqlstr[1] == '-'))
-        return 0;
-
-    if (!multiline) {
-        int len;
-        len = strlen(sqlstr);
-        while (len > 0 && isspace(sqlstr[len - 1]))
-            len--;
-        while (len > 0 && sqlstr[len - 1] == ';')
-            len--;
-        sqlstr[len] = '\0';
+    while (isspace(*sql)) {
+        sql++;
     }
+
+    return (sql[0] == '#' || sql[0] == '\0' ||
+        (sql[0] == '-' && sql[1] == '-'));
+}
+
+static void remove_trailing_spaces_and_semicolons(char * const sql)
+{
+    int len = strlen(sql);
+    while (len > 0 && isspace(sql[len - 1])) {
+        len--;
+    }
+    while (len > 0 && sql[len - 1] == ';') {
+        len--;
+    }
+
+    sql[len] = '\0';
+}
+
+static void remove_leading_spaces(char ** const p_sql)
+{
+    while (isspace(**p_sql)) {
+        (*p_sql)++;
+    }
+}
+
+static int process_raw_line(const char * const sql, int ntypes, int *types,
+                            int *start_time, int *run_time)
+{
+    verbose_print("processing line sql '%.30s...'\n", sql);
+
+    if (is_comment_or_empty_line(sql)) { return 0; }
 
     int start_time_ms, run_time_ms;
     gbl_in_stmt = 1;
-    rc = run_statement(sqlstr, ntypes, types, &start_time_ms, &run_time_ms);
+    const int rc = run_statement(sql, ntypes, types, &start_time_ms, &run_time_ms);
     gbl_in_stmt = 0;
     gbl_sent_cancel_cnonce = 0;
 
     if (rc != 0 && rc != CDB2ERR_INCOMPLETE) {
         error++;
     } else if (!multiline && (!scriptmode) && !(printmode & DISP_NONE)) {
-        printf("[%s] rc %d\n", sqlstr, rc);
+        printf("[%s] rc %d\n", sql, rc);
         if (time_mode) {
             printf("  prep time  %d ms\n", start_time_ms);
             printf("  run time   %d ms\n", run_time_ms);
@@ -1768,6 +1779,23 @@ static int process_line(char *sql, int ntypes, int *types,
         printmode = saved_printmode;
     }
     return rc;
+}
+
+/* Trim whitespace at the start of the line and whitespace+semicolons at the end of the line. */
+static void pre_process_line(char ** p_sql)
+{
+    remove_leading_spaces(p_sql);
+    remove_trailing_spaces_and_semicolons(*p_sql);
+}
+
+static int process_line(char *sql, int ntypes, int *types,
+                         int *start_time, int *run_time)
+{
+    if (is_comment_or_empty_line(sql)) { return 0; }
+
+    char *pre_processed_sql = sql;
+    pre_process_line(&pre_processed_sql);
+    return process_raw_line(pre_processed_sql, ntypes, types, start_time, run_time);
 }
 
 struct winsize win_size;
@@ -1881,7 +1909,7 @@ static int *process_typed_statement_args(int ntypes, char **args)
     return types;
 }
 
-static int is_multi_line(const char *sql)
+static int is_multi_line_ddl(const char *sql)
 {
     if (sql == NULL)
         return 0;
@@ -1905,7 +1933,7 @@ static int is_multi_line(const char *sql)
     return 0;
 }
 
-static char *get_multi_line_statement(char *line)
+static char *get_multi_line_ddl_statement(char *line)
 {
     char *stmt = NULL;
     int slen = 0;
@@ -2011,6 +2039,107 @@ static void int_handler(int signum)
         rl_redisplay();
     }
     send_cancel_cnonce(cdb2_cnonce(cdb2h));
+}
+
+static void advance_past_whitespace(std::string & sql)
+{
+    std::string::iterator first_non_whitespace_char = std::find_if_not(sql.begin(), sql.end(), ::isspace);
+    sql.erase(sql.begin(), first_non_whitespace_char);
+}
+
+static int advance_past_complete_statement(std::string & sql)
+{
+    char *tailstr;
+    const int rc = cdb2_get_property(cdb2h, "sql:tail", &tailstr);
+    if (rc) {
+        verbose_print("Could not advance past complete statement\n");
+        return 1;
+    }
+
+    const int tailoff = atoi(tailstr);
+    prompt = main_prompt;
+    sql.erase(0, tailoff);
+
+    verbose_print("Advanced past complete statement\n");
+    return 0;
+}
+
+static void multiline_sql_init()
+{
+    char *set_multiline = strdup("set multiline on");
+    process_line(set_multiline, 0, NULL, 0, 0);
+    free(set_multiline);
+}
+
+static void handle_line_in_multiline_sql(std::string & sql, char * line)
+{
+    verbose_print("Appending line %s\n", line);
+    sql.append(line);
+    sql.append("\n");
+
+    // An  optimization.  We don't want to send every line when
+    // we're sure it's not complete, which it won't be if the
+    // statement contains no semicolons.  So look for a semicolon
+    // before we send this to the server and see if 
+    // we have a complete statement.  If not, we continue getting
+    // a line at a time and appending it until we see a semicolon.
+    // At no point do we attempt to parse anything.
+    int have_semicolon = sql.find(';') != std::string::npos;
+    while (have_semicolon) {
+        advance_past_whitespace(sql); // cdb2_run_statement strips spaces--strip here to maintain offset
+        verbose_print("Processing %s\n", sql.c_str());
+
+        const int rc = process_raw_line(sql.c_str(), 0, NULL, 0, 0);
+        if (rc != CDB2ERR_INCOMPLETE) {
+            have_semicolon = !advance_past_complete_statement(sql) && (sql.find(';') != std::string::npos);
+        }
+    }
+}
+
+static void parse_multiline_input()
+{
+    multiline_sql_init();
+    std::string sql("");
+
+    char * line = NULL;
+    const char * const prompt = main_prompt;
+    while ((line = read_line(prompt)) != NULL) {
+        handle_line_in_multiline_sql(sql, line);
+    }
+
+    if (!sql.empty()) {
+        advance_past_whitespace(sql); // cdb2_run_statement strips spaces--strip here to maintain offset
+        verbose_print("Processing %s\n", sql.c_str());
+        process_raw_line(sql.c_str(), 0, NULL, 0, 0);
+    }
+}
+
+static void parse_input()
+{
+    char *line = NULL;
+    int multi = 0;
+    const char *prompt = main_prompt;
+    while ((line = read_line(prompt)) != NULL) {
+        if (strncmp(line, "quit", 4) == 0) {
+            break;
+        }
+
+        if ((multi = is_multi_line_ddl(line)) != 0) {
+            // Even if multi line mode is disabled cdb2sql still supports multiline
+            // ddl.
+            line = get_multi_line_ddl_statement(line);
+        }
+
+        if (repeat > 1) {
+            do_repeat(line);
+        } else {
+            process_line(line, 0, NULL, 0, 0);
+        }
+
+        if (multi) {
+            free(line);
+        }
+    }
 }
 
 int main(int argc, char *argv[])
@@ -2214,85 +2343,13 @@ int main(int argc, char *argv[])
         sact.sa_handler = int_handler;
         sigaction(SIGINT, &sact, NULL);
     }
-    char *line;
-    int multi;
+
     if (multiline) {
-        completer = completerbuf_new();
-        char *set_multiline = strdup("set multiline on");
-        process_line((char*) set_multiline, 0, NULL, 0, 0);
-        free(set_multiline);
+        parse_multiline_input();
+    } else {
+        parse_input();
     }
 
-    const char *prompt = main_prompt;
-    while ((line = read_line(prompt)) != NULL) {
-        if (strncmp(line, "quit", 4) == 0)
-            break;
-        // TODO: move to its own routine?
-        if (multiline) {
-            completerbuf_append(completer, line);
-            line = completerbuf_get(completer);
-            char *s;
-            int have_semicolon = 0;
-            // An  optimization.  We don't want to send every line when
-            // we're sure it's not complete, which it won't be if the
-            // statement contains no semicolons.  So look for a semicolon
-            // before we send this to the server and see if 
-            // we have a complete statement.  If not, we continue getting
-            // a line at a time and appending it until we see a semicolon.
-            // At no point do we attempt to parse anything.
-            if (memchr(line, ';', completerbuf_available(completer)) != NULL) {
-                have_semicolon = 1;
-            }
-            else
-                have_semicolon = 0;
-            while (have_semicolon) {
-                // We unfortunately strip space in cdb2_run_statement - strip it here as well so
-                // our offset remains valid.
-                char *start = line;
-                while (isspace(*line)) line++;
-                if (line != start)
-                    completerbuf_advance(completer, line-start);
-                char *l = (char*) malloc(completerbuf_available(completer) + 1);
-                strncpy(l, line, completerbuf_available(completer));
-                l[completerbuf_available(completer)] = 0;
-                line = l;
-                int rc = process_line(line, 0, NULL, 0, 0);
-                if (rc != CDB2ERR_INCOMPLETE) {
-                    // Get the tail property and advance past the complete
-                    // statement, if any.
-                    char *tailstr;
-                    int tailoff;
-                    rc = cdb2_get_property(cdb2h, "sql:tail", &tailstr);
-                    if (rc) {
-                        completerbuf_clear(completer);
-                        free(line);
-                        have_semicolon = 0;
-                        continue;
-                    }
-                    tailoff = atoi(tailstr);
-                    free(line);
-                    prompt = main_prompt;
-                    completerbuf_advance(completer, tailoff);
-                    line = completerbuf_get(completer);
-                    if (memchr(line, ';', completerbuf_available(completer)) != NULL) {
-                        have_semicolon = 1;
-                    }
-                    else
-                        have_semicolon = 0;
-                }
-            }
-            continue;
-        }
-        else if ((multi = is_multi_line(line)) != 0)
-            line = get_multi_line_statement(line);
-        if (repeat > 1) {
-            do_repeat(line);
-        } else {
-            process_line(line, 0, NULL, 0, 0);
-        }
-        if (multi || multiline)
-            free(line);
-    }
     if (istty)
         save_readline_history();
 

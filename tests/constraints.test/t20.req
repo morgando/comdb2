@@ -1,0 +1,10 @@
+-- add constraint with table alter and then satisfy it with table alter in a transaction.
+-- fails with an error now but can be supported in the future
+drop table if exists foo
+drop table if exists bar
+create table foo(i int)$$
+create table bar(i int)$$
+begin
+alter table foo {schema{int i} keys{dup "key" = i} constraints{"key" -> <"bar" : "pk">}} $$
+alter table bar {schema{int i} keys{"pk" = i}} $$
+commit

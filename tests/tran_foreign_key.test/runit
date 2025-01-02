@@ -43,7 +43,7 @@ main() {
         if run_test ${test_input_file_name}; then
             echo "--- Passed ${test_input_file_name} ---"
         else
-            echo "--- Failed ${test_input_file_name} ---"
+            echo "xxx Failed ${test_input_file_name} xxx"
             failed_test=1
         fi
     done

@@ -1181,6 +1181,7 @@ int compare_constraints(const char *table, struct dbtable *newdb)
 int restore_constraint_pointers_main(struct dbtable *db, struct dbtable *newdb,
                                      int copyof)
 {
+	// TODO: Need to update this logic
     int i = 0;
     /* lets deal with pointers...all tables pointing to me must be entered into
      * my 'reverse' */

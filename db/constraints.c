@@ -2141,6 +2141,19 @@ static inline int key_has_expressions_members(struct schema *key)
     return 0;
 }
 
+// Returns pointer to dbtable with name matching `name` if it exists in `sc`; otherwise, returns NULL
+static struct dbtable * get_dbtable_from_schema_change_by_name(const char * const name, const struct schema_change_type * sc)
+{
+    while (sc) {
+        if (strcasecmp(sc->tablename, name) == 0) {
+            return sc->db;
+        }
+        sc = sc->sc_next;
+    }
+
+    return NULL;
+}
+
 /* Verify that the tables and keys referred to by this table's constraints all
  * exist & have the correct column count.  If they don't it's a bit of a show
  * stopper. */
@@ -2195,14 +2208,7 @@ int verify_constraints_exist(struct ireq *iq,
                 rdb = from_db;
             if (rdb == NULL && iq && iq->sc) {
                 // see if we're about to add this table
-                struct schema_change_type *sc = iq->sc;
-                while (sc) {
-                    if (strcasecmp(sc->tablename, ct->table[jj]) == 0) {
-                        rdb = sc->db;
-                        break;
-                    }
-                    sc = sc->sc_next;
-                }
+                rdb = get_dbtable_from_schema_change_by_name(ct->table[jj], iq->sc);
             }
             if (!rdb) {
                 /* Referencing a non-existent table */
@@ -2246,9 +2252,12 @@ int verify_constraints_exist(struct ireq *iq,
 /* creates a reverse constraint in the referenced table for each of the db's
  * constraint rules, if the referenced table already has the constraint a
  * duplicate is not added
- * this func also does a lot of verifications
- * returns the number of erorrs encountered */
-int populate_reverse_constraints(struct ireq *iq, struct dbtable *db)
+ * this func also does a lot of verifications.
+ * If `track_errors` is nonzero then this func
+ * returns the number of errors encountered and logs a message
+ * describing each error. */
+int populate_reverse_constraints(struct ireq *iq, struct dbtable *db,
+                                              int track_errors)
 {
     int ii, n_errors = 0;
 
@@ -2258,7 +2267,7 @@ int populate_reverse_constraints(struct ireq *iq, struct dbtable *db)
         struct schema *sc = NULL;
 
         sc = find_tag_schema(db, cnstrt->lclkeyname);
-        if (sc == NULL) {
+        if (sc == NULL && track_errors) {
             ++n_errors;
             logmsg(LOGMSG_ERROR,
                    "constraint error: key %s is not found in table %s\n",
@@ -2274,22 +2283,17 @@ int populate_reverse_constraints(struct ireq *iq, struct dbtable *db)
                 strcasecmp(cnstrt->table[jj], db->tablename) == 0)
                 cttbl = db;
 
+            if (cttbl == NULL && iq && iq->tranddl) { 
+                cttbl = get_dbtable_from_schema_change_by_name(cnstrt->table[jj], iq->sc);
+            }
+
             if (cttbl == NULL) {
-                if (iq && iq->tranddl) {
-                    struct schema_change_type *s = iq->sc;
-                    while (s) {
-                        if (strcasecmp(s->tablename, cnstrt->table[jj]) == 0) {
-                            cttbl = s->db;
-                            break;
-                        }
-                        s = s->sc_next;
-                    }
-                }
-                if (cttbl == NULL) {
+                if (track_errors) {
                     ++n_errors;
                     logmsg(LOGMSG_ERROR, "constraint error for key %s: table %s is not found\n",
-                           cnstrt->lclkeyname, cnstrt->table[jj]);
+                        cnstrt->lclkeyname, cnstrt->table[jj]);
                 }
+                continue;
             }
 
             if (cttbl == db)
@@ -2297,11 +2301,13 @@ int populate_reverse_constraints(struct ireq *iq, struct dbtable *db)
             else
                 sckey = find_tag_schema(cttbl, cnstrt->keynm[jj]);
             if (sckey == NULL) {
-                ++n_errors;
-                logmsg(LOGMSG_ERROR, "constraint error for key %s: key %s is not found in "
+                if (track_errors) {
+                    ++n_errors;
+                    logmsg(LOGMSG_ERROR, "constraint error for key %s: key %s is not found in "
                        "table %s\n",
                        cnstrt->lclkeyname, cnstrt->keynm[jj],
                        cnstrt->table[jj]);
+                }
                 continue;
             }
 

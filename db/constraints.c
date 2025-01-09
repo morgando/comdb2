@@ -2156,7 +2156,12 @@ static struct dbtable * get_dbtable_from_schema_change_by_name(const char * cons
 
 /* Verify that the tables and keys referred to by this table's constraints all
  * exist & have the correct column count.  If they don't it's a bit of a show
- * stopper. */
+ * stopper.
+ *
+ * from_db: table that is the source of the constraints to verify
+ * to_db: table that is the target of the constraints to verify
+ * new_db
+ * */
 int verify_constraints_exist(struct ireq *iq,
                              struct dbtable *from_db, struct dbtable *to_db,
                              struct dbtable *new_db,
@@ -2201,15 +2206,22 @@ int verify_constraints_exist(struct ireq *iq,
             if (to_db && strcasecmp(ct->table[jj], to_db->tablename) != 0)
                 continue;
 
-            rdb = get_dbtable_by_name(ct->table[jj]);
+           // see if the constraint target table is also being schema changed.
+           dbtable * const rdb_from_sc = (iq && iq->sc)
+            ? get_dbtable_from_schema_change_by_name(ct->table[jj], iq->sc)
+            : NULL;
+                
+            // If the constraint target table is being schema changed, then we want the new
+            // dbtable (from our schema change) instead of the old one (which represents the
+            // table's state before the schema change). In this case `get_dbtable_by_name`
+            // will return the old dbtable and `get_dbtable_from_schema_change_by_name` will
+            // return the new one.
+            rdb = rdb_from_sc ? rdb_from_sc : get_dbtable_by_name(ct->table[jj]);
+
             if (rdb)
-                rdb = get_newer_db(rdb, new_db);
+                rdb = get_newer_db(rdb, new_db); // if target was schema changed, get newer
             else if (strcasecmp(ct->table[jj], from_db->tablename) == 0)
-                rdb = from_db;
-            if (rdb == NULL && iq && iq->sc) {
-                // see if we're about to add this table
-                rdb = get_dbtable_from_schema_change_by_name(ct->table[jj], iq->sc);
-            }
+                rdb = from_db; // if target == src
             if (!rdb) {
                 /* Referencing a non-existent table */
                 constraint_err(s, from_db, ct, jj, "parent table not found");

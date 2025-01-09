@@ -2538,8 +2538,6 @@ void load_cache(const char *file);
 void load_cache_default(void);
 void dump_cache_default(void);
 int compare_all_tags(const char *table, FILE *out);
-int restore_constraint_pointers(struct dbtable *db, struct dbtable *newdb);
-int backout_constraint_pointers(struct dbtable *db, struct dbtable *newdb);
 int populate_reverse_constraints(struct ireq *iq, struct dbtable *db,
                                               int track_errors);
 void init_reverse_constraints(struct dbtable *db);

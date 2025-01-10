@@ -78,7 +78,7 @@ static int process_constraints_for_new_table_scdone_on_master(struct dbtable * c
                                                               struct ireq * const iq,
                                                               struct schema_change_type *s)
 {
-    int rc = verify_constraints_exist(iq, newdb, NULL, NULL, s);
+    int rc = verify_constraints_from_given_table_exist(iq, newdb, s);
     if (rc) {
         logmsg(LOGMSG_ERROR, "%s: failed to verify constraints\n", __func__);
         return -1;
@@ -311,7 +311,7 @@ int finalize_add_table(struct ireq *iq, struct schema_change_type *s,
         sc_errf(s, "failed to lock comdb2_tables (%s:%d)\n", __func__, __LINE__);
         return -1;
     }
-    if (iq && iq->tranddl > 1 && verify_constraints_exist(iq, db, NULL, NULL, s) != 0) {
+    if (iq && iq->tranddl > 1 && verify_constraints_from_given_table_exist(iq, db, s) != 0) {
         sc_errf(s, "error verifying constraints\n");
         return -1;
     }

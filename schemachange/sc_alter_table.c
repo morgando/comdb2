@@ -495,7 +495,7 @@ int do_alter_table(struct ireq *iq, struct schema_change_type *s,
     Pthread_mutex_unlock(&csc2_subsystem_mtx);
 
     if ((iq == NULL || iq->tranddl <= 1) &&
-        verify_constraints_exist(iq, NULL, newdb, newdb, s) != 0) {
+        verify_constraints_to_given_table_exist(iq, newdb, newdb, s) != 0) {
         if (local_lock)
             unlock_schema_lk();
         backout(newdb);
@@ -922,7 +922,7 @@ int finalize_alter_table(struct ireq *iq, struct schema_change_type *s,
     }
 
     if (iq && iq->tranddl > 1 &&
-        verify_constraints_exist(iq, NULL, newdb, newdb, s) != 0) {
+        verify_constraints_to_given_table_exist(iq, newdb, newdb, s) != 0) {
         sc_errf(s, "error verifying constraints\n");
         BACKOUT;
     }

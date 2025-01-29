@@ -364,6 +364,13 @@ static void check_for_idx_rename(struct dbtable *newdb, struct dbtable *olddb)
     }
 }
 
+static void print_scs(struct schema_change_type *sc) {
+    while(sc) {
+        printf("sc on table %s newdb %p\n", sc->tablename, sc->newdb);
+        sc = sc->sc_next;
+    }
+}
+
 static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
                           tran_type *tran);
 static int optionsChanged(struct schema_change_type *sc, struct scinfo *scinfo){
@@ -733,6 +740,9 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
 #ifdef DEBUG_SC
     logmsg(LOGMSG_INFO, "do_alter_table() %s\n", s->resume ? "resuming" : "");
 #endif
+    printf("do_merge_table() %s\n", s->resume ? "resuming" : "");
+    print_scs(s);
+    sleep(5);
 
     gbl_sc_last_writer_time = 0;
 
@@ -763,7 +773,7 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
         return -1;
     }
 
-    print_schemachange_info(s, db, newdb);
+    print_schemachange_info(s, db, newdb); // newdb doesn't exist on resume
 
     /* ban old settings */
     if (db->dbnum) {
@@ -1205,6 +1215,7 @@ extern int finalize_drop_table(struct ireq *iq, struct schema_change_type *s,
 static int finalize_merge_table(struct ireq *iq, struct schema_change_type *s,
                                 tran_type *transac)
 {
+	printf("%s\n", __func__);
     s->newdb = NULL; /* we not really own it*/
     s->done_type = drop; /* we need to drop the merged table */
     return finalize_drop_table(iq, s, transac);

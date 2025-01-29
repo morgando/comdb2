@@ -1179,6 +1179,7 @@ extern pthread_key_t no_pgcompact;
  */
 static void *convert_records_thd(struct convert_record_data *data)
 {
+    printf("%s\n", __func__);
     comdb2_name_thread(__func__);
     ENABLE_PER_THREAD_MALLOC(__func__);
     struct thr_handle *thr_self = thrman_self();

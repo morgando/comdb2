@@ -294,6 +294,8 @@ REGISTER_TUNABLE("debug_sleep_coordinator_before_commit", "Coordinator sleeps be
 REGISTER_TUNABLE("debug_coordinator_dispatch_failure", "Fake failed dispatch in coordinator.  (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_debug_coordinator_dispatch_failure, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL,
                  NULL);
+REGISTER_TUNABLE("debug_sleep_on_sc_resume_merge", "Sleep during resumes of merge schema changes (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_sleep_on_sc_resume_merge, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug_sleep_on_set_read_only", "Sleep before setting to readonly.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_debug_sleep_on_set_read_only, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug_wait_on_verify_off", "Wait for particpant when verify is disabled.  (Default: off)",

@@ -32,6 +32,8 @@
 #include "views.h"
 #include "macc_glue.h"
 
+int gbl_debug_sleep_on_sc_resume_merge = 0;
+
 static int prepare_sc_plan(struct schema_change_type *s, int old_changed,
                            struct dbtable *db, struct dbtable *newdb,
                            struct scplan *theplan)
@@ -821,6 +823,10 @@ convert_records:
 
     add_ongoing_alter(s);
 
+
+    if (gbl_debug_sleep_on_sc_resume_merge) {
+        sleep(5);
+    }
     /* skip converting records for fastinit and planned schema change
      * that doesn't require rebuilding anything. */
     rc = convert_all_records(db, newdb, newdb->sc_genids, s);

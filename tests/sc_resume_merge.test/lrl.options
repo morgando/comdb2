@@ -1,0 +1,5 @@
+logmsg level info
+# logical_live_sc on # this is broken because live_sc_logical_redo_thd
+# continues to live and reference stuff after the schema change finishes
+multitable_ddl on
+debug_sleep_on_sc_resume_merge on

@@ -240,8 +240,10 @@ REGISTER_TUNABLE("disable_partial_indexes", "Disables 'enable_partial_indexes'",
 REGISTER_TUNABLE("force_writesql", "Force admin mode to for write sql.  (Default: on)", TUNABLE_BOOLEAN,
                  &gbl_force_writesql, 0, NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("debug_sleep_on_sc_resume_merge", "Sleep during resumes of merge schema changes (Default: off)", TUNABLE_BOOLEAN,
-                 &gbl_debug_sleep_on_sc_resume_merge, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_sleep_on_alter", "Sleep during alters (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_sleep_on_alter, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_sleep_on_partition_merge", "Sleep during partition merges (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_sleep_on_partition_merge, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("disable_prefault_udp", "Disables 'enable_prefault_udp'",
                  TUNABLE_BOOLEAN, &gbl_prefault_udp, INVERSE_VALUE | NOARG,
                  NULL, NULL, NULL, NULL);

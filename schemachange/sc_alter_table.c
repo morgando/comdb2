@@ -32,7 +32,8 @@
 #include "views.h"
 #include "macc_glue.h"
 
-int gbl_debug_sleep_on_sc_resume_merge = 0;
+int gbl_debug_sleep_on_partition_merge = 0;
+int gbl_debug_sleep_on_alter = 0;
 
 static int prepare_sc_plan(struct schema_change_type *s, int old_changed,
                            struct dbtable *db, struct dbtable *newdb,
@@ -405,6 +406,10 @@ int do_alter_table(struct ireq *iq, struct schema_change_type *s,
     char new_prefix[32];
     struct scinfo scinfo;
     struct errstat err = {0};
+
+    if (gbl_debug_sleep_on_alter && !s->resume) {
+        sleep(5);
+    }
 
     db = get_dbtable_by_name(s->tablename);
     if (db == NULL) {
@@ -829,7 +834,7 @@ convert_records:
     add_ongoing_alter(s);
 
 
-    if (gbl_debug_sleep_on_sc_resume_merge) {
+    if (gbl_debug_sleep_on_partition_merge) {
         sleep(5);
     }
     /* skip converting records for fastinit and planned schema change

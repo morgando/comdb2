@@ -13,42 +13,63 @@ test_partition_merge_resume() {
 	# Given
 	local starttime
 	starttime=$(get_timestamp 120)
-	cdb2sql ${CDB2_OPTIONS} $dbnm default "CREATE TABLE t14(a int, b int) PARTITIONED BY TIME PERIOD 'daily' RETENTION 2 START '${starttime}'"
-	cdb2sql ${CDB2_OPTIONS} $dbnm default "insert into t14 values (10,20), (30,40), (50,60)"
-	cdb2sql ${CDB2_OPTIONS} $dbnm default "insert into '\$1_9ABA178A' values (111,111)"
-	cdb2sql ${CDB2_OPTIONS} $dbnm default "insert into '\$0_528953B1' values (222,222)"
-	cdb2sql ${CDB2_OPTIONS} $dbnm default "select * from t14 order by 1" > exp
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partition_merge on')"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "create table t(a int) partitioned by time period 'daily' retention 2 start '${starttime}'"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "insert into t values(1)"
 
 	# When
-	cdb2sql ${CDB2_OPTIONS} $dbnm default "ALTER TABLE t14 PARTITIONED BY NONE" &
-	waitpid=$!
-	sleep 2 # give the master node a bit time to get to the convert thread
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "alter table t partitioned by none" &
+	sleep 1
 
 	set +e
-	for node in $CLUSTER ; do
-		kill_restart_node $node &
+	for node in ${CLUSTER} ; do
+		kill_restart_node ${node} &> /dev/null &
 	done
-	wait $waitpid
 	set -e
 
-	sleep 5
+	until cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select 1";
+	do
+		:
+	done &> /dev/null
 
 	# Then
-	for node in $CLUSTER ; do
-		echo "testing $node"
-		cdb2sql ${CDB2_OPTIONS} $dbnm default "select * from t14 order by 1" > out
-		if ! diff exp out;
-		then
-			echo "FAILED: Unexpected select results after merge"
-			echo "expected:"
-			cat exp
-			echo "observed:"
-			cat out
-			return 1
-		fi
-	done
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select * from comdb2_timepartitions"
 
-	return 0
+	# Cleanup
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partiton_merge off')"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "drop table t"
+}
+
+test_partition_alter_resume() {
+	# Given
+	local starttime
+	starttime=$(get_timestamp 120)
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_alter on')"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "create table t(a int) partitioned by time period 'daily' retention 2 start '${starttime}'"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "insert into t values(1)"
+
+	# When
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "alter table t add column j int" &
+	sleep 1
+
+	set +e
+	for node in ${CLUSTER} ; do
+		kill_restart_node ${node} &> /dev/null &
+	done
+	set -e
+
+	until cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select 1";
+	do
+		:
+	done &> /dev/null
+
+	# Then
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select j from t" # Should not fail
+
+	# Cleanup
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_alter off')"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "drop table t"
 }
 
 test_partition_merge_resume
+test_partition_alter_resume

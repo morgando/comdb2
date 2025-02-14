@@ -28,20 +28,26 @@ test_partition_merge_resume() {
 	# Given
 	local starttime
 	starttime=$(get_timestamp 120)
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partition_merge on')"
+
+	local master
+	master=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'SELECT host FROM comdb2_cluster WHERE is_master="Y"'`
+
+	cdb2sql $dbnm --host $master "EXEC PROCEDURE sys.cmd.send('convert_record_sleep 1')"
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "create table t(a int) partitioned by time period 'daily' retention 2 start '${starttime}'"
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "insert into t values(1)"
-	cdb2sql --tabs ${CDB2_OPTIONS} ${dbnm} default "select * from comdb2_timepartitions where name='t'"
+	cdb2sql ${CDB2_OPTIONS} $dbnm default "insert into t values (1)"
 
 	# When
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "alter table t partitioned by none" &
+	waitpid=$!
 	sleep 1
 	restart_cluster &> /dev/null
 
 	# Then
+	$( ! wait ${waitpid} ) # Assert that merge did not succeed before cluster was bounced
+
 	local timepart
 	timepart=$(cdb2sql --tabs ${CDB2_OPTIONS} ${dbnm} default "select * from comdb2_timepartitions where name='t'")
-	[[ -n ${timepart} ]] # Assert that we got a result
+	[[ -n ${timepart} ]] # Assert that merge did not complete on resume
 
 	# Cleanup
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partition_merge off')"

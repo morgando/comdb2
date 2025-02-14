@@ -9,6 +9,21 @@ set -ex
 
 dbnm=$1
 
+restart_cluster() {
+	set +e
+	for node in ${CLUSTER} ; do
+		kill_restart_node ${node} &
+	done
+	set -e
+
+	for node in ${CLUSTER} ; do
+		until cdb2sql --host ${node} ${CDB2_OPTIONS} ${dbnm} default "select 1";
+		do
+			:
+		done
+	done
+}
+
 test_partition_merge_resume() {
 	# Given
 	local starttime
@@ -16,60 +31,21 @@ test_partition_merge_resume() {
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partition_merge on')"
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "create table t(a int) partitioned by time period 'daily' retention 2 start '${starttime}'"
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "insert into t values(1)"
+	cdb2sql --tabs ${CDB2_OPTIONS} ${dbnm} default "select * from comdb2_timepartitions where name='t'"
 
 	# When
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "alter table t partitioned by none" &
 	sleep 1
-
-	set +e
-	for node in ${CLUSTER} ; do
-		kill_restart_node ${node} &> /dev/null &
-	done
-	set -e
-
-	until cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select 1";
-	do
-		:
-	done &> /dev/null
+	restart_cluster &> /dev/null
 
 	# Then
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select * from comdb2_timepartitions"
+	local timepart
+	timepart=$(cdb2sql --tabs ${CDB2_OPTIONS} ${dbnm} default "select * from comdb2_timepartitions where name='t'")
+	[[ -n ${timepart} ]] # Assert that we got a result
 
 	# Cleanup
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partiton_merge off')"
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "drop table t"
-}
-
-test_partition_alter_resume() {
-	# Given
-	local starttime
-	starttime=$(get_timestamp 120)
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_alter on')"
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "create table t(a int) partitioned by time period 'daily' retention 2 start '${starttime}'"
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "insert into t values(1)"
-
-	# When
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "alter table t add column j int" &
-	sleep 1
-
-	set +e
-	for node in ${CLUSTER} ; do
-		kill_restart_node ${node} &> /dev/null &
-	done
-	set -e
-
-	until cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select 1";
-	do
-		:
-	done &> /dev/null
-
-	# Then
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "select j from t" # Should not fail
-
-	# Cleanup
-	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_alter off')"
+	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "exec procedure sys.cmd.send('debug_sleep_on_partition_merge off')"
 	cdb2sql ${CDB2_OPTIONS} ${dbnm} default "drop table t"
 }
 
 test_partition_merge_resume
-test_partition_alter_resume

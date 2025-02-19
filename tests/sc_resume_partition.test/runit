@@ -80,7 +80,10 @@ test_partition_merge_resume() {
 }
 
 main() {
-	local -r num_shards=10
+	local num_shards=10
+	test_partition_merge_resume ${num_shards}
+
+	num_shards=5 # Will trigger concurrent mode
 	test_partition_merge_resume ${num_shards}
 }
 

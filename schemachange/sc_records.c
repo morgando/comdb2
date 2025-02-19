@@ -636,7 +636,7 @@ static int convert_record(struct convert_record_data *data)
     if (data->s->sc_thd_failed) {
         if (!data->s->retry_bad_genids)
             sc_errf(data->s,
-                    "Stoping work on stripe %d because the thread for stripe %d failed\n",
+                    "Stopping work on stripe %d because the thread for stripe %d failed\n",
                     data->stripe, data->s->sc_thd_failed - 1);
         return -1;
     }

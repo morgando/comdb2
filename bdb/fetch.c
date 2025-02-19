@@ -703,8 +703,8 @@ static int bdb_fetch_int_ll(
 
                 if (dtafile < 0 || dtafile >= bdb_state->attr->dtastripe) {
                     logmsg(LOGMSG_ERROR, 
-                            "%s: dtafile=%d out of range genid %016llx\n",
-                            __func__, dtafile, *(unsigned long long *)ix);
+                            "%s:%d dtafile=%d out of range genid %016llx\n",
+                            __func__, __LINE__, dtafile, *(unsigned long long *)ix);
                     *bdberr = BDBERR_BADARGS;
                     *rrn = 0;
                     return -1;
@@ -773,8 +773,8 @@ static int bdb_fetch_int_ll(
             dtafile = get_dtafile_from_genid(*(unsigned long long *)lastix);
 
             if (dtafile < 0 || dtafile >= bdb_state->attr->dtastripe) {
-                logmsg(LOGMSG_ERROR, "%s: dtafile=%d out of range\n", __func__,
-                        dtafile);
+                logmsg(LOGMSG_ERROR, "%s:%d dtafile=%d out of range genid %016llx\n", __func__,
+                        __LINE__, dtafile, *(unsigned long long *) lastix);
                 *bdberr = BDBERR_BADARGS;
                 *rrn = 0;
                 return -1;
@@ -2081,8 +2081,8 @@ err:
 
             /* if dtafile is out of range then database must be corrupt */
             if (dtafile < 0 || dtafile >= bdb_state->attr->dtastripe) {
-                logmsg(LOGMSG_ERROR, "bdb_fetch_int: dtafile=%d out of range\n",
-                        dtafile);
+                logmsg(LOGMSG_ERROR, "%s:%d dtafile=%d out of range genid %016llx\n", __func__,
+                        __LINE__, dtafile, foundgenid);
                 *bdberr = BDBERR_MISC;
                 *rrn = 0;
                 outrc = -1;

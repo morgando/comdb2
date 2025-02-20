@@ -53,7 +53,7 @@ extern pthread_mutex_t gbl_modsnap_stats_mutex;
 extern int gbl_prefault_udp;
 extern __thread int send_prefault_udp;
 extern __thread DB *prefault_dbp;
-extern __thread int gbl_thread_mode;
+extern __thread int gbl_thread_is_writer;
 
 
 extern int db_is_exiting(void);
@@ -363,22 +363,18 @@ retry:	st_hsearch = 0;
 		b_incr = 1;
 
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
-			
 			if ((bhp->writer_refs > 0) && (pthread_self() == bhp->writer_id)) {
 				bhp->writer_refs++;
 			} else {
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
-				if (gbl_thread_mode == 0) {
-					rc = memp_bhrdlock(bhp);
-				} else {
-					rc = memp_bhwrlock(bhp);
-				}
+				rc = gbl_thread_is_writer
+					? memp_bhwrlock(bhp) : memp_bhrdlock(bhp);
 				if (rc != 0) {
 					abort();
 				}
 				MUTEX_LOCK(dbenv, &hp->hash_mutex);
 
-				if (gbl_thread_mode == 1) {
+				if (gbl_thread_is_writer) {
 					bhp->writer_id = pthread_self();
 					bhp->writer_refs = 1;
 				}
@@ -403,10 +399,10 @@ retry:	st_hsearch = 0;
 				--bhp->ref;
 				if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 					if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-						if (gbl_thread_mode == 0) {
-							memp_bhrdunlock(bhp);
-						} else {
+						if (gbl_thread_is_writer) {
 							memp_bhwrunlock(bhp);
+						} else {
+							memp_bhrdunlock(bhp);
 						}
 					}
 				}
@@ -670,10 +666,10 @@ alloc:		/*
 		if (flags == DB_MPOOL_NEW) {
 			if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 				if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-					if (gbl_thread_mode == 0) {
-						memp_bhrdunlock(bhp);
-					} else {
+					if (gbl_thread_is_writer) {
 						memp_bhwrunlock(bhp);
+					} else {
+						memp_bhrdunlock(bhp);
 					}
 				}
 			}
@@ -719,12 +715,12 @@ alloc:		/*
 		sem_init(bhp->empty_semp, 0, 1);
 
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
-			if (gbl_thread_mode == 0) {
-				rc = memp_bhrdlock(bhp);
-			} else {
+			if (gbl_thread_is_writer) {
 				rc = memp_bhwrlock(bhp);
 				bhp->writer_id = pthread_self();
 				bhp->writer_refs = 1;
+			} else {
+				rc = memp_bhrdlock(bhp);
 			}
 			if (rc != 0) {
 				abort();
@@ -928,10 +924,10 @@ err:	/*
 	if (b_incr) {
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-				if (gbl_thread_mode == 0) {
-					memp_bhrdunlock(bhp);
-				} else {
+				if (gbl_thread_is_writer) {
 					memp_bhwrunlock(bhp);
+				} else {
+					memp_bhrdunlock(bhp);
 				}
 			}
 		}

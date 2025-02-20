@@ -25,7 +25,7 @@ static const char revid[] = "$Id: mp_fput.c,v 11.48 2003/09/30 17:12:00 sue Exp 
 #include "comdb2_atomic.h"
 
 extern int gbl_enable_cache_internal_nodes;
-extern __thread int gbl_thread_mode;
+extern __thread int gbl_thread_is_writer;
 
 static void __memp_reset_lru __P((DB_ENV *, REGINFO *));
 
@@ -199,13 +199,12 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	 * discard flags (for now) and leave the buffer's priority alone.
 	 */
 
-
 	if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 		if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
-			if (gbl_thread_mode == 0) {
-				memp_bhrdunlock(bhp);
-			} else {
+			if (gbl_thread_is_writer) {
 				memp_bhwrunlock(bhp);
+			} else {
+				memp_bhrdunlock(bhp);
 			}
 		}
 	}

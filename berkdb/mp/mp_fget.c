@@ -62,11 +62,6 @@ void udp_prefault_all(bdb_state_type * bdb_state, unsigned int fileid,
 int send_pg_compact_req(bdb_state_type *bdb_state, int32_t fileid,
 	uint32_t size, void *data);
 
-extern int memp_bhrdlock(BH *bhp);
-extern int memp_bhwrlock(BH *bhp);
-extern int memp_bhrdunlock(BH *bhp);
-extern int memp_bhwrunlock(BH *bhp);
-
 /*
  * __memp_fget_pp --
  *	DB_MPOOLFILE->get pre/post processing.
@@ -368,7 +363,7 @@ retry:	st_hsearch = 0;
 			} else {
 				MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 				rc = gbl_thread_is_writer
-					? memp_bhwrlock(bhp) : memp_bhrdlock(bhp);
+					? __memp_bhwrlock(bhp) : __memp_bhrdlock(bhp);
 				if (rc != 0) {
 					abort();
 				}
@@ -400,9 +395,9 @@ retry:	st_hsearch = 0;
 				if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 					if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 						if (gbl_thread_is_writer) {
-							memp_bhwrunlock(bhp);
+							__memp_bhwrunlock(bhp);
 						} else {
-							memp_bhrdunlock(bhp);
+							__memp_bhrdunlock(bhp);
 						}
 					}
 				}
@@ -667,9 +662,9 @@ alloc:		/*
 			if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 				if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 					if (gbl_thread_is_writer) {
-						memp_bhwrunlock(bhp);
+						__memp_bhwrunlock(bhp);
 					} else {
-						memp_bhrdunlock(bhp);
+						__memp_bhrdunlock(bhp);
 					}
 				}
 			}
@@ -716,11 +711,11 @@ alloc:		/*
 
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if (gbl_thread_is_writer) {
-				rc = memp_bhwrlock(bhp);
+				rc = __memp_bhwrlock(bhp);
 				bhp->writer_id = pthread_self();
 				bhp->writer_refs = 1;
 			} else {
-				rc = memp_bhrdlock(bhp);
+				rc = __memp_bhrdlock(bhp);
 			}
 			if (rc != 0) {
 				abort();
@@ -925,9 +920,9 @@ err:	/*
 		if (!CDB_LOCKING(dbenv) && LOCKING_ON(dbenv)) {
 			if ((bhp->writer_refs == 0) || ((bhp->writer_refs > 0) && (--bhp->writer_refs == 0))) {
 				if (gbl_thread_is_writer) {
-					memp_bhwrunlock(bhp);
+					__memp_bhwrunlock(bhp);
 				} else {
-					memp_bhrdunlock(bhp);
+					__memp_bhrdunlock(bhp);
 				}
 			}
 		}

@@ -57,7 +57,7 @@ __P((DB_ENV *, DB_MPOOLFILE *, DB_MPOOL_HASH **, BH **, int, int));
  *
  * PUBLIC: int __memp_bhrdlock __P((BH *));
  */
-int memp_bhrdlock(bhp)
+int __memp_bhrdlock(bhp)
 	BH * bhp;
 {
 	pthread_mutex_lock(bhp->turnstile_mutexp);
@@ -79,7 +79,7 @@ int memp_bhrdlock(bhp)
  *
  * PUBLIC: int __memp_bhwrlock __P((BH *));
  */
-int memp_bhwrlock(bhp)
+int __memp_bhwrlock(bhp)
 	BH * bhp;
 {
 	pthread_mutex_lock(bhp->turnstile_mutexp);
@@ -94,7 +94,7 @@ int memp_bhwrlock(bhp)
  *
  * PUBLIC: int __memp_bhwrunlock __P((BH *));
  */
-int memp_bhwrunlock(bhp)
+int __memp_bhwrunlock(bhp)
 	BH * bhp;
 {
 	pthread_mutex_unlock(bhp->turnstile_mutexp);
@@ -109,7 +109,7 @@ int memp_bhwrunlock(bhp)
  *
  * PUBLIC: int __memp_bhrdunlock __P((BH *));
  */
-int memp_bhrdunlock(bhp)
+int __memp_bhrdunlock(bhp)
 	BH * bhp;
 {
 	pthread_mutex_lock(bhp->readers_mutexp);

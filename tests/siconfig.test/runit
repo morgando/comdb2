@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
+set -e
+
 default_implementation="modsnap" # "original", "newsi", or "modsnap"
-newsi_switches="gbl_new_snapisol gbl_new_snapisol_asof gbl_new_snapisol_logging"
-modsnap_switches="gbl_use_modsnap_for_snapshot gbl_modsnap_asof"
+newsi_switches="gbl_new_snapisol gbl_new_snapisol_logging"
+modsnap_switches="gbl_use_modsnap_for_snapshot"
+modsnap_pit_switch="gbl_modsnap_asof"
+newsi_pit_switch="gbl_new_snapisol_asof"
 
 verify_switch_values() {
 	local rc=0 switches=$1 exp_on_off=$2
@@ -13,12 +17,9 @@ verify_switch_values() {
 		if ! (echo "$info" | grep --ignore-case "$switch=$exp_on_off" > /dev/null);
 		then
 			echo "$switch does not have expected value ($exp_on_off): $info"
-			rc=1
-			break
+			return 1
 		fi
 	done
-
-	return $rc
 }
 
 verify_implementation() {
@@ -27,32 +28,42 @@ verify_implementation() {
 
 	if ! (echo "$info" | grep --ignore-case "Implementation set to '$impl'" > /dev/null); then
 		echo "Snapshot implementation is not expected ('$impl'): $info"
-		rc=1
+		return 1
 	fi
-
-	return $rc
 }
 
 check_original_implementation_is_enabled() {
-	verify_implementation 'original' && \
-	verify_switch_values "$newsi_switches" "off" && \
+	verify_implementation 'original'
+	verify_switch_values "$newsi_switches" "off"
 	verify_switch_values "$modsnap_switches" "off"
-
-	return $?
+	verify_switch_values "$modsnap_pit_switch" "off"
+	verify_switch_values "$newsi_pit_switch" "off"
 }
 
 check_modsnap_implementation_is_enabled() {
-	verify_implementation 'modsnap' && \
-	verify_switch_values "$newsi_switches" "off" && \
+	verify_implementation 'modsnap'
+	verify_switch_values "$newsi_switches" "off"
 	verify_switch_values "$modsnap_switches" "on"
+	verify_switch_values "$newsi_pit_switch" "off"
 
-	return $?
+	if (( pit_should_be_enabled == 1 )); then
+		verify_switch_values "$modsnap_pit_switch" "on"
+	else
+		verify_switch_values "$modsnap_pit_switch" "off"
+	fi
 }
 
 check_newsi_implementation_is_enabled() {
-	verify_implementation 'new' && \
-	verify_switch_values "$newsi_switches" "on" && \
+	verify_implementation 'new'
+	verify_switch_values "$newsi_switches" "on"
 	verify_switch_values "$modsnap_switches" "off"
+	verify_switch_values "$modsnap_pit_switch" "off"
+
+	if (( pit_should_be_enabled )); then
+		verify_switch_values "$newsi_pit_switch" "on"
+	else
+		verify_switch_values "$newsi_pit_switch" "off"
+	fi
 
 	return $?
 }
@@ -60,25 +71,36 @@ check_newsi_implementation_is_enabled() {
 main() {
 	if [ "$TESTCASE" == "siconfig" ];
 	then
-		check_${default_implementation}_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_${default_implementation}_implementation_is_enabled $pit_should_be_enabled
 	elif [ "$TESTCASE" == "siconfig_disable_newsi_generated" -a "$default_implementation" != "newsi" ];
 	then
-		check_${default_implementation}_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_${default_implementation}_implementation_is_enabled $pit_should_be_enabled
 	elif [ "$TESTCASE" == "siconfig_newsi_generated" ];
 	then
-		check_newsi_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_newsi_implementation_is_enabled $pit_should_be_enabled
 	elif [ "$TESTCASE" == "siconfig_modsnap_generated" ];
 	then
-		check_modsnap_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_modsnap_implementation_is_enabled $pit_should_be_enabled
+	elif [ "$TESTCASE" == "siconfig_disable_pit_generated" ];
+	then
+		local pit_should_be_enabled=0
+		check_modsnap_implementation_is_enabled $pit_should_be_enabled
 	elif [ "$TESTCASE" == "siconfig_orig_generated" ];
 	then
-		check_original_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_original_implementation_is_enabled $pit_should_be_enabled
 	elif [ "$TESTCASE" == "siconfig_orig_after_newsi_generated" ];
 	then
-		check_original_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_original_implementation_is_enabled $pit_should_be_enabled
 	elif [ "$TESTCASE" == "siconfig_disable_newsi_generated" && "$default_implementation" == "newsi" ];
 	then
-		check_original_implementation_is_enabled
+		local pit_should_be_enabled=1
+		check_original_implementation_is_enabled $pit_should_be_enabled
 	else
 		echo "No test for $TESTCASE"
 		return 1

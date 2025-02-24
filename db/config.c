@@ -59,6 +59,7 @@ extern const snap_impl_enum gbl_snap_backup_fallback_impl;
 extern snap_impl_enum gbl_snap_impl;
 
 int gbl_disable_access_controls;
+int gbl_disable_pit_snapshot;
 
 extern char *gbl_recovery_options;
 extern const char *gbl_repoplrl_fname;
@@ -791,6 +792,11 @@ static void fallback_from_snap_impl() {
 
     assert(fallback_impl != gbl_snap_impl);
     set_snapshot_impl(fallback_impl);
+}
+
+static void disable_pit_snapshot() {
+    gbl_modsnap_asof = 0;
+    gbl_new_snapisol_asof = 0;
 }
 
 /*
@@ -1669,6 +1675,10 @@ static int read_lrl_option(struct dbenv *dbenv, char *line,
 
     if (gbl_disable_new_snapshot && (gbl_snap_impl == SNAP_IMPL_NEW)) {
         fallback_from_snap_impl();
+    }
+
+    if (gbl_disable_pit_snapshot) {
+        disable_pit_snapshot();
     }
 
     if (gbl_rowlocks) {

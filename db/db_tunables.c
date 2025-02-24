@@ -55,6 +55,7 @@ extern int gbl_broken_max_rec_sz;
 extern int gbl_broken_num_parser;
 extern int gbl_crc32c;
 extern int gbl_decom;
+extern int gbl_disable_pit_snapshot;
 extern int gbl_disable_rowlocks;
 extern int gbl_disable_rowlocks_logging;
 extern int gbl_stack_at_lock_get;

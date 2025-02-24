@@ -237,6 +237,7 @@
 (name='disable_partial_indexes', description='Disables 'enable_partial_indexes'', type='BOOLEAN', value='OFF', read_only='Y')
 (name='disable_pgorder_min_nexts', description='Don't disable page order table scans for tables less than this many pages.', type='INTEGER', value='1000', read_only='N')
 (name='disable_pgorder_threshold', description='Disable page order table scans if skipping this percentage of pages on a scan.', type='INTEGER', value='60', read_only='N')
+(name='disable_pit_snapshot', description='Disables pit snapshots', type='BOOLEAN', value='OFF', read_only='Y')
 (name='disable_prefault_udp', description='Disables 'enable_prefault_udp'', type='BOOLEAN', value='ON', read_only='N')
 (name='disable_replicant_latches', description='Disables 'replicant_latches'', type='BOOLEAN', value='ON', read_only='Y')
 (name='disable_rowlock_locking', description='', type='BOOLEAN', value='OFF', read_only='Y')

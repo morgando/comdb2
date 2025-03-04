@@ -6376,9 +6376,7 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
     /* link the alter */
     iq->sc->sc_next = iq->sc_pending;
     iq->sc_pending = iq->sc;
-    if (iq->sc->nothrevent) {
-        iq->sc->newdb = NULL; /* lose ownership, otherwise double free */
-    }
+    iq->sc->newdb = NULL; /* lose ownership, otherwise double free */
 
     if (arg->lockless) {
         *pview = timepart_reaquire_view(arg->part_name);
@@ -6447,7 +6445,7 @@ static int _process_partitioned_table_merge(struct ireq *iq)
 
     assert(sc->kind == SC_ALTERTABLE);
 
-    /* if this was a CREATE & ALTER, first shard is an aliased
+    /* if this was a CREATE & ALTER, first shart is an aliased
      * table with the same name as the partition
      * use that as the destination for merging
      * OTHERWISE, create a new table with the same name as 
@@ -6460,21 +6458,12 @@ static int _process_partitioned_table_merge(struct ireq *iq)
     /* we need to move data */
     sc->force_rebuild = 1;
 
-    // nothrevent tells the database whether or not to run
-    // a schema change synchronously. Since we must complete a schema
-    // change that sets up the destination table *before* we run schema
-    // changes on all of the shards, we must enable nothrevent before
-    // kicking off this initial schema change. Once we're done with it,
-    // we can run schema changes on the shards with whatever
-    // nothrevent value was latched here.
-    const int latched_nothrevent_value = sc->nothrevent;
-    sc->nothrevent = 1;
-    sc->finalize = 0;   /* make sure */
-
     if (!first_shard->sqlaliasname) {
         /*
          * create a table with the same name as the partition
          */
+        sc->nothrevent = 1; /* we need do_add_table to run first */
+        sc->finalize = 0;   /* make sure */
         sc->kind = SC_ADDTABLE;
 
         rc = start_schema_change_tran(iq, NULL);
@@ -6488,8 +6477,10 @@ static int _process_partitioned_table_merge(struct ireq *iq)
         }
     } else {
         /*
-         * use the first shard as the destination, after first altering it
+         * use the fast shard as the destination, after first altering it
          */
+        sc->nothrevent = 1; /* we need do_alter_table to run first */
+        sc->finalize = 0;
         enum comdb2_partition_type tt = sc->partition.type;
         sc->partition.type = PARTITION_NONE;
 
@@ -6514,13 +6505,13 @@ static int _process_partitioned_table_merge(struct ireq *iq)
     /* at this point we have created the future btree, launch an alter
      * for each of the shards of the partition
      */
-    sc->nothrevent = latched_nothrevent_value;
     arg.s = sc;
     arg.s->iq = iq;
     arg.part_name = strdup(sc->tablename);  /*sc->tablename gets rewritten*/
     if (!arg.part_name)
         return VIEW_ERR_MALLOC;
     arg.lockless = 1;   
+    /* note: we have already set nothrevent depending on the number of shards */
     rc = timepart_foreach_shard(start_schema_change_tran_wrapper_merge, &arg);
     free(arg.part_name);
 

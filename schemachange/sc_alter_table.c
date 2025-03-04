@@ -742,7 +742,6 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
         return SC_TABLE_DOESNOT_EXIST;
     }
 
-
     if (s->resume == SC_PREEMPT_RESUME) {
         newdb = db->sc_to;
         goto convert_records;
@@ -771,7 +770,7 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
         return -1;
     }
 
-    /* set sc_genids, 0 them if we are starting a new schema change, or
+    /* set sc_genids: 0 them if we are starting a new schema change, or
      * restore them to their previous values if we are resuming */
     if (init_sc_genids(newdb, s)) {
         sc_client_error(s, "Failed to initialize sc_genids");

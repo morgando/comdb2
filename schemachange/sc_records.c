@@ -211,6 +211,7 @@ int init_sc_genids(struct dbtable *db, struct schema_change_type *s)
 
     /* if we aren't resuming simply zero the genids */
     if (!s->resume) {
+        printf("Not resuming. Zeroing genids for table %s\n", db->tablename);
         /* if we may have to resume this schema change, clear the progress in
          * llmeta */
         if (bdb_clear_high_genid(NULL /*input_trans*/, db->tablename,
@@ -223,6 +224,8 @@ int init_sc_genids(struct dbtable *db, struct schema_change_type *s)
 
         bzero(sc_genids, sizeof(unsigned long long) * MAXDTASTRIPE);
         return 0;
+    } else {
+        printf("Resuming. Finding genids\n");
     }
 
     /* prepare for the largest possible data */

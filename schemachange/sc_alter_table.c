@@ -721,6 +721,8 @@ errout:
     return SC_OK;
 }
 
+static int num_merges=1;
+
 static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
                           tran_type *tran)
 {
@@ -824,7 +826,9 @@ convert_records:
      * that doesn't require rebuilding anything. */
     rc = convert_all_records(db, newdb, newdb->sc_genids, s);
     if (rc == 1) rc = 0;
+    if (num_merges++ == 3) {
     sleep(30);
+    }
 
     remove_ongoing_alter(s);
 

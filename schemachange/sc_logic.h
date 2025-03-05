@@ -25,6 +25,7 @@ int dryrun(struct schema_change_type *s);
 int finalize_schema_change(struct ireq *, tran_type *);
 int do_setcompr(struct ireq *iq, const char *rec, const char *blob);
 int delete_temp_table(struct ireq *iq, struct dbtable *newdb);
+void print_sc_resuming_list();
 
 int verify_new_temp_sc_db(struct dbtable *p_db, struct dbtable *p_newdb, tran_type *tran);
 /****** This function is inside constraints.c and it was used by schemachange.c,

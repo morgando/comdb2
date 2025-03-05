@@ -62,6 +62,9 @@ int start_schema_change_tran(struct ireq *iq, tran_type *trans)
         return SC_NOT_MASTER;
     }
 
+    print_sc_resuming_list();
+    if (s->resume) { printf("I am resuming\n"); }
+
     if (!s->resume && s->preempted) {
         sc_errf(s, "Preempt table %s option %d\n", s->tablename, s->preempted);
         int nwait = 0;
@@ -217,8 +220,8 @@ int start_schema_change_tran(struct ireq *iq, tran_type *trans)
     if (s->tran == trans && iq->sc_seed) {
         seed = iq->sc_seed;
         logmsg(LOGMSG_WARN, "Starting schema change: table %s kind %s "
-                            "transactionally reuse seed 0x%llx\n",
-               s->tablename, schema_change_kind(s), seed);
+                            "transactionally reuse seed 0x%llx s->tran %p\n",
+               s->tablename, schema_change_kind(s), seed, s->tran);
     } else if (s->resume) {
         unsigned int host = 0;
         logmsg(LOGMSG_INFO, "Resuming schema change: fetching seed\n");
@@ -1567,6 +1570,7 @@ int sc_list_create(sc_list_t *scl, void *vscs, uuid_t uuid)
     int i = 0, sc_protobuf = gbl_sc_protobuf;
 
     LISTC_FOR_EACH(scs, sc, scs_lnk) {
+        printf("Packing sc for %s\n", sc->tablename);
         if (sc_protobuf) {
             int rc = pack_schema_change_protobuf(sc, &packed_scs[i], &sizes[i]);
             if (rc) {

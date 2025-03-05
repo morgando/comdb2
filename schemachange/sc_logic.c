@@ -851,6 +851,22 @@ int finalize_schema_change(struct ireq *iq, tran_type *trans)
     return rc;
 }
 
+void print_sc_resuming_list()
+{
+    Pthread_mutex_lock(&sc_resuming_mtx);
+
+    logmsg(LOGMSG_DEBUG, "SC_RESUMING LIST:\n");
+    size_t idx = 0;
+    const struct schema_change_type * stored_sc = sc_resuming;
+    while (stored_sc) {
+        logmsg(LOGMSG_DEBUG, "\t[%zu]: %s\n", idx, stored_sc->tablename);
+        stored_sc = stored_sc->sc_next;
+        idx++;
+    }
+
+    Pthread_mutex_unlock(&sc_resuming_mtx);
+}
+
 void *sc_resuming_watchdog(void *p)
 {
     comdb2_name_thread(__func__);

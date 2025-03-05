@@ -6349,7 +6349,9 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
         sc->unpublish = partition_unpublish;
     }
 
+    printf("Resuming before clone %d\n", sc->resume);
     struct schema_change_type *alter_sc = clone_schemachange_type(sc);
+    printf("Resuming after clone %d\n", alter_sc->resume);
 
     /* new target */
     strncpy0(alter_sc->tablename, tblname, sizeof(sc->tablename));
@@ -6458,6 +6460,7 @@ static int _process_partitioned_table_merge(struct ireq *iq)
     /* we need to move data */
     sc->force_rebuild = 1;
 
+    printf("resume before first sc = %d\n", iq->sc->resume);
     if (!first_shard->sqlaliasname) {
         /*
          * create a table with the same name as the partition
@@ -6501,6 +6504,7 @@ static int _process_partitioned_table_merge(struct ireq *iq)
         arg.start = 1;
         /* since this is a partition drop, we do not need to set/reset arg.pos here */
     }
+    printf("resume after first sc = %d\n", iq->sc->resume);
 
     /* at this point we have created the future btree, launch an alter
      * for each of the shards of the partition

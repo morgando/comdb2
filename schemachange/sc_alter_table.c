@@ -824,6 +824,7 @@ convert_records:
      * that doesn't require rebuilding anything. */
     rc = convert_all_records(db, newdb, newdb->sc_genids, s);
     if (rc == 1) rc = 0;
+    sleep(30);
 
     remove_ongoing_alter(s);
 

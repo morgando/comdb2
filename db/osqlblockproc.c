@@ -1585,6 +1585,7 @@ int resume_sc_multiddl_txn(sc_list_t *scl)
                    __func__, us);
             return -1;
         }
+        printf("Got sc %s with resume %d\n", sc->tablename, resume);
         sc->resume = resume;
 
         listc_abl(&scs, sc);

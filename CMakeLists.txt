@@ -36,6 +36,8 @@ else()
   add_definitions(-DWITH_TINFO=0)
 endif()
 
+add_definitions(-DLOGICAL_LIVESC_DEBUG=1)
+
 if(${CMAKE_SYSTEM_NAME} STREQUAL Darwin)
   if(EXISTS /opt/homebrew)
     list(APPEND CMAKE_PREFIX_PATH

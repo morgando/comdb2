@@ -6031,6 +6031,7 @@ int bdb_get_sc_seed(bdb_state_type *bdb_state, tran_type *tran,
     rc = bdb_lite_exact_fetch_tran(llmeta_bdb_state, tran, key, data_buf,
                                    data_sz, &fndlen, bdberr);
     if (rc == 0) {
+        printf("Got sc seed for %s\n", tablename);
         *genid = *(unsigned long long *)data_buf;
         *host = ntohl(*(unsigned int *)(data_buf + sizeof(unsigned long long)));
     }

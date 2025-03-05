@@ -17,7 +17,7 @@
 
 #define LOGMSG_STACK_BUFFER_SIZE 1024
 
-static loglvl level = LOGMSG_WARN;
+static loglvl level = LOGMSG_DEBUG;
 static int do_syslog = 0;
 static int do_time = 1;
 static int do_thread = 0;

@@ -626,6 +626,7 @@ static void increment_sc_logbytes(int64_t bytes)
  */
 static int convert_record(struct convert_record_data *data)
 {
+    printf("%s\n", __func__);
     int dtalen = 0, rc, rrn, opfailcode = 0, ixfailnum = 0;
     unsigned long long genid, ngenid, check_genid;
     int64_t logbytes = 0;
@@ -633,8 +634,8 @@ static int convert_record(struct convert_record_data *data)
     int no_wait_rowlock = 0;
     int64_t estimate = 0;
 
-    if (debug_switch_convert_record_sleep())
-        sleep(5);
+    //if (debug_switch_convert_record_sleep())
+       // sleep(5);
 
     if (data->s->sc_thd_failed) {
         if (!data->s->retry_bad_genids)
@@ -978,7 +979,7 @@ static int convert_record(struct convert_record_data *data)
                 "failed to prepare and verify newdb record rc %d, rrn %d, genid 0x%llx\n",
                 rc, rrn, genid);
         if (rc == -2)
-            return -2; /* convertion failure */
+            return -2; /* conversion failure */
         goto err;
     }
 
@@ -1023,6 +1024,8 @@ static int convert_record(struct convert_record_data *data)
         if (rc)
             goto err;
     }
+
+    printf("Added %llu\n", ngenid);
 
     /* if we have been rebuilding the data files we're gonna
        call bdb_get_high_genid to resume, not look at llmeta */

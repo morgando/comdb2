@@ -2912,6 +2912,7 @@ static int dtas_next_int(struct ireq *iq,
     struct dbtable *db = iq->usedb;
     int bdberr, retries = 0, rc;
     bdb_fetch_args_t args = {0};
+    printf("Called next for table %s\n", db->tablename);
 retry:
     iq->gluewhere = "bdb_fetch_next_dtastripe_record";
     args.page_order = page_order;

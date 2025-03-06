@@ -6349,9 +6349,7 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
         sc->unpublish = partition_unpublish;
     }
 
-    printf("Resuming before clone %d\n", sc->resume);
     struct schema_change_type *alter_sc = clone_schemachange_type(sc);
-    printf("Resuming after clone %d\n", alter_sc->resume);
 
     /* new target */
     strncpy0(alter_sc->tablename, tblname, sizeof(sc->tablename));
@@ -6362,6 +6360,7 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
     alter_sc->force_rebuild = 1; /* we are moving rows here */
     /* alter only in parallel mode for live */
     alter_sc->scanmode = SCAN_PARALLEL;
+    alter_sc->resume = sc->resume;
     /* link the sc */
     iq->sc = alter_sc;
 

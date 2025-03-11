@@ -733,7 +733,7 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
     struct scinfo scinfo;
 
 #ifdef DEBUG_SC
-    logmsg(LOGMSG_INFO, "do_alter_table() %s\n", s->resume ? "resuming" : "");
+    logmsg(LOGMSG_INFO, "do_merge_table() %s\n", s->resume ? "resuming" : "");
 #endif
 
     gbl_sc_last_writer_time = 0;
@@ -791,6 +791,14 @@ convert_records:
     assert(db->sc_from == db && s->db == db);
     assert(db->sc_to == newdb && s->newdb == newdb);
     assert(db->doing_conversion == 1);
+    if (s->resume && IS_ALTERTABLE(s)) {
+        if (gbl_test_sc_resume_race && !get_stopsc(__func__, __LINE__)) {
+            logmsg(LOGMSG_INFO, "%s:%d sleeping 5s for sc_resume test\n",
+                   __func__, __LINE__);
+            sleep(5);
+        }
+        decrement_sc_yet_to_resume_counter();
+    }
     MEMORY_SYNC;
 
     if (get_stopsc(__func__, __LINE__)) {

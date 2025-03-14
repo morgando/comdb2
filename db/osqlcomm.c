@@ -81,6 +81,8 @@ int gbl_debug_invalid_genid;
 int gbl_partition_sc_reorder = 1;
 
 extern int db_is_exiting();
+extern int prepare_schema_change(struct ireq *iq, tran_type *trans);
+extern int launch_schema_change(struct ireq *iq, tran_type *trans);
 
 static int osql_net_type_to_net_uuid_type(int type);
 static void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen);
@@ -6335,13 +6337,48 @@ static int _process_single_table_sc(struct ireq *iq)
     return rc;
 }
 
-static int start_schema_change_tran_wrapper_merge(const char *tblname,
+static int launch_schema_change_wrapper_merge(const char *tblname,
                                                   timepart_view_t **pview,
                                                   timepart_sc_arg_t *arg)
 {
+    printf("%s\n", __func__);
+    struct schema_change_type * const sc = listc_rtl(&arg->per_shard_scs);
+    struct ireq * const iq = arg->s->iq;
+    iq->sc = sc;
+
+    /**
+     * if view is provided, this is part of a shard walk;
+     * release views lock here since sc can take awhile
+     *
+     */
+    if (arg->lockless)
+        views_unlock();
+
+    printf("About to launch schema change\n");
+    const int rc = launch_schema_change(iq, NULL);
+    printf("launched sc\n");
+
+    iq->sc->sc_next = iq->sc_pending;
+    iq->sc_pending = iq->sc;
+
+    if (arg->lockless) {
+        *pview = timepart_reaquire_view(arg->part_name);
+        if (!pview) {
+            logmsg(LOGMSG_ERROR, "%s view %s dropped while processing\n",
+                   __func__, arg->part_name);
+            return VIEW_ERR_SC;
+        }
+    }
+
+    return rc;
+}
+
+static int prepare_schema_change_wrapper_merge(const char *tblname,
+                                               timepart_view_t **pview,
+                                               timepart_sc_arg_t *arg)
+{
     struct schema_change_type *sc = arg->s;
     struct ireq *iq = sc->iq;
-    int rc;
 
     /* first shard drops partition also */
     if (arg->pos & LAST_SHARD) {
@@ -6360,6 +6397,7 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
     alter_sc->force_rebuild = 1; /* we are moving rows here */
     /* alter only in parallel mode for live */
     alter_sc->scanmode = SCAN_PARALLEL;
+    alter_sc->resume = sc->resume;
     /* link the sc */
     iq->sc = alter_sc;
 
@@ -6371,12 +6409,9 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
     if (arg->lockless)
         views_unlock();
 
-    rc = start_schema_change_tran(iq, NULL);
+    const int rc = prepare_schema_change(iq, NULL);
 
-    /* link the alter */
-    iq->sc->sc_next = iq->sc_pending;
-    iq->sc_pending = iq->sc;
-    iq->sc->newdb = NULL; /* lose ownership, otherwise double free */
+    listc_abl(&arg->per_shard_scs, iq->sc);
 
     if (arg->lockless) {
         *pview = timepart_reaquire_view(arg->part_name);
@@ -6389,6 +6424,27 @@ static int start_schema_change_tran_wrapper_merge(const char *tblname,
 
     if (rc && rc != SC_MASTER_DOWNGRADE)
         iq->osql_flags |= OSQL_FLAGS_SCDONE;
+    return rc;
+}
+
+static int start_schema_change_tran_wrapper_merge(const char *tblname,
+                                                  timepart_view_t **pview,
+                                                  timepart_sc_arg_t *arg)
+{
+    printf("%s\n", __func__);
+    int rc = prepare_schema_change_wrapper_merge(tblname, pview, arg);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s:%d Failed to prepare schema change. rc(%d)\n", __func__, __LINE__, rc);
+        goto err;;
+    }
+
+    rc = launch_schema_change_wrapper_merge(tblname, pview, arg);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s:%d Failed to launch schema change. rc(%d)\n", __func__, __LINE__, rc);
+        goto err;;
+    }
+
+err:
     return rc;
 }
 
@@ -6439,6 +6495,7 @@ static int _process_single_table_sc_merge(struct ireq *iq)
 
 static int _process_partitioned_table_merge(struct ireq *iq)
 {
+    printf("%s\n", __func__);
     struct schema_change_type *sc = iq->sc;
     int rc;
     timepart_sc_arg_t arg = {0};
@@ -6457,13 +6514,13 @@ static int _process_partitioned_table_merge(struct ireq *iq)
 
     /* we need to move data */
     sc->force_rebuild = 1;
+    sc->nothrevent = 1; /* we need add/alter to run first */
+    sc->finalize = 0;   /* make sure */
 
     if (!first_shard->sqlaliasname) {
         /*
          * create a table with the same name as the partition
          */
-        sc->nothrevent = 1; /* we need do_add_table to run first */
-        sc->finalize = 0;   /* make sure */
         sc->kind = SC_ADDTABLE;
 
         rc = start_schema_change_tran(iq, NULL);
@@ -6477,10 +6534,8 @@ static int _process_partitioned_table_merge(struct ireq *iq)
         }
     } else {
         /*
-         * use the fast shard as the destination, after first altering it
+         * use the first shard as the destination, after first altering it
          */
-        sc->nothrevent = 1; /* we need do_alter_table to run first */
-        sc->finalize = 0;
         enum comdb2_partition_type tt = sc->partition.type;
         sc->partition.type = PARTITION_NONE;
 
@@ -6511,8 +6566,13 @@ static int _process_partitioned_table_merge(struct ireq *iq)
     if (!arg.part_name)
         return VIEW_ERR_MALLOC;
     arg.lockless = 1;   
-    /* note: we have already set nothrevent depending on the number of shards */
-    rc = timepart_foreach_shard(start_schema_change_tran_wrapper_merge, &arg);
+    // Parallel mode (nothrevent=1) is not working correctly at this point.
+    // Keep it off until bugs are addressed.
+
+    listc_init(&(arg.per_shard_scs), offsetof(struct schema_change_type, per_shard_scs_lnk));
+    rc = timepart_foreach_shard(prepare_schema_change_wrapper_merge, &arg);
+    rc = timepart_foreach_shard(launch_schema_change_wrapper_merge, &arg);
+
     free(arg.part_name);
 
     if (first_shard->sqlaliasname) {

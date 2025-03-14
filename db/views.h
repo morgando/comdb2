@@ -89,6 +89,7 @@ typedef struct timepart_sc_arg {
     /* output */
     int pos; /* is this the first and/or the last shard */
     int indx;  /* currently selected shard index */
+    LISTC_T(struct schema_change_type) per_shard_scs; /* In case we need to store unique scs per shard */
 } timepart_sc_arg_t;
 
 extern int gbl_partitioned_table_enabled;

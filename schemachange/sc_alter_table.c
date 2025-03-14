@@ -791,6 +791,14 @@ convert_records:
     assert(db->sc_to == newdb && s->newdb == newdb);
     assert(db->doing_conversion == 1);
     MEMORY_SYNC;
+    if (s->resume) {
+        if (gbl_test_sc_resume_race && !get_stopsc(__func__, __LINE__)) {
+            logmsg(LOGMSG_INFO, "%s:%d sleeping 5s for sc_resume test\n",
+                   __func__, __LINE__);
+            sleep(5);
+        }
+        decrement_sc_yet_to_resume_counter();
+    }
 
     if (get_stopsc(__func__, __LINE__)) {
         sc_errf(s, "master downgrading\n");

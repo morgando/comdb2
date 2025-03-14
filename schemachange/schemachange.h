@@ -234,6 +234,7 @@ struct schema_change_type {
     void *tran; /* transactional schemachange */
 
     struct schema_change_type *sc_next;
+    LINKC_T(struct schema_change_type) per_shard_scs_lnk; /* For when we're doing sc on a partitioned table and need every shard's sc */
     LINKC_T(struct schema_change_type) scs_lnk; /* all the schema changess in a txn  */
 
     int usedbtablevers;

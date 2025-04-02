@@ -787,7 +787,6 @@ int do_schema_change_tran_thd(sc_arg_t *arg)
 
 void do_schema_change_tran_thd_thdpool_wrapper(struct thdpool *pool, void *work, void *thddata, int op)
 {
-	printf("\n\n\n:hello\n\n\n");
     bdb_thread_event(thedb->bdb_env, 1);
     do_schema_change_tran_int(work);
     bdb_thread_event(thedb->bdb_env, 0);

@@ -1079,7 +1079,6 @@ int thdpool_enqueue(struct thdpool *pool, thdpool_work_fn work_fn, void *work,
                     pool->num_failed_dispatches++;
                     errUNLOCK(&pool->mutex);
                     /* this is a ctrace now */
-                    logmsg(LOGMSG_ERROR, "%s: all threads busy for %s: max is %d have %d\n", __func__, pool->name, pool->maxqueue, queue_count);
                     if (pool->dump_on_full)
                         ctrace("%s(%s):all threads busy and queue full, see "
                                "trace file\n",

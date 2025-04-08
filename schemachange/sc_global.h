@@ -85,5 +85,6 @@ struct schema_change_type *find_ongoing_alter(char *table);
 struct schema_change_type *preempt_ongoing_alter(char *table, int action);
 void clear_ongoing_alter();
 int get_stopsc(const char *func, int line);
+int get_schema_change_in_progress(const char *func, int line);
 
 #endif

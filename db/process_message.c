@@ -953,6 +953,8 @@ clipper_usage:
         berk_write_alarm_ms(__berkdb_write_alarm_ms);
         berk_read_alarm_ms(__berkdb_read_alarm_ms);
 
+    } else if (tokcmp(tok, ltok, "num_running_scs") == 0) {
+        logmsg(LOGMSG_USER, "%d\n", get_schema_change_in_progress(__func__, __LINE__));
     } else if (tokcmp(tok, ltok, "memp_sync_alarm") == 0) {
         int num;
 

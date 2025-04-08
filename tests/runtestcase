@@ -425,8 +425,7 @@ elif [[ -z "${CHECK_DB_AT_FINISH}" ]] ; then
    fi
 fi
     
-
-
+running_scs=0
 if [ $CHECK_DB_AT_FINISH -eq 1 ] ; then
     dbdown=`check_db_at_finish ${DBNAME} $CDB2_CONFIG`
 
@@ -437,6 +436,11 @@ if [ $CHECK_DB_AT_FINISH -eq 1 ] ; then
 
     if [[ -z "${dbdown}" ]] && [[ -n "${TERTIARY_DBNAME}" ]]; then
         dbdown=`check_db_at_finish ${TERTIARY_DBNAME} $TERTIARY_CDB2_CONFIG`
+    fi
+
+    if [[ -z "${dbdown}" ]]; then
+        master=$($CDB2SQL_EXE --cdb2cfg ${CDB2_CONFIG} --tabs ${DBNAME} default "select host from comdb2_cluster where is_master='Y'")
+        running_scs=$($CDB2SQL_EXE --cdb2cfg ${CDB2_CONFIG} --tabs --host $master $DBNAME "exec procedure sys.cmd.send('num_running_scs')" 2>&1)
     fi
 
     # if no crashes and $VERIFY_DB_AT_FINISH > 0 then run verify
@@ -471,7 +475,11 @@ if [[ -n "$dbdown" ]] ; then
 elif [[ $rc -eq 124 ]] ; then
     echo -e "!$TESTCASE: ${YELLOW}timeout${NEUTRAL} (logs in ${TESTDIR}/logs/${DBNAME}.testcase)"
     echo "!$TESTCASE: timeout" >> ${TEST_LOG}
+    echo "!$TESTCASE: ${running_scs} scs running at exit" >> ${TEST_LOG}
     successful=-1
+elif (( running_scs != 0 )); then
+    echo -e "!$TESTCASE: failed because ${running_scs} scs running at exit (logs in ${TESTDIR}/logs/${DBNAME}.testcase)"
+    echo "!$TESTCASE: ${running_scs} scs running at exit" >> ${TEST_LOG}
 elif [[ -n "$verify_ret" ]] && [[ $rc -ne 0 ]] ; then
     echo -e "!$TESTCASE: ${RED}failed${NEUTRAL} rc=$rc (logs in ${TESTDIR}/logs/${DBNAME}.testcase)"
     echo "!$TESTCASE: failed" >> ${TEST_LOG}

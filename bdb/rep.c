@@ -67,6 +67,8 @@ int gbl_long_log_truncation_warn_thresh_sec = INT_MAX;
 int gbl_long_log_truncation_abort_thresh_sec = INT_MAX;
 int gbl_debug_drop_nth_rep_message = 0;
 extern int gbl_debug_stat4dump_loop;
+extern __thread int thread_is_running_osql_sc;
+extern int get_stopsc(const char *func, int line);
 
 extern struct thdpool *gbl_udppfault_thdpool;
 extern int gbl_commit_delay_trace;
@@ -2919,6 +2921,13 @@ static int bdb_wait_for_seqnum_from_node_int(bdb_state_type *bdb_state,
         h->expected_udp_count++;
 
 again:
+
+    if (thread_is_running_osql_sc && get_stopsc(__func__, __LINE__)) {
+        Pthread_mutex_unlock(&(bdb_state->seqnum_info->lock));
+        logmsg(LOGMSG_WARN, "%s: Not waiting for seqnum because stopsc is set and I am applying an sc\n",
+            __func__);
+        return 1;
+    }
 
     if (h->seqnum.lsn.file == INT_MAX || bdb_lock_desired(bdb_state)) {
         /* add 1 ms of latency if we have someone catching up */

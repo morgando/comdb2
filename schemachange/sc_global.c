@@ -23,6 +23,7 @@
 #include "bbinc/cheapstack.h"
 #include "crc32c.h"
 #include "comdb2_atomic.h"
+#include <bdb/bdb_int.h>
 #include <assert.h>
 
 #include <plhash_glue.h>
@@ -201,7 +202,7 @@ const char *get_sc_to_name(const char *name)
     return NULL;
 }
 
-void wait_for_sc_to_stop(const char *operation, const char *func, int line)
+void wait_for_sc_to_stop(bdb_state_type *bdb_state, const char *operation, const char *func, int line)
 {
     Pthread_mutex_lock(&gbl_sc_progress_lk);
     if (stopsc) {
@@ -220,6 +221,9 @@ void wait_for_sc_to_stop(const char *operation, const char *func, int line)
         }
         sleep(1);
         waited++;
+        if (waited == 10) {
+            pthread_cond_broadcast(&(bdb_state->seqnum_info->cond));
+        }
         if (waited > 10)
             logmsg(LOGMSG_ERROR,
                    "%s: waiting schema changes to stop for: %ds\n", operation,

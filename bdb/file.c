@@ -5397,7 +5397,7 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
         if (gbl_debug_downgrade_during_sc_deadlock) {
             sleep(10);
         }
-        wait_for_sc_to_stop("downgrade", __func__, __LINE__);
+        wait_for_sc_to_stop(bdb_state, "downgrade", __func__, __LINE__);
         bdb_set_read_only(bdb_state);
     }
 

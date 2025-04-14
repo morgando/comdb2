@@ -1684,7 +1684,7 @@ static void begin_clean_exit(void)
     wait_for_transactions();
 
     print_all_time_accounting();
-    wait_for_sc_to_stop("exit", __func__, __LINE__);
+    wait_for_sc_to_stop(thedb->bdb_env, "exit", __func__, __LINE__);
 
     /* let the lower level start advertising high lsns to go non-coherent
        - dont hang the master waiting for sync replication to an exiting
@@ -1743,7 +1743,7 @@ void clean_exit(void)
     wait_for_transactions();
 
     print_all_time_accounting();
-    wait_for_sc_to_stop("exit", __func__, __LINE__);
+    wait_for_sc_to_stop(thedb->bdb_env, "exit", __func__, __LINE__);
 
     /* let the lower level start advertising high lsns to go non-coherent
        - dont hang the master waiting for sync replication to an exiting

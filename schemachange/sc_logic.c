@@ -45,6 +45,7 @@
 void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 
 extern int gbl_is_physical_replicant;
+__thread int thread_is_running_osql_sc = 0;
 
 int gbl_multitable_ddl = 0;
 
@@ -70,6 +71,9 @@ static enum thrtype prepare_sc_thread(struct schema_change_type *s)
             logmsg(LOGMSG_INFO, "Preparing schema change read write thread\n");
         }
     }
+
+    if (s->is_osql) { thread_is_running_osql_sc = 1; }
+
     return oldtype;
 }
 
@@ -82,6 +86,8 @@ static void reset_sc_thread(enum thrtype oldtype, struct schema_change_type *s)
         /* restore our  thread type to what it was before */
         if (oldtype != THRTYPE_UNKNOWN) thrman_change_type(thr_self, oldtype);
     }
+
+    if (s->is_osql) { thread_is_running_osql_sc = 0; }
 }
 
 /* if we're using the low level meta table and we are doing a normal change,

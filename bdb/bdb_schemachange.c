@@ -85,7 +85,9 @@ static const char *const bdb_scdone_type_names[] = {
     "user_view",               // 21
     "add_queue_file",          // 22
     "del_queue_file",          // 23
-    "alias_table"              // 24
+    "alias_table",             // 24
+    "alias",                   // 25
+    "default_cons"             // 26
 };
 
 const char *bdb_get_scdone_str(scdone_t type)

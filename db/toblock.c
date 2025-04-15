@@ -78,6 +78,7 @@
 #include "comdb2_atomic.h"
 #include "str0.h"
 #include "schemachange.h"
+#include "sc_global.h"
 #include "views.h"
 #include <disttxn.h>
 
@@ -5231,6 +5232,16 @@ unknown_request:
 /*------ERROR CONDITION------*/
 
 backout:
+    if (iq->sc_pending && get_stopsc(__func__, __LINE__)
+        && iq->sc_pending->set_running) {
+        struct schema_change_type * sc = iq->sc_pending;
+        while (sc) {
+            increment_num_scs_that_should_not_block_downgrade();
+            sc->should_not_block_downgrade = 1;
+            sc = sc->sc_next;
+        }
+    }
+    
     /* wait-die deadlock on distributed txn -> verify-error */
     if (rc == RC_INTERNAL_RETRY && iq->sorese && iq->sorese->dist_txnid && waitdie_deadlock) {
         extern long long gbl_distributed_deadlock_count;

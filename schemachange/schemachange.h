@@ -298,6 +298,7 @@ struct schema_change_type {
     unsigned views_locked : 1;
     unsigned is_osql : 1;
     unsigned set_running : 1;
+    unsigned should_not_block_downgrade : 1;
     uint64_t seed;
 
     int (*publish)(tran_type *, struct schema_change_type *);

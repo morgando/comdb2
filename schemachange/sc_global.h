@@ -86,5 +86,7 @@ struct schema_change_type *preempt_ongoing_alter(char *table, int action);
 void clear_ongoing_alter();
 int get_stopsc(const char *func, int line);
 void sc_alter_latency(int counter);
+void increment_num_scs_that_should_not_block_downgrade();
+int get_schema_change_blocking_downgrade(const char *func, int line);
 
 #endif

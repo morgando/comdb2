@@ -2833,6 +2833,11 @@ static inline int wait_for_seqnum_remove_node(bdb_state_type *bdb_state, int rc)
     }
 }
 
+enum seqnum_wait_rc {
+    SEQNUM_WAIT_RC_OK = 0,
+    SEQNUM_WAIT_RC_SC_STOPPED,
+};
+
 /*
  * Return values:
  *    GOOD RETURN CODE
@@ -2921,12 +2926,11 @@ static int bdb_wait_for_seqnum_from_node_int(bdb_state_type *bdb_state,
         h->expected_udp_count++;
 
 again:
-
     if (thread_is_running_osql_sc && get_stopsc(__func__, __LINE__)) {
         Pthread_mutex_unlock(&(bdb_state->seqnum_info->lock));
         logmsg(LOGMSG_WARN, "%s: Not waiting for seqnum because stopsc is set and I am applying an sc\n",
             __func__);
-        return 1;
+        return SEQNUM_WAIT_RC_SC_STOPPED;
     }
 
     if (h->seqnum.lsn.file == INT_MAX || bdb_lock_desired(bdb_state)) {
@@ -3254,7 +3258,12 @@ static int bdb_wait_for_seqnum_from_all_int(bdb_state_type *bdb_state,
             rc = bdb_wait_for_seqnum_from_node_int(bdb_state, seqnum,
                     nodelist[i], 1000, __LINE__, fake_incoherent);
 
-            if (bdb_lock_desired(bdb_state)) {
+            if (rc == SEQNUM_WAIT_RC_SC_STOPPED) {
+                logmsg(LOGMSG_WARN,
+                       "%s line %d early exit because sc stopped\n",
+                       __func__, __LINE__);
+                return (durable_lsns ? BDBERR_NOT_DURABLE : -1);
+            } else if (bdb_lock_desired(bdb_state)) {
                 logmsg(LOGMSG_ERROR,
                        "%s line %d early exit because lock-is-desired\n",
                        __func__, __LINE__);
@@ -3345,7 +3354,12 @@ got_ack:
         rc = bdb_wait_for_seqnum_from_node_int(bdb_state, seqnum, nodelist[i],
                                                waitms, __LINE__, fake_incoherent);
 
-        if (bdb_lock_desired(bdb_state)) {
+        if (rc == SEQNUM_WAIT_RC_SC_STOPPED) {
+            logmsg(LOGMSG_WARN,
+                   "%s line %d early exit because sc stopped\n",
+                   __func__, __LINE__);
+            return (durable_lsns ? BDBERR_NOT_DURABLE : -1);
+        } else if (bdb_lock_desired(bdb_state)) {
             logmsg(LOGMSG_ERROR,
                    "%s line %d early exit because lock-is-desired\n", __func__,
                    __LINE__);

@@ -100,6 +100,8 @@ inline int is_dta_being_rebuilt(struct scplan *plan)
 
 int gbl_verbose_set_sc_in_progress = 0;
 static pthread_mutex_t gbl_sc_progress_lk = PTHREAD_MUTEX_INITIALIZER;
+static int gbl_schema_change_should_not_block_downgrade = 0;
+static pthread_mutex_t gbl_sc_should_not_block_downgrade_lk = PTHREAD_MUTEX_INITIALIZER;
 
 int get_stopsc(const char *func, int line)
 {
@@ -162,6 +164,28 @@ static int decrement_schema_change_in_progress(const char *func, int line)
     return 0;
 }
 
+void decrement_num_scs_that_should_not_block_downgrade()
+{
+    Pthread_mutex_lock(&gbl_sc_should_not_block_downgrade_lk);
+    --gbl_schema_change_should_not_block_downgrade;
+    Pthread_mutex_unlock(&gbl_sc_should_not_block_downgrade_lk);
+}
+
+void increment_num_scs_that_should_not_block_downgrade()
+{
+    Pthread_mutex_lock(&gbl_sc_should_not_block_downgrade_lk);
+    ++gbl_schema_change_should_not_block_downgrade;
+    Pthread_mutex_unlock(&gbl_sc_should_not_block_downgrade_lk);
+}
+
+int get_num_scs_that_should_not_block_downgrade()
+{
+    Pthread_mutex_lock(&gbl_sc_should_not_block_downgrade_lk);
+    const int val = gbl_schema_change_should_not_block_downgrade;
+    Pthread_mutex_unlock(&gbl_sc_should_not_block_downgrade_lk);
+    return val;
+}
+
 int get_schema_change_in_progress(const char *func, int line)
 {
     int val, stopped = 0;
@@ -182,6 +206,11 @@ int get_schema_change_in_progress(const char *func, int line)
         }
     }
     return val;
+}
+
+int get_schema_change_blocking_downgrade(const char *func, int line)
+{
+    return get_schema_change_in_progress(func, line) > get_num_scs_that_should_not_block_downgrade();
 }
 
 const char *get_sc_to_name(const char *name)
@@ -215,7 +244,7 @@ void wait_for_sc_to_stop(bdb_state_type *bdb_state, const char *operation, const
     Pthread_mutex_unlock(&gbl_sc_progress_lk);
     logmsg(LOGMSG_INFO, "%s: set stopsc for %s\n", __func__, operation);
     int waited = 0;
-    while (get_schema_change_in_progress(func, line)) {
+    while (get_schema_change_blocking_downgrade(func, line)) {
         if (waited == 0) {
             logmsg(LOGMSG_INFO, "giving schemachange time to stop\n");
         }
@@ -327,6 +356,9 @@ int sc_set_running(struct ireq *iq, struct schema_change_type *s, char *table,
             hash_del(sc_tables, sctbl);
             free(sctbl);
             decrement_schema_change_in_progress(func, line);
+            if (s->should_not_block_downgrade) {
+                decrement_num_scs_that_should_not_block_downgrade();
+            }
             if (iq) {
                 iq->sc_running--;
                 assert(iq->sc_running >= 0);

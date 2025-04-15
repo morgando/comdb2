@@ -45,7 +45,7 @@
 void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 
 extern int gbl_is_physical_replicant;
-__thread int thread_is_running_osql_sc = 0;
+__thread int thread_is_running_sc = 0;
 
 int gbl_multitable_ddl = 0;
 
@@ -72,7 +72,7 @@ static enum thrtype prepare_sc_thread(struct schema_change_type *s)
         }
     }
 
-    thread_is_running_osql_sc = 1;
+    thread_is_running_sc = 1;
 
     return oldtype;
 }
@@ -87,7 +87,7 @@ static void reset_sc_thread(enum thrtype oldtype, struct schema_change_type *s)
         if (oldtype != THRTYPE_UNKNOWN) thrman_change_type(thr_self, oldtype);
     }
 
-    thread_is_running_osql_sc = 0;
+    thread_is_running_sc = 0;
 }
 
 /* if we're using the low level meta table and we are doing a normal change,
@@ -790,9 +790,9 @@ int do_schema_change_tran_thd(sc_arg_t *arg)
     bdb_state_type *bdb_state = thedb->bdb_env;
     thread_started("schema_change");
     bdb_thread_event(bdb_state, 1);
-    thread_is_running_osql_sc = 1;
+    thread_is_running_sc = 1;
     rc = do_schema_change_tran_int(arg);
-    thread_is_running_osql_sc = 0;
+    thread_is_running_sc = 0;
     bdb_thread_event(bdb_state, 0);
     if (rc == SC_COMMIT_PENDING) {
        rc = SC_OK; 

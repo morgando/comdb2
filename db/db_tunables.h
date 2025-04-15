@@ -1944,7 +1944,7 @@ REGISTER_TUNABLE("forbid_incoherent_writes",
                  TUNABLE_BOOLEAN, &gbl_forbid_incoherent_writes, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("debug_downgrade_during_sc_deadlock",
-                 "Cause downgrading node to wait for sc to finish.  (Default: off)", TUNABLE_BOOLEAN,
+                 "Adds sleeps that trigger deadlock without fix. See partition_sc test.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_debug_downgrade_during_sc_deadlock, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("debug_downgrade_cluster_at_open",

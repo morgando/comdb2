@@ -3570,6 +3570,10 @@ int sqlite3BtreeClose(Btree *pBt)
         else if (thd->bt == pBt)
             thd->bt = NULL;
     }
+    if (thd->bt) {
+        logmsg(LOGMSG_FATAL, "DID NOT EXPECT BT TO BE NON-NULL\n");
+        abort();
+    }
 
     if (pBt->free_schema && pBt->schema) {
         pBt->free_schema(pBt->schema);

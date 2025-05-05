@@ -1747,13 +1747,21 @@ int bdb_newsc_del_all_redo_genids(tran_type *t, const char *tablename, int *bdbe
 
 int bdb_set_high_genid(tran_type *input_trans, const char *tablename,
                        unsigned long long genid, int *bdberr);
+int bdb_set_high_genid_for_partition_merge(tran_type *input_trans, const char *src_shard_name,
+    unsigned long long genid, int *bdberr);
 int bdb_set_high_genid_stripe(tran_type *input_trans, const char *db_name,
                               int stripe, unsigned long long genid,
                               int *bdberr);
+int bdb_set_high_genid_stripe_for_partition_merge(tran_type *input_trans, const char *src_shard_name,
+    int dst_stripe, unsigned long long genid, int *bdberr);
 int bdb_clear_high_genid(tran_type *input_trans, const char *db_name,
                          int num_stripes, int *bdberr);
+int bdb_clear_high_genid_for_partition_merge(tran_type *input_trans, const char *src_shard_name,
+                         int num_dst_stripes, int *bdberr);
 int bdb_get_high_genid(const char *db_name, int stripe,
                        unsigned long long *genid, int *bdberr);
+int bdb_get_high_genid_for_partition_merge(const char *src_shard_name,
+    int dst_stripe, unsigned long long *genid, int *bdberr);
 
 void bdb_scdone_start(bdb_state_type *bdb_state);
 void bdb_scdone_end(bdb_state_type *bdb_state);

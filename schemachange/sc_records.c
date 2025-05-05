@@ -192,7 +192,7 @@ static inline void lkcounter_check(struct convert_record_data *data, int now)
  * stripe.
  * If the schema change is not resuming it sets them all to zero
  * If success it returns 0, if failure it returns <0 */
-int init_sc_genids(struct dbtable *db, struct schema_change_type *s)
+int init_sc_genids(struct dbtable *fromdb, struct dbtable *db, struct schema_change_type *s)
 {
     void *rec;
     int orglen, bdberr, stripe;
@@ -213,9 +213,11 @@ int init_sc_genids(struct dbtable *db, struct schema_change_type *s)
     if (!s->resume) {
         /* if we may have to resume this schema change, clear the progress in
          * llmeta */
-        if (bdb_clear_high_genid(NULL /*input_trans*/, db->tablename,
-                                 db->dtastripe, &bdberr) ||
-            bdberr != BDBERR_NOERROR) {
+        const int rc = s->partition.type == PARTITION_MERGE
+            ? bdb_clear_high_genid_for_partition_merge(NULL /*input_trans*/, fromdb->tablename,
+                db->dtastripe, &bdberr)
+            : bdb_clear_high_genid(NULL /*input_trans*/, db->tablename, db->dtastripe, &bdberr);
+        if (rc || bdberr != BDBERR_NOERROR) {
             logmsg(LOGMSG_ERROR, "init_sc_genids: failed to clear high "
                                  "genids\n");
             return -1;
@@ -238,15 +240,17 @@ int init_sc_genids(struct dbtable *db, struct schema_change_type *s)
         /* get this stripe's newest genid and store it in sc_genids,
          * if we have been rebuilding the data files we can grab the genids
          * straight from there, otherwise we look in the llmeta table */
-        if (is_dta_being_rebuilt(db->plan)) {
+        if (is_dta_being_rebuilt(db->plan) && (!(s->partition.type == PARTITION_MERGE))) {
             rc = bdb_find_newest_genid(db->handle, NULL, stripe, rec, &dtalen,
                                        dtalen, &sc_genids[stripe], &ver,
                                        &bdberr);
             if (rc == 1)
                 sc_genids[stripe] = 0ULL;
-        } else
-            rc = bdb_get_high_genid(db->tablename, stripe, &sc_genids[stripe],
-                                    &bdberr);
+        } else {
+            rc = (s->partition.type == PARTITION_MERGE)
+                ? bdb_get_high_genid_for_partition_merge(fromdb->tablename, stripe, &sc_genids[stripe], &bdberr)
+                : bdb_get_high_genid(db->tablename, stripe, &sc_genids[stripe], &bdberr);
+        }
         if (rc < 0 || bdberr != BDBERR_NOERROR) {
             sc_errf(s, "init_sc_genids: failed to find newest genid for "
                        "stripe: %d\n",
@@ -254,8 +258,13 @@ int init_sc_genids(struct dbtable *db, struct schema_change_type *s)
             free(rec);
             return -1;
         }
-        sc_printf(s, "[%s] resuming stripe %2d from 0x%016llx\n", db->tablename,
+        if (s->partition.type == PARTITION_MERGE) {
+            sc_printf(s, "[%s] resuming copying from shard %s to stripe %2d from 0x%016llx\n",
+                db->tablename, fromdb->tablename, stripe, sc_genids[stripe]);
+        } else {
+            sc_printf(s, "[%s] resuming stripe %2d from 0x%016llx\n", db->tablename,
                   stripe, sc_genids[stripe]);
+        }
     }
 
     free(rec);
@@ -779,7 +788,10 @@ static int convert_record(struct convert_record_data *data)
             rc = 0;
             if (usellmeta && !is_dta_being_rebuilt(data->to->plan)) {
                 int bdberr;
-                rc = bdb_set_high_genid_stripe(NULL, data->to->tablename,
+                rc = data->s->partition.type == PARTITION_MERGE
+                    ? bdb_set_high_genid_stripe_for_partition_merge(NULL,
+                        data->from->tablename, data->stripe, -1ULL, &bdberr)
+                    : bdb_set_high_genid_stripe(NULL, data->to->tablename,
                                                data->stripe, -1ULL, &bdberr);
                 if (rc != 0) rc = -1; // convert_record expects -1
             }
@@ -1027,8 +1039,11 @@ static int convert_record(struct convert_record_data *data)
         (data->nrecs %
          BDB_ATTR_GET(thedb->bdb_attr, INDEXREBUILD_SAVE_EVERY_N)) == 0) {
         int bdberr;
-        rc = bdb_set_high_genid(data->trans, data->to->tablename, genid,
-                                &bdberr);
+        rc = data->s->partition.type == PARTITION_MERGE
+            ? bdb_set_high_genid_stripe_for_partition_merge(NULL,
+                data->from->tablename, data->stripe, -1ULL, &bdberr)
+            : bdb_set_high_genid_stripe(NULL, data->to->tablename,
+                                       data->stripe, -1ULL, &bdberr);
         if (rc != 0) {
             if (bdberr == BDBERR_DEADLOCK)
                 rc = RC_INTERNAL_RETRY;
@@ -2680,8 +2695,11 @@ static int live_sc_redo_add(struct convert_record_data *data, DB_LOGC *logc,
 
     if (!is_dta_being_rebuilt(data->to->plan)) {
         int bdberr;
-        rc = bdb_set_high_genid(data->trans, data->to->tablename, genid,
-                                &bdberr);
+        rc = data->s->partition.type == PARTITION_MERGE
+            ? bdb_set_high_genid_stripe_for_partition_merge(NULL,
+                data->from->tablename, data->stripe, -1ULL, &bdberr)
+            : bdb_set_high_genid_stripe(NULL, data->to->tablename,
+                                       data->stripe, -1ULL, &bdberr);
         if (rc != 0) {
             if (bdberr == BDBERR_DEADLOCK)
                 rc = RC_INTERNAL_RETRY;

@@ -5118,6 +5118,17 @@ int bdb_clear_high_genid(
     return 0;
 }
 
+int bdb_clear_high_genid_for_partition_merge(
+    tran_type *input_trans,               /* if this is !NULL it will be used as
+                                           * the transaction for all actions, if
+                                           * it is NULL a new transaction will be
+                                           * created internally for each stripe */
+    const char *src_shard_name, int num_dst_stripes, /* number of stripes to clear */
+    int *bdberr)
+{
+    return bdb_clear_high_genid(input_trans, src_shard_name, num_dst_stripes, bdberr);
+}
+
 /* determines what stripe the genid is part of and calls
  * bdb_set_high_genid_int */
 int bdb_set_high_genid(tran_type *input_trans, const char *db_name,
@@ -5131,6 +5142,19 @@ int bdb_set_high_genid_stripe(tran_type *input_trans, const char *db_name,
                               int stripe, unsigned long long genid, int *bdberr)
 {
     return bdb_set_high_genid_int(input_trans, db_name, stripe, genid, bdberr);
+}
+
+int bdb_set_high_genid_for_partition_merge(tran_type *input_trans, const char *src_shard_name,
+    unsigned long long genid, int *bdberr)
+{
+    return bdb_set_high_genid_int(input_trans, src_shard_name,
+                                  get_dtafile_from_genid(genid), genid, bdberr);
+}
+
+int bdb_set_high_genid_stripe_for_partition_merge(tran_type *input_trans, const char *src_shard_name,
+    int dst_stripe, unsigned long long genid, int *bdberr)
+{
+    return bdb_set_high_genid_int(input_trans, src_shard_name, dst_stripe, genid, bdberr);
 }
 
 /* looks up the last procesed genid for a given stripe in the in progress schema
@@ -5239,6 +5263,14 @@ retry:
 
     *bdberr = BDBERR_NOERROR;
     return 0;
+}
+
+// Gets the highest genid that has been written by a particular shard to a particular
+// stripe in the schema change target table.
+int bdb_get_high_genid_for_partition_merge(const char *src_shard_name, int dst_stripe,
+    unsigned long long *genid, int *bdberr)
+{
+    return bdb_get_high_genid(src_shard_name, dst_stripe, genid, bdberr);
 }
 
 int bdb_delete_file_lwm(bdb_state_type *bdb_state, tran_type *tran, int *bdberr)

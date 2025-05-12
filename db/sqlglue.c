@@ -3538,6 +3538,8 @@ int sqlite3BtreeClose(Btree *pBt)
     /* go through cursor list for db.  close any still open (abort? commit?),
      * deallocate pBt */
 
+     printf("Closing btree %p\n", pBt);
+
     if (pBt->genid_hash) {
         bdb_temp_hash_destroy(pBt->genid_hash);
         pBt->genid_hash = NULL;
@@ -3565,13 +3567,13 @@ int sqlite3BtreeClose(Btree *pBt)
     /* Reset thd pointers */
     thd = pthread_getspecific(query_info_key);
     if (thd) {
-        if (pBt->is_temporary && thd->bttmp == pBt)
+        if (pBt->is_temporary && thd->bttmp == pBt) {
             thd->bttmp = NULL;
-        else if (thd->bt == pBt)
+        } else if (thd->bt == pBt)
             thd->bt = NULL;
     }
     if (thd->bt) {
-        logmsg(LOGMSG_FATAL, "DID NOT EXPECT BT TO BE NON-NULL\n");
+        logmsg(LOGMSG_FATAL, "DID NOT EXPECT BT TO BE NON-NULL BT IS %p pBt is %p\n", thd->bt, pBt);
         abort();
     }
 
@@ -3719,6 +3721,8 @@ int sqlite3BtreeOpen(
         rc = SQLITE_INTERNAL;
         goto done;
     }
+
+    printf("Opening btree %p with filename %s\n", bt, zFilename);
 
     if (zFilename) {
         bt->zFilename = strdup(zFilename);
@@ -6624,6 +6628,7 @@ int sqlite3BtreeCloseCursor(BtCursor *pCur)
         return 0;
     struct sqlclntstate *clnt = thd->clnt;
 
+    printf("Closing cursor\n\t\tthd %p clnt %p\n", thd, clnt);
     if (pCur->rd_blob_buffers) {
         for (int i = 0; i < MAXBLOBS; ++i) {
             if (pCur->rd_blob_buffers[i].capacity) free(pCur->rd_blob_buffers[i].z);
@@ -8346,6 +8351,8 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     int sz = 0;
     struct schema *sc;
     void *shadow_tran = NULL;
+    
+    printf("Opening cursor\n\t\tthd is %p. clnt is %p. bt is %p\n", thd, clnt, thd->bt);
 
     assert(iTable >= RTPAGE_START);
     /* INVALID: assert(iTable < thd->rootpage_nentries + RTPAGE_START); */

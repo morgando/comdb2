@@ -2764,6 +2764,9 @@ int release_locks_on_emit_row(struct sqlclntstate *clnt)
     extern int gbl_sql_random_release_interval;
     int rep_lock_time_ms = gbl_rep_lock_time_ms;
 
+    struct sql_thread *thd = pthread_getspecific(query_info_key);
+    if (thd) { printf("While running\n\t\tthd is %p clnt is %p bt is %p\n", thd, clnt, thd->bt); }
+
     /* Always release if we're emitting during a master change */
     if (bdb_lock_desired(thedb->bdb_env))
         return release_locks_int("release locks on emit-row for lock-desired", __func__, __LINE__, clnt);

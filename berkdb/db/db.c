@@ -969,6 +969,7 @@ __db_close(dbp, txn, flags)
 	DB_TXN *txn;
 	u_int32_t flags;
 {
+	printf("closing %s\n", dbp->fname);
 	DB_ENV *dbenv;
 	u_int32_t dbpflags;
 	int db_ref, deferred_close, ret, t_ret;

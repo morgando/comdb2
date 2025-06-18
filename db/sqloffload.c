@@ -679,6 +679,7 @@ static void osql_genid48_commit_callback(struct ireq *iq)
 extern int gbl_readonly_sc;
 static void osql_scdone_commit_callback(struct ireq *iq)
 {
+    printf("In %s\n", __func__);
     int bdberr = 0;
     gbl_readonly_sc = 0;
     if (iq->osql_flags & OSQL_FLAGS_SCDONE) {

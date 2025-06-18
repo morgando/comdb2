@@ -6647,12 +6647,14 @@ static int bdb_del_file(bdb_state_type *bdb_state, DB_TXN *tid, char *filename,
     if ((rc = access(pname, F_OK)) == 0) {
         int rc;
 
+        printf("about to open %s\n", pname);
         if ((rc = db_create(&dbp, dbenv, 0)) == 0 &&
             (rc = dbp->open(dbp, NULL, pname, NULL, DB_BTREE, 0, 0666)) == 0) {
             bdb_remove_fileid_pglogs(bdb_state, dbp->fileid);
             dbp->close(dbp, DB_NOSYNC);
         }
 
+        printf("removing %s\n", filename);
         rc = dbenv->dbremove(dbenv, tid, filename, NULL, 0);
         if (rc) {
            logmsg(LOGMSG_ERROR, "bdb_del_file: dbremove %s failed: %d %s\n", filename, rc,

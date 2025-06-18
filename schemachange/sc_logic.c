@@ -1573,6 +1573,11 @@ int verify_new_temp_sc_db(struct dbtable *p_db, struct dbtable *p_newdb, tran_ty
 /* close and remove the temp table after a failed schema change. */
 int delete_temp_table(struct ireq *iq, struct dbtable *newdb)
 {
+    if (have_schema_lock()) {
+            printf("deleting temp tables. I have schema lock\n");
+    } else {
+            printf("deleting temp tables. I dont have schema lock\n");
+    }
     struct schema_change_type *s = iq->sc;
     tran_type *tran = NULL;
     int i, rc, bdberr;

@@ -73,6 +73,7 @@ __db_open(dbp, txn, fname, dname, type, flags, mode, meta_pgno)
 	int mode;
 	db_pgno_t meta_pgno;
 {
+	printf("opening fname %s\n", fname);
 	DB_ENV *dbenv;
 	int ret;
 	u_int32_t id;

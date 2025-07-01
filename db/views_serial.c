@@ -284,6 +284,7 @@ timepart_view_t *timepart_deserialize_view(const char *str, struct errstat *err)
     }
 
 done:
+    if (cson_view) { cson_free_value(cson_view); }
     return view;
 }
 
@@ -1406,8 +1407,8 @@ static timepart_view_t *partition_deserialize_cson_value(cson_value *cson_view,
     if(!tmp_str)
         comdb2uuid_clear(source_id);
     else if (uuid_parse(tmp_str, source_id)) {
-        errs = "Wrong JSON format, SOURCE_ID value invalid uuid";
-        goto error;
+            errs = "Wrong JSON format, SOURCE_ID value invalid uuid";
+            goto error;
         }
 
         tmp_str = cson_extract_str(obj, "ROLLOUT", err);

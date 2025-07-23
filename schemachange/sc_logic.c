@@ -48,6 +48,7 @@ void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 extern int gbl_is_physical_replicant;
 
 int gbl_multitable_ddl = 0;
+int gbl_debug_block_all_resumes = 0;
 
 /**** Utility functions */
 
@@ -791,7 +792,7 @@ int do_schema_change_tran_thd(sc_arg_t *arg)
     rc = do_schema_change_tran_int(arg);
     bdb_thread_event(bdb_state, 0);
     if (rc == SC_COMMIT_PENDING) {
-       rc = SC_OK; 
+       rc = SC_OK;
     }
     return rc;
 }
@@ -1086,7 +1087,7 @@ extern int resume_sc_multiddl_txn(sc_list_t *scl);
 
 /**
  * The resume searches for existing sc_list llmeta objects, instead
- * of checking each existing table.  This allows us to naturally 
+ * of checking each existing table.  This allows us to naturally
  * cluster together sc-s that are part of the same txn
  *
  */
@@ -1243,7 +1244,7 @@ int resume_schema_change(void)
 
             free(packed_sc_data);
 
-            if (scabort || s->kind == SC_BULK_IMPORT) {
+            if (scabort || gbl_debug_block_all_resumes || s->kind == SC_BULK_IMPORT) {
                 logmsg(LOGMSG_WARN, scabort
                     ? "%s: Cancelling resume of schema change.\n"
                     : "%s: Cancelling resume of schema change because it is a bulk import.\n",

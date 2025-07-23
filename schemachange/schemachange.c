@@ -42,6 +42,8 @@ const char *get_hostname_with_crc32(bdb_state_type *bdb_state,
 
 extern int gbl_test_sc_resume_race;
 
+int gbl_debug_sleep_in_schema_change = 0;
+
 /* If this is successful, it increments */
 int start_schema_change_tran(struct ireq *iq, tran_type *trans)
 {
@@ -250,7 +252,7 @@ int start_schema_change_tran(struct ireq *iq, tran_type *trans)
         }
     } else {
         seed = bdb_get_a_genid(thedb->bdb_env);
-        logmsg(LOGMSG_WARN, 
+        logmsg(LOGMSG_WARN,
                "Starting schema change: table %s kind %s new seed 0x%llx\n",
                s->tablename, schema_change_kind(s), seed);
     }
@@ -319,6 +321,11 @@ int start_schema_change_tran(struct ireq *iq, tran_type *trans)
         }
         ATOMIC_ADD32(gbl_sc_resume_start, 1);
     }
+
+    if (gbl_debug_sleep_in_schema_change) {
+        sleep(gbl_debug_sleep_in_schema_change);
+    }
+
     /*
     ** if s->kind == SC_PARTIALUPRECS, we're going radio silent from this point
     *forward

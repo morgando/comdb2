@@ -367,7 +367,7 @@ static void check_for_idx_rename(struct dbtable *newdb, struct dbtable *olddb)
 static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
                           tran_type *tran);
 static int optionsChanged(struct schema_change_type *sc, struct scinfo *scinfo){
-    if(sc->headers != scinfo->olddb_odh || 
+    if(sc->headers != scinfo->olddb_odh ||
         sc->ip_updates != scinfo->olddb_inplace_updates ||
         sc->instant_sc != scinfo->olddb_instant_sc ||
         sc->compress_blobs != scinfo->olddb_compress_blobs ||
@@ -438,7 +438,7 @@ int do_alter_table(struct ireq *iq, struct schema_change_type *s,
         sc_printf(s," instant_sc: %d\n", s->instant_sc);
         sc_printf(s," compress: %d\n", s->compress);
         sc_printf(s," compress_blobs: %d\n", s->compress_blobs);
-        sc_printf(s," --------------------------------------------------\n"); 
+        sc_printf(s," --------------------------------------------------\n");
         sc_printf(s," old options -> \n");
         sc_printf(s," headers: %d\n", scinfo.olddb_odh);
         sc_printf(s," ip_updates: %d\n", scinfo.olddb_inplace_updates);
@@ -735,7 +735,7 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
     struct scinfo scinfo;
 
 #ifdef DEBUG_SC
-    logmsg(LOGMSG_INFO, "do_alter_table() %s\n", s->resume ? "resuming" : "");
+    logmsg(LOGMSG_INFO, "do_merge_table() %s\n", s->resume ? "resuming" : "");
 #endif
 
     gbl_sc_last_writer_time = 0;
@@ -884,6 +884,16 @@ convert_records:
     /* check for rename outside of taking schema lock */
     /* handle renaming sqlite_stat1 entries for idx */
     check_for_idx_rename(s->newdb, s->db);
+
+    // All shards point to the same newdb.
+    //
+    // By setting newdb to NULL here, we ensure that
+    // all shards except for the first shard (which does not run
+    // do_merge_table) have newdb set to NULL.
+    //
+    // If we don't do this, then newdb will be double-freed
+    // in bplog_schemachange_wait()
+    if (rc == SC_MASTER_DOWNGRADE) { s->newdb = NULL; }
 
     return SC_OK;
 }

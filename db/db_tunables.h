@@ -24,6 +24,11 @@
   at multiple places.
 */
 
+REGISTER_TUNABLE("debug_block_all_resumes", "Block all schema change resumes (Default: off)", TUNABLE_BOOLEAN,
+                 &gbl_debug_block_all_resumes, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_sleep_in_schema_change", "Sleep for this many seconds in schema change code to "
+                 "simulate delays. (Default: 0)", TUNABLE_INTEGER,
+                 &gbl_debug_sleep_in_schema_change, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("abort_during_downgrade_if_scs_dont_stop", "Abort if scs don't stop within 60 seconds"
                  "after starting a downgrade (default OFF)", TUNABLE_BOOLEAN,
                  &gbl_abort_during_downgrade_if_scs_dont_stop, 0, NULL, NULL,
@@ -582,7 +587,7 @@ REGISTER_TUNABLE("foreign_db_allow_cross_class", NULL, TUNABLE_BOOLEAN, &gbl_fdb
                  READONLY | NOARG | READEARLY, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("foreign_db_resolve_local", NULL, TUNABLE_BOOLEAN, &gbl_fdb_resolve_local,
                  READONLY | NOARG | READEARLY, NULL, NULL, NULL, NULL);
-REGISTER_TUNABLE("foreign_db_push_remote", "Fdb proxy more for reads (OFF turns off writes as well). (Default: on)", TUNABLE_BOOLEAN, &gbl_fdb_push_remote, NOARG, NULL, NULL, 
+REGISTER_TUNABLE("foreign_db_push_remote", "Fdb proxy more for reads (OFF turns off writes as well). (Default: on)", TUNABLE_BOOLEAN, &gbl_fdb_push_remote, NOARG, NULL, NULL,
                  fdb_push_update, NULL);
 REGISTER_TUNABLE("foreign_db_push_remote_writes", "Fdb proxy mode for writes (ON turns on reads as well). (Default: off)", TUNABLE_BOOLEAN, &gbl_fdb_push_remote_write, NOARG, NULL, NULL,
                  fdb_push_write_update, NULL);
@@ -1681,7 +1686,7 @@ REGISTER_TUNABLE("abort_on_reconstruct_failure",
 
 REGISTER_TUNABLE("netconndumptime",
                  "Dump connection statistics to ctrace this often.",
-                 TUNABLE_INTEGER, NULL, 0, netconndumptime_value, NULL, 
+                 TUNABLE_INTEGER, NULL, 0, netconndumptime_value, NULL,
                  netconndumptime_update, NULL);
 
 REGISTER_TUNABLE("timeseries_metrics_maxpoints",
@@ -2168,7 +2173,7 @@ REGISTER_TUNABLE("ufid_log", "Generate ufid logs.  (Default: on)", TUNABLE_BOOLE
 REGISTER_TUNABLE("utxnid_log", "Generate utxnid logs. (Default: on)", TUNABLE_BOOLEAN, &gbl_utxnid_log,
                  NOARG|READEARLY, NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("ufid_add_on_collect", "Add to ufid-hash on collect.  (Default: off)", TUNABLE_BOOLEAN, 
+REGISTER_TUNABLE("ufid_add_on_collect", "Add to ufid-hash on collect.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_ufid_add_on_collect, EXPERIMENTAL | INTERNAL | READONLY, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("collect_before_locking", "Collect a transaction from the log before acquiring locks.  (Default: on)",
@@ -2177,7 +2182,7 @@ REGISTER_TUNABLE("collect_before_locking", "Collect a transaction from the log b
 REGISTER_TUNABLE("debug_ddlk", "Generate random deadlocks.  (Default: 0)", TUNABLE_INTEGER, &gbl_ddlk,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("abort_on_missing_ufid", "Abort if ufid is not found.  (Default: off)", 
+REGISTER_TUNABLE("abort_on_missing_ufid", "Abort if ufid is not found.  (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_abort_on_missing_ufid, EXPERIMENTAL | INTERNAL | READONLY,
                  NULL, NULL, NULL, NULL);
 
@@ -2185,11 +2190,11 @@ REGISTER_TUNABLE("ufid_dbreg_test", "Enable ufid-dbreg test.  (Default: off)", T
                  EXPERIMENTAL | INTERNAL | READONLY, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("javasp_early_release", "Release javasp-lock before distributed commit.  (Default: on)",
-                 TUNABLE_BOOLEAN, &gbl_javasp_early_release, EXPERIMENTAL | INTERNAL, 
+                 TUNABLE_BOOLEAN, &gbl_javasp_early_release, EXPERIMENTAL | INTERNAL,
                  NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("debug_add_replication_latency", "Sleep after distributed commit.  (Default: off)",
-                 TUNABLE_BOOLEAN, &gbl_debug_add_replication_latency, EXPERIMENTAL | INTERNAL, 
+                 TUNABLE_BOOLEAN, &gbl_debug_add_replication_latency, EXPERIMENTAL | INTERNAL,
                  NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("ref_sync_pollms",
@@ -2328,7 +2333,7 @@ REGISTER_TUNABLE("reject_mixed_ddl_dml", "Reject write schedules which mix DDL a
                  TUNABLE_BOOLEAN, &gbl_reject_mixed_ddl_dml, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("debug_create_master_entry", "Reproduce startup race in create_master_entry.  (Default: off)",
-                 TUNABLE_BOOLEAN, &gbl_debug_create_master_entry, EXPERIMENTAL | INTERNAL, 
+                 TUNABLE_BOOLEAN, &gbl_debug_create_master_entry, EXPERIMENTAL | INTERNAL,
                  NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("sockbplog",

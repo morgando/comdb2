@@ -41,6 +41,8 @@
 /* Separator for composite tunable components. */
 #define COMPOSITE_TUNABLE_SEP '.'
 
+extern int gbl_debug_block_all_resumes;
+extern int gbl_debug_sleep_in_schema_change;
 extern int gbl_transactional_drop_plus_rename;
 extern int gbl_bulk_import_validation_werror;
 extern int gbl_debug_sleep_during_bulk_import;
@@ -1169,9 +1171,9 @@ int ctrace_set_rollat(void *unused, void *value);
 int get_commit_lsn_map_switch_value()
 {
     const int dependencies_are_enabled = gbl_utxnid_log;
-    const int enabled_dependent_exists = 
+    const int enabled_dependent_exists =
         gbl_test_commit_lsn_map || gbl_use_modsnap_for_snapshot;
-    
+
     return dependencies_are_enabled && enabled_dependent_exists;
 }
 

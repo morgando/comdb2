@@ -24,6 +24,9 @@
   at multiple places.
 */
 
+REGISTER_TUNABLE("debug_sleep_in_schema_change", "Sleep for this many seconds after registering schema change.",
+                 TUNABLE_INTEGER, &gbl_debug_sleep_in_schema_change, 0, NULL, NULL,
+                 NULL, NULL);
 REGISTER_TUNABLE("abort_during_downgrade_if_scs_dont_stop", "Abort if scs don't stop within 60 seconds"
                  "after starting a downgrade (default OFF)", TUNABLE_BOOLEAN,
                  &gbl_abort_during_downgrade_if_scs_dont_stop, 0, NULL, NULL,

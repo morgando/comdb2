@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+TIER="default"
+
+source ${TESTSROOTDIR}/tools/cluster_utils.sh
+source ${TESTSROOTDIR}/tools/runit_common.sh
+
+downgrade() {
+	local master
+	master=$(get_master)
+	if (( $? != 0 )); then
+		echo "FAIL: Could not get master"
+		return 1
+	fi
+
+	if ! cdb2sql --host ${master} ${CDB2_OPTIONS} ${DBNAME} ${TIER} "exec procedure sys.cmd.send('downgrade')"; then
+		echo "FAIL: Could not send downgrade command to master"
+		return 1
+	fi
+
+	local new_master=${master}
+	while [[ "${new_master}" == "${master}" ]]; do
+		sleep 1
+		new_master=$(get_master)
+	done
+}
+
+function test_resume_is_blocked_after_downgrade() {
+	# Given
+	sendtocluster "put tunable debug_sleep_in_schema_change 60"
+	cdb2sql ${DBNAME} ${TIER} "create table t(i int)" &
+	waitpid=$!
+
+	# When
+	downgrade
+
+	# Then
+	if (( $? != 0 )); then
+		echo "FAIL: Downgrade failed"
+		return 1
+	fi
+
+	if wait ${waitpid}; then
+		echo "FAIL: Create succeeded before master swing. Test is buggy"
+		return 1
+	fi
+
+	if ! cdb2sql ${DBNAME} ${TIER} "select 1"; then
+		echo "FAIL: DB Not available after downgrade"
+		return 1
+	fi
+
+	err=$(cdb2sql ${DBNAME} ${TIER} "select * from t" 2>&1)
+
+	if (( $? == 0 )); then
+		echo "FAIL: Table t exists after downgrade"
+		return 1
+	fi
+
+	local -r expected_err="no such table: t"
+	if [[ ! "${err}" =~ "${expected_err}" ]]; then
+		echo "FAIL: Select failed for unexpected reason. Expected ${expected_err} Got: ${err}"
+		return 1
+	fi
+
+	# Teardown
+	sendtocluster "put tunable debug_sleep_in_schema_change 0"
+}
+
+test_resume_is_blocked_after_downgrade

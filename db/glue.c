@@ -799,6 +799,11 @@ static int trans_commit_int(struct ireq *iq, void *trans, char *source_host, int
     void *bdb_handle = thedb->bdb_env;
 
     memset(&ss, -1, sizeof(ss));
+    
+    if (iq->sorese) {
+        uuidstr_t us;
+        comdb2uuidstr(iq->sorese->uuid, us); // Testing for abort here
+    }
 
     if (release_schema_lk) {
         if (gbl_written_rows_warn > 0 && iq->written_row_count > gbl_written_rows_warn) {

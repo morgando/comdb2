@@ -17,6 +17,9 @@
 #ifndef _INCLUDED_SYSWRAP_H
 #define _INCLUDED_SYSWRAP_H
 
+#include <sys/resource.h>
+#include <sys/sysinfo.h>
+#include <sys/time.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
@@ -70,7 +73,47 @@
 #define Pthread_cond_init(...) WRAP_SYSFUNC(pthread_cond_init, __VA_ARGS__)
 #define Pthread_cond_signal(...) WRAP_SYSFUNC(pthread_cond_signal, __VA_ARGS__)
 #define Pthread_cond_wait(...) WRAP_SYSFUNC(pthread_cond_wait, __VA_ARGS__)
-#define Pthread_create(...) WRAP_SYSFUNC(pthread_create, __VA_ARGS__)
+// Special wrapper for pthread_create to diagnose EAGAIN
+#define Pthread_create(...)                                                                                  \
+    do {                                                                                                     \
+        int rc;                                                                                              \
+        SYSWRAPDBG_TRACE(TRY, pthread_create, SYSWRAP_FIRST(__VA_ARGS__));                                   \
+        rc = pthread_create(__VA_ARGS__);                                                                    \
+        if (rc != 0) {                                                                                       \
+            logmsg(LOGMSG_FATAL, "%s:%d pthread_create(0x%" PRIxPTR ") rc:%d (%s) thd:%p\n",                 \
+                       __func__, __LINE__, (uintptr_t)SYSWRAP_FIRST(__VA_ARGS__), rc, strerror(rc),          \
+                       (void *)pthread_self());                                                              \
+            if (rc == EAGAIN) {                                                                              \
+                logmsg(LOGMSG_FATAL, "pthread_create failed with EAGAIN: "                                   \
+                       "Printing resource utilization and limits.\n");                                       \
+                struct rlimit rl;                                                                            \
+                /* NPROC: number of processes/threads */                                                     \
+                if (getrlimit(RLIMIT_NPROC, &rl) == 0) {                                                     \
+                    long cur = (long)rl.rlim_cur, max = (long)rl.rlim_max;                                   \
+                    long nprocs = (long)get_nprocs(); /* fallback: number of processors */                   \
+                    logmsg(LOGMSG_FATAL, "RLIMIT_NPROC: cur=%ld max=%ld, utilization=%ld\n",                 \
+                           cur, max, nprocs);                                                                \
+                }                                                                                            \
+                /* STACK: stack size per thread (limit, not utilization) */                                  \
+                if (getrlimit(RLIMIT_STACK, &rl) == 0) {                                                     \
+                    logmsg(LOGMSG_FATAL, "RLIMIT_STACK: cur=%ld max=%ld\n",                                  \
+                           (long)rl.rlim_cur, (long)rl.rlim_max);                                            \
+                }                                                                                            \
+                /* AS: address space (virtual memory) */                                                     \
+                if (getrlimit(RLIMIT_AS, &rl) == 0) {                                                        \
+                    struct rusage usage;                                                                     \
+                    long vm = 0;                                                                             \
+                    if (getrusage(RUSAGE_SELF, &usage) == 0) {                                               \
+                        vm = (long)usage.ru_maxrss * 1024; /* ru_maxrss is in KB */                          \
+                    }                                                                                        \
+                    logmsg(LOGMSG_FATAL, "RLIMIT_AS: cur=%ld max=%ld, utilization=%ld\n",                    \
+                           (long)rl.rlim_cur, (long)rl.rlim_max, vm);                                        \
+                }                                                                                            \
+            }                                                                                                \
+            abort();                                                                                         \
+        }                                                                                                    \
+        SYSWRAPDBG_TRACE(GOT, pthread_create, SYSWRAP_FIRST(__VA_ARGS__));                                   \
+    } while (0)
 #define Pthread_detach(...) WRAP_SYSFUNC(pthread_detach, __VA_ARGS__)
 #define Pthread_join(...) WRAP_SYSFUNC(pthread_join, __VA_ARGS__)
 #define Pthread_key_create(...) WRAP_SYSFUNC(pthread_key_create, __VA_ARGS__)

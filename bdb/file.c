@@ -5156,7 +5156,7 @@ void bdb_set_read_only(bdb_state_type *bdb_state)
 }
 
 static int bdb_downgrade_int(bdb_state_type *bdb_state, int noelect,
-                             int *downgraded)
+                             int *downgraded, int wait_for_election_to_finish)
 {
     int rc;
     int outrc;
@@ -5194,7 +5194,7 @@ static int bdb_downgrade_int(bdb_state_type *bdb_state, int noelect,
         *downgraded = 1;
 
     if (!noelect)
-        call_for_election_and_lose(bdb_state, __func__, __LINE__);
+        call_for_election_and_lose(bdb_state, __func__, __LINE__, wait_for_election_to_finish);
 
     logmsg(LOGMSG_ERROR, "%s returning\n", __func__);
     return outrc;
@@ -5335,7 +5335,7 @@ static int bdb_upgrade_int(bdb_state_type *bdb_state, uint32_t newgen,
     return outrc;
 }
 
-enum { UPGRADE = 1, DOWNGRADE = 2, DOWNGRADE_NOELECT = 3, REOPEN = 4 };
+enum { UPGRADE = 1, DOWNGRADE = 2, DOWNGRADE_NOELECT = 3, REOPEN = 4, DOWNGRADE_AND_WAIT_FOR_ELECTION = 5};
 
 void *dummy_add_thread(void *arg);
 void bdb_all_incoherent(bdb_state_type *bdb_state);
@@ -5404,13 +5404,18 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
 
     watchdog_set_alarm(timeout);
 
-    if (op == DOWNGRADE || op == DOWNGRADE_NOELECT) {
+    if (op == DOWNGRADE || op == DOWNGRADE_NOELECT
+        || op == DOWNGRADE_AND_WAIT_FOR_ELECTION) {
         lockstate = abort_prepared_waiters(bdb_state);
     }
 
     switch (op) {
     case DOWNGRADE:
         lock_str = "downgrade";
+        BDB_WRITELOCK(lock_str);
+        break;
+    case DOWNGRADE_AND_WAIT_FOR_ELECTION:
+        lock_str = "downgrade_wait";
         BDB_WRITELOCK(lock_str);
         break;
     case DOWNGRADE_NOELECT:
@@ -5452,6 +5457,7 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
 
     switch (op) {
     case DOWNGRADE:
+    case DOWNGRADE_AND_WAIT_FOR_ELECTION:
     case DOWNGRADE_NOELECT:
     case REOPEN:
 
@@ -5464,20 +5470,20 @@ static int bdb_upgrade_downgrade_reopen_wrap(bdb_state_type *bdb_state, int op,
         }
 
         logmsg(LOGMSG_DEBUG, "calling bdb_downgrade_int\n");
-        if (op == DOWNGRADE)
-            rc = bdb_downgrade_int(bdb_state, 0, done);
-        else {
-            rc = bdb_downgrade_int(bdb_state, 1, done);
-            if (op == DOWNGRADE_NOELECT) {
-                assert(bdb_state->parent == NULL);
-                if (bdb_state->repinfo->master_host ==
-                    bdb_state->repinfo->myhost) {
-                    /* we need the watcher thread to kick periodical elections
-                       to get us a new master
-                       this handles the cluster split case */
-                    set_repinfo_master_host(bdb_state, db_eid_invalid, __func__,
-                                            __LINE__);
-                }
+
+        const int do_election = op == DOWNGRADE || op == DOWNGRADE_AND_WAIT_FOR_ELECTION;
+        const int wait_for_election_to_finish = op == DOWNGRADE_AND_WAIT_FOR_ELECTION;
+        rc = bdb_downgrade_int(bdb_state, do_election, done, wait_for_election_to_finish);
+
+        if (op == DOWNGRADE_NOELECT) {
+            assert(bdb_state->parent == NULL);
+            if (bdb_state->repinfo->master_host ==
+                bdb_state->repinfo->myhost) {
+                /* we need the watcher thread to kick periodical elections
+                    to get us a new master
+                    this handles the cluster split case */
+                set_repinfo_master_host(bdb_state, db_eid_invalid, __func__,
+                                        __LINE__);
             }
         }
         logmsg(LOGMSG_DEBUG, "back from bdb_downgrade_int\n");
@@ -5534,6 +5540,12 @@ int bdb_upgrade(bdb_state_type *bdb_state, uint32_t newgen, int *done)
     hostinfo_unlock();
 
     return bdb_upgrade_downgrade_reopen_wrap(bdb_state, UPGRADE, 30, newgen,
+                                             done);
+}
+
+int bdb_downgrade_and_wait_for_election(bdb_state_type *bdb_state, uint32_t newgen, int *done)
+{
+    return bdb_upgrade_downgrade_reopen_wrap(bdb_state, DOWNGRADE_AND_WAIT_FOR_ELECTION, 5, newgen,
                                              done);
 }
 

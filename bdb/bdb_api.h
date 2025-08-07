@@ -1341,7 +1341,7 @@ void bdb_log_berk_tables(bdb_state_type *bdb_state);
 int bdb_sync_cluster(bdb_state_type *bdb_state, int sync_all);
 
 int bdb_is_an_unconnected_master(bdb_state_type *bdb_state);
-void bdb_transfermaster(bdb_state_type *bdb_state);
+void bdb_transfermaster(bdb_state_type *bdb_state, int wait_for_election_to_finish);
 void bdb_losemaster(bdb_state_type *bdb_state);
 void bdb_transfermaster_tonode(bdb_state_type *bdb_state, struct interned_string *tohost);
 struct hostinfo *retrieve_hostinfo(struct interned_string *h);

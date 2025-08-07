@@ -1163,6 +1163,7 @@ void *myrealloc(void *ptr, size_t size);
 
 int bdb_upgrade(bdb_state_type *bdb_state, uint32_t newgen, int *done);
 int bdb_downgrade(bdb_state_type *bdb_state, uint32_t newgen, int *done);
+int bdb_downgrade_and_wait_for_election(bdb_state_type *bdb_state, uint32_t newgen, int *done);
 int bdb_downgrade_noelect(bdb_state_type *bdb_state);
 int get_seqnum(bdb_state_type *bdb_state, const char *host);
 
@@ -1741,7 +1742,7 @@ int __db_check_all_btree_cursors(DB *dbp, db_pgno_t pgno);
 void __db_err(const DB_ENV *dbenv, const char *fmt, ...);
 
 void call_for_election_and_lose(bdb_state_type *bdb_state, const char *func,
-                                int line);
+                                int line, int wait_for_election_to_finish);
 
 extern int gbl_sql_tranlevel_default;
 extern int gbl_sql_tranlevel_preserved;

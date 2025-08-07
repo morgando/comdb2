@@ -452,8 +452,7 @@ int bdb_is_an_unconnected_master(bdb_state_type *bdb_state)
     return (net_get_all_nodes_connected(bdb_state->repinfo->netinfo, hostlist) == 0);
 }
 
-
-void bdb_transfermaster(bdb_state_type *bdb_state)
+void bdb_transfermaster(bdb_state_type *bdb_state, int wait_for_election_to_finish)
 {
     int rc = 0;
     const char *hostlist[REPMAX];
@@ -472,7 +471,9 @@ void bdb_transfermaster(bdb_state_type *bdb_state)
         return;
     }
 
-    rc = bdb_downgrade(bdb_state, 0, NULL);
+    rc = wait_for_election_to_finish
+        ? bdb_downgrade_and_wait_for_election(bdb_state, 0, NULL)
+        : bdb_downgrade(bdb_state, 0, NULL);
     if (rc) {
         logmsg(LOGMSG_ERROR, "%s:%d bdb_downgrade failed rc=%d ?\n", __FILE__,
                 __LINE__, rc);
@@ -1387,7 +1388,7 @@ give_up:
     return NULL;
 }
 
-static void call_for_election_int(bdb_state_type *bdb_state, int op)
+static void call_for_election_int(bdb_state_type *bdb_state, int op, int wait_for_election_to_finish)
 {
     pthread_t elect_thr;
     elect_thread_args_type *elect_thread_args;
@@ -1416,18 +1417,20 @@ static void call_for_election_int(bdb_state_type *bdb_state, int op)
     logmsg(LOGMSG_INFO, "call_for_election: creating elect thread\n");
     Pthread_create(&elect_thr, &(bdb_state->pthread_attr_detach),
                         elect_thread, (void *)elect_thread_args);
+
+    if (wait_for_election_to_finish) pthread_join(elect_thr, NULL);
 }
 
 void call_for_election(bdb_state_type *bdb_state, const char *func, int line)
 {
     logmsg(LOGMSG_USER, "%s line %d called for election\n", func, line);
-    call_for_election_int(bdb_state, DONT_LOSE);
+    call_for_election_int(bdb_state, DONT_LOSE, 0);
 }
 
-void call_for_election_and_lose(bdb_state_type *bdb_state, const char *func, int line)
+void call_for_election_and_lose(bdb_state_type *bdb_state, const char *func, int line, int wait_for_election_to_finish)
 {
     logmsg(LOGMSG_USER, "%s line %d called for election\n", func, line);
-    call_for_election_int(bdb_state, LOSE);
+    call_for_election_int(bdb_state, LOSE, wait_for_election_to_finish);
 }
 
 /*
@@ -1441,7 +1444,7 @@ static void bdb_reopen(bdb_state_type *bdb_state, const char *func, int line)
     logmsg(LOGMSG_DEBUG, "bdb_reopen called by tid 0x%p\n", (void *)pthread_self());
     logmsg(LOGMSG_USER, "%s line %d called for election (bdb_reopen)\n", func,
            line);
-    call_for_election_int(bdb_state, REOPEN_AND_LOSE);
+    call_for_election_int(bdb_state, REOPEN_AND_LOSE, 0);
 }
 
 static char *print_permslsn(DB_LSN lsn, char str[])
@@ -5730,7 +5733,7 @@ void *watcher_thread(void *arg)
                                     logmsg(LOGMSG_WARN, 
                                         "transfering master because im rtcpued"
                                         "off and another node is available\n");
-                                    bdb_transfermaster(bdb_state);
+                                    bdb_transfermaster(bdb_state, 0);
 
                                     break;
                                 }
@@ -5742,7 +5745,7 @@ void *watcher_thread(void *arg)
                         else if (num > 1 && !bdb_state->need_to_downgrade_and_lose) {
                             logmsg(LOGMSG_WARN, 
                                    "transfering master because im rtcpued off\n");
-                            bdb_transfermaster(bdb_state);
+                            bdb_transfermaster(bdb_state, 0);
                         } else {
                             /* Stay master if you are a single node.  Local
                                processes
@@ -5826,7 +5829,7 @@ void *watcher_thread(void *arg)
             if (master_host == bdb_state->repinfo->myhost) {
                 logmsg(LOGMSG_WARN, "transfering master because i was told to "
                                 "downgrade and lose\n");
-                bdb_transfermaster(bdb_state);
+                bdb_transfermaster(bdb_state, 0);
             } else {
                 logmsg(LOGMSG_INFO, "%s:%d skipping master transfer, we've already "
                                 "downgraded\n",

@@ -827,8 +827,10 @@ clipper_usage:
        convert_freelist_to_btree();
        }
      */
-    else if (tokcmp(tok, ltok, "downgrade") == 0) {
-        bdb_transfermaster(dbenv->static_table.handle);
+    else if (tokcmp(tok, ltok, "downgrade_and_wait_for_election") == 0) {
+        bdb_transfermaster(dbenv->static_table.handle, 1);
+    } else if (tokcmp(tok, ltok, "downgrade") == 0) {
+        bdb_transfermaster(dbenv->static_table.handle, 0);
     } else if (tokcmp(tok, ltok, "losemaster") == 0) {
         bdb_losemaster(dbenv->static_table.handle);
     } else if (tokcmp(tok, ltok, "forceelect") == 0) {

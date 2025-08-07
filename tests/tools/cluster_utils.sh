@@ -258,3 +258,39 @@ function wait_for_cluster
         waitmach ${node}
     done
 }
+
+downgrade_master() {
+    local -r downgrade_wait_seconds=5
+
+    local master
+    master=$(get_master)
+    if (( $? != 0 )); then
+        echo "fail: could not get master"
+        return 1
+    fi
+
+    local gen
+    gen=$(cdb2sql --host ${master} ${CDB2_OPTIONS} "exec procedure sys.cmd.send('bdb repstat')" | awk '/st_gen:/ {gsub(/[^0-9]/,"",$2); print $2}')
+
+    if ! cdb2sql --host ${master} ${CDB2_OPTIONS} ${DBNAME} default "exec procedure sys.cmd.send('downgrade')"; then
+        echo "FAIL: Could not send downgrade command to master"
+        return 1
+    fi
+
+    local new_master=${master}
+    while [[ "${new_master}" == "${master}" ]]; do
+
+
+        sleep ${downgrade_wait_seconds}
+        new_master=$(get_master)
+        if (( $? != 0 )); then
+            echo "fail: could not get master"
+            return 1
+        fi
+    done
+
+    # Make sure everyone's available before we return
+    wait_for_cluster
+}
+kill_restart_node ${master} 0 1
+    

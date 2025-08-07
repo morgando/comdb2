@@ -5933,7 +5933,7 @@ int main(int argc, char **argv)
         }
         /* downgrade leader before other nodes catch up.
          * see code in __rep_process_message */
-        bdb_transfermaster(thedb->static_table.handle);
+        bdb_transfermaster(thedb->static_table.handle, 0);
     }
 
     if (!gbl_perform_full_clean_exit) {

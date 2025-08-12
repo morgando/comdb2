@@ -41,10 +41,14 @@ ifeq ($(subst all,,$(MAKECMDGOALS)),) #if cmdgoals empty or 'all'
   DOALL:=1
 endif
 
+# This is the list of all stress tests.
+export ALL_STRESS_TESTS:=$(filter-out $(DISABLED_TESTS), \
+	$(shell $(TESTSROOTDIR)/tools/get_tests_inorder.sh "stress"))
+
 # List of all tests that need to run.
 ifeq ($(wildcard alltests.txt),alltests.txt)
   # If file alltests.txt exists, only run the tests in that file (one line per test)
-  export ALL_TESTS:=$(patsubst %.test, %, $(shell sort -u alltests.txt) )
+  export ALL_TESTS:=$(shell sort -u alltests.txt)
 else
   ifneq ($(DISABLED_TESTS),)
     DISABLED_TESTS:=" $(shell echo $(DISABLED_TESTS) | tr ' ' '\n' | sort -u) "
@@ -58,8 +62,8 @@ else
   endif
 
   # This is the list of all non-disabled tests.
-  export ALL_TESTS:=$(patsubst %.test, %, $(filter-out $(DISABLED_TESTS), \
-      $(shell $(TESTSROOTDIR)/tools/get_tests_inorder.sh $(FLG))))
+  export ALL_TESTS:=$(filter-out $(DISABLED_TESTS), \
+      $(shell $(TESTSROOTDIR)/tools/get_tests_inorder.sh "test" $(FLG)))
 endif
 
 # get number of TOTAL tests running: used for printing progress report of tests
@@ -75,6 +79,8 @@ init:
 
 # Run all non-disabled tests.
 all_tests: $(ALL_TESTS)
+
+all_stress_tests: $(ALL_STRESS_TESTS)
 
 basicops_nokey: init
 	$(shell which git > /dev/null 2>&1 && git rev-parse --abbrev-ref HEAD | xargs echo "Branch" >> ${TESTDIR}/test.log)
@@ -115,12 +121,20 @@ showparams:
 	@tools/create_generated_tests.sh `tools/get_testopts_path.sh $@` $(TESTDIR)
 	@$(MAKE) -skC $(TESTDIR)/$@.test
 
-$(patsubst %.test,%,$(ALL_TESTS)): basicops
+%.test: basicops
+	@echo "base is $@" && \
+	N=`$(TESTSROOTDIR)/tools/get_test_counter.sh` && echo TESTID=${TESTID} running in $(TESTDIR) $@ $$N/${TOTAL} && \
+	cp -r $$base $(TESTDIR)/ && \
+	$(MAKE) -skC $(TESTDIR)/$@
+
+%.stress: basicops
+	@echo "base is $@" && \
+	N=`$(TESTSROOTDIR)/tools/get_test_counter.sh` && echo TESTID=${TESTID} running in $(TESTDIR) $@ $$N/${TOTAL} && \
+	cp -r $$base $(TESTDIR)/ && \
+	$(MAKE) -skC $(TESTDIR)/$@
 
 %: %.test
-	@N=`$(TESTSROOTDIR)/tools/get_test_counter.sh` && echo TESTID=${TESTID} running in $(TESTDIR) $* $$N/${TOTAL}
-	@cp -r $< $(TESTDIR)/
-	@$(MAKE) -skC $(TESTDIR)/$<
+	@echo "hello"
 
 %.clean: %.test
 	+$(MAKE) -C $(patsubst %.clean,%,$<) clean

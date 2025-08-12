@@ -31,7 +31,7 @@ include $(TESTSROOTDIR)/Makefile.common
 $(shell [ ! -f ${TESTDIR} ] &&  mkdir -p ${TESTDIR}/ )
 
 export CURRDIR:=$(shell pwd)
-export TESTCASE:=$(patsubst %.test,%,$(shell basename $(CURRDIR)))
+export TESTCASE:=$(patsubst %.,%,$(shell basename $(CURRDIR)))
 
 #comdb2 does not allow db names with '_' underscore in them
 export DBNAME=$(subst _,,$(TESTCASE))$(TESTID)

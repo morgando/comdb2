@@ -116,54 +116,75 @@ function kill_by_pidfile() {
     fi
 }
 
-
-function kill_restart_node
+function kill_node()
 {
-    node=$1
-    if [ -z "$node" ] ; then # if not set
-        failexit "kill_restart_node: needs node to be passed in as parameter"
-    fi
-    delay=$2
-    if [ -z "$delay" ] ; then # if not set
-        delay=0
-    fi
-    dowait=$3
-    if [ -z "$dowait" ] ; then
-        dowait=1
+    local -r node=$1
+    local -r func="$(basename "${BASH_SOURCE[0]}")"
+    if [ -z "${node}" ] ; then
+        failexit "${func}: needs node to be passed in as parameter"
     fi
 
-    pushd $DBDIR
-    # cdb2sql ${CDB2_OPTIONS} --tabs --host $node $DBNAME  'exec procedure sys.cmd.send("flush")'
-    export LOGDIR=$TESTDIR/logs
+    pushd ${DBDIR}
+    export LOGDIR=${TESTDIR}/logs
 
-    if [ -n "$CLUSTER" ] ; then
-        kill_by_pidfile ${TMPDIR}/${DBNAME}.${node}.pid
-        mv --backup=numbered $LOGDIR/${DBNAME}.${node}.db $LOGDIR/${DBNAME}.${node}.db.1
-        sleep $delay
-        if [ $node == `hostname` ] ; then
-            PARAMS="--no-global-lrl --lrl $DBDIR/${DBNAME}.lrl --pidfile ${TMPDIR}/${DBNAME}.${node}.pid"
-            $COMDB2_EXE ${DBNAME} ${PARAMS} &> $LOGDIR/${DBNAME}.${node}.db &
-        else
-            PARAMS="--no-global-lrl --lrl $DBDIR/${DBNAME}.lrl --pidfile ${TMPDIR}/${DBNAME}.${node}.pid"
-            CMD="cd ${DBDIR}; source ${REP_ENV_VARS} ; $COMDB2_EXE ${DBNAME} ${PARAMS} 2>&1 | tee $TESTDIR/${DBNAME}.db"
-            ssh -n -o StrictHostKeyChecking=no -tt $node ${CMD} &> $LOGDIR/${DBNAME}.${node}.db &
-            echo $! > ${TMPDIR}/${DBNAME}.${node}.pid
-        fi
+    local file_prefix
+    if [ -n "${CLUSTER}" ] ; then
+        file_prefix="${DBNAME}.${node}"
     else
-        kill_by_pidfile ${TMPDIR}/${DBNAME}.pid
-        mv --backup=numbered $LOGDIR/${DBNAME}.db $LOGDIR/${DBNAME}.db.1
-        sleep $delay
-        echo "$DBNAME: starting single node"
-        PARAMS="--no-global-lrl --lrl $DBDIR/${DBNAME}.lrl --pidfile ${TMPDIR}/${DBNAME}.pid"
-        echo "$COMDB2_EXE ${DBNAME} ${PARAMS} &> $LOGDIR/${DBNAME}.db"
-        $COMDB2_EXE ${DBNAME} ${PARAMS} &> $LOGDIR/${DBNAME}.db &
+        file_prefix="${DBNAME}"
+    fi
+
+    kill_by_pidfile ${TMPDIR}/${file_prefix}.pid
+    mv --backup=numbered ${LOGDIR}/${file_prefix}.db ${LOGDIR}/${file_prefix}.db.1
+    popd
+}
+
+
+function start_node
+{
+    local -r node=$1 dowait=$2
+    local -r func="$(basename "${BASH_SOURCE[0]}")"
+    if [ -z "${node}" ] ; then
+        failexit "${func}: needs node to be passed in as parameter"
+    fi
+
+    pushd ${DBDIR}
+    export LOGDIR=${TESTDIR}/logs
+
+    local file_prefix
+    if [ -n "${CLUSTER}" ] ; then
+        file_prefix="${DBNAME}.${node}"
+    else
+        file_prefix="${DBNAME}"
+    fi
+
+    PARAMS="--no-global-lrl --lrl ${DBDIR}/${DBNAME}.lrl --pidfile ${TMPDIR}/${file_prefix}.pid"
+
+    if [ ${node} != `hostname` ] ; then
+        CMD="cd ${DBDIR}; source ${REP_ENV_VARS} ; ${COMDB2_EXE} ${DBNAME} ${PARAMS} 2>&1 | tee ${TESTDIR}/${DBNAME}.db"
+        ssh -n -o StrictHostKeyChecking=no -tt ${node} ${CMD} &> ${LOGDIR}/${file_prefix}.db &
+        echo $! > ${TMPDIR}/${file_prefix}.pid
+    else
+        ${COMDB2_EXE} ${DBNAME} ${PARAMS} &> ${LOGDIR}/${file_prefix}.db &
     fi
 
     popd
 
-    if [[ "$dowait" == "1" ]]; then
-        waitmach $node
+    if [[ "${dowait}" == "1" ]]; then
+        waitmach ${node}
     fi
+}
+
+function kill_restart_node()
+{
+    local -r node=$1 delay=$2 dowait=$3
+    local -r func="$(basename "${BASH_SOURCE[0]}")"
+    if [ -z "${node}" ] ; then
+        failexit "${func}: needs node to be passed in as parameter"
+    fi
+    kill_node ${node}
+    sleep ${delay}
+    start_node ${node} ${dowait}
 }
 
 function kill_restart_secondary_node

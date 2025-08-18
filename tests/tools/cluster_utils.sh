@@ -329,6 +329,23 @@ get_num_incoherent() {
     echo "${num_incoherent}"
 }
 
+# Wait for 1. cluster to have master 2. cluster to be coherent 3. all nodes to be available
+wait_for_cluster_to_be_ready() {
+    local -r master_wait_secs=5
+    local master
+    while ! master=$(get_master_and_fail_if_not_found); do
+        sleep ${master_wait_secs}
+    done
+
+    num_incoherent=$(get_num_incoherent ${master})
+    while (( num_incoherent > 0 )); do
+        sleep ${downgrade_wait_seconds}
+        num_incoherent=$(get_num_incoherent ${master})
+    done
+
+    wait_for_cluster
+}
+
 downgrade_master() {
     local -r func=${FUNCNAME[0]}
     local -r downgrade_wait_seconds=5
@@ -363,18 +380,5 @@ downgrade_master() {
         fi
     done
 
-    # Wait for a new master to be elected
-    while ! master=$(get_master_and_fail_if_not_found); do
-        sleep ${downgrade_wait_seconds}
-    done
-
-    # Wait for cluster to become coherent
-    num_incoherent=$(get_num_incoherent ${master})
-    while (( num_incoherent > 0 )); do
-        sleep ${downgrade_wait_seconds}
-        num_incoherent=$(get_num_incoherent ${master})
-    done
-
-    # Double check that the cluster is up
-    wait_for_cluster
+    wait_for_cluster_to_be_ready
 }

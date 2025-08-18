@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+source ${TESTSROOTDIR}/tools/cluster_utils.sh
+
+dbname=$1
+tier="default"
+
+pids=()
+trap 'for pid in "${pids[@]}"; do
+    kill -9 $pid
+done' EXIT
+
+connections_per_node=10
+
+stress_request() {
+    local -r host=$1
+    while true; do
+        cdb2sql --host ${host} ${CDB2_OPTIONS} ${dbname} ${tier} "select sleep(10)"
+    done
+}
+
+stress_host() {
+    local -r host=$1
+    echo "Stressing node: ${host}"
+    for ((i = 0; i < connections_per_node; i++)); do
+        stress_request ${host} &> /dev/null &
+        pids+=($!)
+    done
+    echo "Started ${connections_per_node} requesters to ${host}"
+}
+
+verify_num_connections_to_host() {
+    local -r host=$1
+    local -r expected_connections=$2
+    local num_connections
+    num_connections=$(cdb2sql --tabs --host ${host} ${CDB2_OPTIONS} ${dbname} ${tier} "select count(*) from comdb2_connections")
+    if (( $? != 0 )); then
+        echo "Error: Failed to get connections for ${host}"
+        return 1
+    fi
+    if ((num_connections < expected_connections)); then
+        echo "Error: ${host} has only ${num_connections} connections, expected at least ${expected_connections}."
+        echo "This test's load generation logic is not sufficient to stress the node."
+        return 1
+    fi
+}
+
+verify_cluster_load() {
+    local -r expected_connections_per_node=$(awk "BEGIN {print int($connections_per_node * 0.8)}")
+    for host in ${CLUSTER}; do
+        verify_num_connections_to_host ${host} ${expected_connections_per_node}
+        if (( $? != 0 )); then
+            echo "Error: ${host} failed load verification"
+            return 1
+        fi
+    done
+}
+
+stress_db() {
+    for host in ${CLUSTER}; do
+        kill_node ${host}
+    done
+
+    local -r request_queue_secs=0.1
+    for host in ${CLUSTER}; do
+        stress_host ${host} & # Queue up a bunch of requests that will spam the host once it starts
+        sleep ${request_queue_secs} # Give some time for the requests to queue up
+        start_node ${host} &
+    done
+
+    wait_for_cluster_to_be_ready
+
+    if ! verify_cluster_load; then
+        echo "Error: Cluster failed load verification"
+        return 1
+    fi
+}
+
+stress_db

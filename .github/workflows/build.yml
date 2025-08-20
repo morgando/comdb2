@@ -1,6 +1,6 @@
 name: Build
 
-on:
+on blah blah:
   # Run anytime a new commit is pushed to main.
   push:
     branches: [main]

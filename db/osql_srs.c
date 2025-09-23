@@ -26,6 +26,8 @@
 
 extern int gbl_osql_verify_retries_max;
 
+int gbl_debug_abort_if_uuid_is_zero_on_txn_retry = 0;
+
 typedef struct srs_tran_query {
     int iscommit;
     void *stmt;
@@ -265,6 +267,11 @@ static int srs_tran_replay_int(struct sqlclntstate *clnt, int(dispatch_fn)(struc
     int rc = 0;
     int nq = 0;
     int tnq = 0;
+
+    if (gbl_debug_abort_if_uuid_is_zero_on_txn_retry && comdb2uuid_is_zero(osql->uuid)) {
+        logmsg(LOGMSG_FATAL, "%s: Did not expect zero uuid on txn retry\n", __func__);
+        abort();
+    }
 
     clnt->verify_retries = 0;
 

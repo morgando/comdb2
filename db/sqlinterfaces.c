@@ -1319,7 +1319,7 @@ static void sql_statement_done(struct sql_thread *thd, struct reqlogger *logger,
 
     reqlog_set_rows(logger, rows);
     reqlog_end_request(logger, stmt_rc, __func__, __LINE__);
-    if (clnt->osql.sock_started == 0)
+    if (clnt->osql.sock_started == 0 && clnt->osql.replay == OSQL_RETRY_NONE)
         comdb2uuid_clear(clnt->osql.uuid);
 
     if (have_fingerprint) {
@@ -2471,8 +2471,6 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
 
 done:
     reset_clnt_flags(clnt);
-    if (clnt->osql.sock_started == 0)
-        comdb2uuid_clear(clnt->osql.uuid);
 
     if (sideeffects == TRANS_CLNTCOMM_NORMAL) {
         /* end request only for non-chunk and non-SP transactions */
@@ -2481,6 +2479,9 @@ done:
 
     /* if this is a retry, let the upper layer free the structure */
     if (clnt->osql.replay == OSQL_RETRY_NONE) {
+        if (clnt->osql.sock_started == 0) {
+            comdb2uuid_clear(clnt->osql.uuid);
+        }
         /* if the last verify retry has failed, dump the transaction */
         if (outrc && clnt->osql.last_replay == OSQL_RETRY_LAST && gbl_dump_history_on_too_many_verify_errors) {
             logmsg(LOGMSG_ERROR, "too many verify errors host=%s task=%s\n", clnt->origin, clnt->argv0);

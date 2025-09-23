@@ -325,6 +325,9 @@ REGISTER_TUNABLE("debug_wait_on_verify_off", "Wait for particpant when verify is
                  TUNABLE_BOOLEAN, &gbl_debug_wait_on_verify_off, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug_random_prepare", "Prepare randomly. (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_random_prepare_commit, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_abort_if_uuid_is_zero_on_txn_retry", "Abort if client uuid is zero on txn retry (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_debug_abort_if_uuid_is_zero_on_txn_retry, EXPERIMENTAL | INTERNAL, NULL, NULL,
+                 NULL, NULL);
 REGISTER_TUNABLE("debug_all_prepare_commit", "Prepare all transactions. (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_all_prepare_commit, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug_all_prepare_abort", "Prepare and abort all transactions. (Default: off)", TUNABLE_BOOLEAN,

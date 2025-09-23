@@ -342,6 +342,7 @@ extern unsigned gbl_ddlk;
 extern int gbl_abort_on_missing_ufid;
 extern int gbl_ufid_dbreg_test;
 extern int gbl_debug_add_replication_latency;
+extern int gbl_debug_abort_if_uuid_is_zero_on_txn_retry;
 extern int gbl_javasp_early_release;
 extern int gbl_debug_drop_nth_rep_message;
 extern int gbl_fdb_emulate_old;

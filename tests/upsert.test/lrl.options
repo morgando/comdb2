@@ -1,1 +1,2 @@
 osql_verify_retry_max 1000
+debug_abort_if_uuid_is_zero_on_txn_retry on

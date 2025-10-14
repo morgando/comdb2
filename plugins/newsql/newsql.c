@@ -38,7 +38,6 @@ extern int gbl_return_long_column_names;
 extern int gbl_typessql;
 extern int gbl_incoherent_clnt_wait;
 extern int gbl_new_leader_duration;
-extern int gbl_use_modsnap_for_snapshot;
 extern int gbl_gen_shard_verbose;
 void dump_response(const CDB2SQLRESPONSE *r);
 
@@ -1771,22 +1770,12 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                         clnt->dbtran.mode = TRANLEVEL_SOSQL;
                     } else if (strncasecmp(sqlstr, "snap", 4) == 0) {
                         sqlstr += 4;
-                        if (gbl_use_modsnap_for_snapshot) {
-                            clnt->dbtran.mode = TRANLEVEL_MODSNAP; 
-                            clnt->verify_retries = 0;
-                            if (clnt->hasql_on == 1) {
-                                newsql_set_high_availability(clnt);
-                                logmsg(LOGMSG_ERROR, "Enabling snapshot (modsnap) isolation "
-                                                     "high availability\n");
-                            }
-                        } else {
-                            clnt->dbtran.mode = TRANLEVEL_SNAPISOL;
-                            clnt->verify_retries = 0;
-                            if (clnt->hasql_on == 1) {
-                                newsql_set_high_availability(clnt);
-                                logmsg(LOGMSG_ERROR, "Enabling snapshot isolation "
-                                                     "high availability\n");
-                            }
+                        clnt->dbtran.mode = TRANLEVEL_MODSNAP;
+                        clnt->verify_retries = 0;
+                        if (clnt->hasql_on == 1) {
+                            newsql_set_high_availability(clnt);
+                            logmsg(LOGMSG_ERROR, "Enabling snapshot (modsnap) isolation "
+                                                 "high availability\n");
                         }
                     } else if (strncasecmp(sqlstr, "mod", 3) == 0) {
                         sqlstr += 3;

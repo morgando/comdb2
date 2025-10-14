@@ -3320,6 +3320,7 @@ extern int gbl_rowlocks;
 extern int gbl_disable_tagged_api;
 extern int gbl_disable_tagged_api_writes;
 extern int gbl_snapisol;
+extern int gbl_old_snapisol;
 extern int gbl_update_shadows_interval;
 extern int gbl_lowpri_snapisol_sessions;
 extern int gbl_disable_legacy_queues;
@@ -3425,11 +3426,6 @@ enum { TCM_PARENT_DEADLOCK = 1, TCM_MAX = 1 };
 
 /* tagged api big or little endian. */
 enum { TAGGED_API_BIG_ENDIAN = 1, TAGGED_API_LITTLE_ENDIAN = 2 };
-
-typedef enum {
-    SNAP_IMPL_ORIG,
-    SNAP_IMPL_MODSNAP,
-} snap_impl_enum;
 
 extern int gbl_check_schema_change_permissions;
 

@@ -91,7 +91,6 @@ extern int gbl_reallyearly;
 extern int gbl_udp;
 extern int gbl_prefault_udp;
 extern int gbl_prefault_latency;
-extern int gbl_use_modsnap_for_snapshot;
 extern int gbl_force_incoherent;
 extern int gbl_force_incoherent_master;
 extern struct thdpool *gbl_verify_thdpool;
@@ -147,7 +146,6 @@ void bdb_dumptrans(bdb_state_type *bdb_state);
 void bdb_locker_summary(void *_bdb_state);
 int printlog(bdb_state_type *bdb_state, int startfile, int startoff, int endfile, int endoff);
 void dump_remote_policy();
-extern void print_snap_config(loglvl lvl);
 
 static const char *HELP_MAIN[] = {
     "stat           - status report",
@@ -222,7 +220,6 @@ static const char *HELP_STAT[] = {
     "stat mtrap                 - show mtrap system stats",
     "stat dohsql                - show distributed sql stats",
     "stat oldfile               - dump oldfile hash",
-    "stat snapconfig            - print snapshot configuration information",
     "dmpl                       - dump threads",
     "dmptrn                     - show long transaction stats",
     "dmpcts                     - show table constraints",
@@ -1982,8 +1979,6 @@ clipper_usage:
             oldfile_dump();
         } else if (tokcmp(tok, ltok, "ssl") == 0) {
             ssl_stats();
-        } else if (tokcmp(tok, ltok, "snapconfig") == 0) {
-            print_snap_config(LOGMSG_USER);
         } else {
             int rc = 1;
             struct message_handler *h;
@@ -5090,8 +5085,6 @@ clipper_usage:
         } else {
             logmsg(LOGMSG_USER, "Commit LSN map is not active\n");
         }
-    } else if (tokcmp(tok, ltok, "do_not_use_modsnap_for_snapshot") == 0) {
-        gbl_use_modsnap_for_snapshot = 0;
     } else if (tokcmp(tok, ltok, "del_llmeta_comdb2_seqno") == 0) {
         bdb_del_seqno(NULL);
     } else if (tokcmp(tok, ltok, "clear_sc_history") == 0) {

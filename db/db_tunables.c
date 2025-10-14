@@ -171,8 +171,6 @@ extern int gbl_db_lock_maxid_override;
 extern int gbl_udp;
 extern int gbl_update_delete_limit;
 extern int gbl_updategenids;
-extern int gbl_use_modsnap_for_snapshot;
-extern snap_impl_enum gbl_snap_impl;
 extern int gbl_use_node_pri;
 extern int gbl_watchdog_watch_threshold;
 extern int portmux_port;
@@ -596,9 +594,6 @@ extern int gbl_nonodh_queue_scan_limit;
 extern int gbl_sql_row_delay_msecs;
 extern int gbl_thread_wait_sec;
 
-extern void set_snapshot_impl(snap_impl_enum impl);
-extern const char *snap_impl_str(snap_impl_enum impl);
-
 int64_t gbl_driver_ulimit = 0;
 
 int gbl_test_tunable_nozero = 1;
@@ -670,48 +665,6 @@ int percent_verify(void *unused, void *percent)
         return 1;
     }
     return 0;
-}
-
-struct snapshot_impl_config_st {
-    const char *name;
-    int code;
-} snapshot_impl_config_vals[] = {{"original", SNAP_IMPL_ORIG},
-                                {"modsnap", SNAP_IMPL_MODSNAP}};
-
-static int snapshot_impl_update(void *context, void *value) {
-    comdb2_tunable *tunable;
-    char *tok;
-    int st = 0;
-    int ltok;
-    int len;
-    int rc;
-
-    tunable = (comdb2_tunable *)context;
-    len = strlen(value);
-    tok = segtok(value, len, &st, &ltok);
-    rc = 0;
-
-    for (int i = 0; i < (sizeof(snapshot_impl_config_vals) /
-                         sizeof(struct snapshot_impl_config_st));
-         i++) {
-        if (tokcmp(tok, ltok, snapshot_impl_config_vals[i].name) == 0) {
-            set_snapshot_impl(snapshot_impl_config_vals[i].code);
-            goto found;
-        }
-    }
-
-    logmsg(LOGMSG_ERROR, "Invalid value '%s' for tunable '%s'\n", tok, tunable->name);
-    rc = 1;
-
-found:
-    return rc;
-}
-
-static void *snapshot_impl_value(void *context)
-{
-    comdb2_tunable *tunable = (comdb2_tunable *)context;
-
-    return (void *) snap_impl_str(*(int *)tunable->var);
 }
 
 struct enable_sql_stmt_caching_st {
@@ -1178,9 +1131,8 @@ int ctrace_set_rollat(void *unused, void *value);
 int get_commit_lsn_map_switch_value()
 {
     const int dependencies_are_enabled = gbl_utxnid_log;
-    const int enabled_dependent_exists = 
-        gbl_test_commit_lsn_map || gbl_use_modsnap_for_snapshot;
-    
+    const int enabled_dependent_exists = gbl_test_commit_lsn_map || gbl_snapisol;
+
     return dependencies_are_enabled && enabled_dependent_exists;
 }
 

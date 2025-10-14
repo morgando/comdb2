@@ -41,7 +41,7 @@
 #include "dbinc/log.h"
 #include "dbinc/txn.h"
 
-extern int gbl_snapisol;
+extern int gbl_old_snapisol;
 extern int gbl_utxnid_log;
 extern int gbl_is_physical_replicant;
 
@@ -197,7 +197,7 @@ do_malloc:
 		bp += sizeof(locks->size);
 		memcpy(bp, locks->data, locks->size);
 		bp += locks->size;
-	  if (gbl_snapisol)
+	  if (gbl_old_snapisol)
 	  {
 		 /* save location in the log stream, if any */
 		 if (locks->size > 0)

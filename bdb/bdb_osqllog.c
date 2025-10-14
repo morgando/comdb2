@@ -2300,7 +2300,7 @@ static int undo_get_ltranid(bdb_state_type *bdb_state, DBT *logdta,
     return rc;
 }
 
-extern int gbl_snapisol;
+extern int gbl_old_snapisol;
 
 /**
  * Called during commit once we now there is no way back.
@@ -2330,7 +2330,7 @@ int update_shadows_beforecommit(bdb_state_type *bdb_state,
         return 0;
 
     /* Return immediately if snapisol isn't enabled */
-    if (!gbl_snapisol)
+    if (!gbl_old_snapisol)
         return 0;
 
     /* Skip entirely if there are no clients */

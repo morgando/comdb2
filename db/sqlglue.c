@@ -3840,9 +3840,9 @@ static int modsnap_enabled_correctly()
     return gbl_snapisol && get_commit_lsn_map_switch_value() && gbl_utxnid_log;
 }
 
-static int snapisol_enabled_correctly()
+static int old_snapisol_enabled_correctly()
 {
-    return gbl_rowlocks || gbl_snapisol;
+    return gbl_old_snapisol;
 }
 
 static void warn_if_serial_tunable_disabled()
@@ -3859,7 +3859,7 @@ static int serial_enabled_correctly()
 {
     static pthread_once_t warn_once = PTHREAD_ONCE_INIT;
     pthread_once(&warn_once, warn_if_serial_tunable_disabled);
-    return snapisol_enabled_correctly();
+    return old_snapisol_enabled_correctly();
 }
 
 static int isolation_level_enabled_correctly(const int mode)
@@ -3867,7 +3867,7 @@ static int isolation_level_enabled_correctly(const int mode)
     if (mode == TRANLEVEL_MODSNAP) {
         return modsnap_enabled_correctly();
     } else if (mode == TRANLEVEL_SNAPISOL) {
-        return snapisol_enabled_correctly();
+        return old_snapisol_enabled_correctly();
     } else if (mode == TRANLEVEL_SERIAL) {
         return serial_enabled_correctly();
     } else {

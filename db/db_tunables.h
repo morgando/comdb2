@@ -490,11 +490,6 @@ REGISTER_TUNABLE("enable_serial_isolation",
                  "the database. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_serializable, NOARG | READONLY, NULL, NULL, NULL,
                  NULL);
-REGISTER_TUNABLE("set_snapshot_impl",
-                 "Changes the default snapshot implementation "
-                 "*without enabling snapshot* (default 'modsnap')",
-                 TUNABLE_ENUM, &gbl_snap_impl, READEARLY | READONLY,
-                 snapshot_impl_value, NULL, snapshot_impl_update, NULL);
 REGISTER_TUNABLE("use_current_lsn_for_non_snapshot",
                  "comdb2_snapshot_lsn provide current LSN if not using snapshot isolation. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_use_current_lsn_for_non_snapshot, INTERNAL | EXPERIMENTAL, NULL, NULL, NULL,

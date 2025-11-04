@@ -172,6 +172,7 @@ extern int gbl_udp;
 extern int gbl_update_delete_limit;
 extern int gbl_updategenids;
 extern int gbl_use_modsnap_for_snapshot;
+extern int gbl_modsnap_asof;
 extern int gbl_use_node_pri;
 extern int gbl_watchdog_watch_threshold;
 extern int portmux_port;
@@ -1175,6 +1176,9 @@ static int sql_tranlevel_default_update(void *context, void *value)
         gbl_sql_tranlevel_default = SQL_TDEF_RECOM;
     } else if (tokcmp(tok, ltok, "snapshot") == 0) {
         gbl_sql_tranlevel_default = SQL_TDEF_SNAPISOL;
+        gbl_use_modsnap_for_snapshot = 1;
+        gbl_modsnap_asof = 1;
+        gbl_snapisol = 1;
     } else if (tokcmp(tok, ltok, "serial") == 0) {
         gbl_sql_tranlevel_default = SQL_TDEF_SERIAL;
     } else {
